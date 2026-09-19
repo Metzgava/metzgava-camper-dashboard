@@ -141,6 +141,56 @@ router.post('/legs/:id/pois', wrap(async (req, res) => {
 }));
 router.delete('/legs/:id', wrap(async (req, res) => { await q('DELETE FROM legs WHERE id=$1', [req.params.id]); res.json({ ok: true }); }));
 
+// ---- suddivisione di un viaggio in viaggi "casa → casa" ----
+const MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+const fmtD = d => { const [y, m, g] = String(d).slice(0, 10).split('-'); return `${+g} ${MESI[+m - 1]}`; };
+const townOf = name => String(name || '').split(',')[0].trim();
+const isHome = (name, home) => !!home && String(name || '').toLowerCase().includes(home.toLowerCase());
+
+export async function splitTripByHome(tripId, home, userId) {
+  const orig = (await q('SELECT * FROM trips WHERE id=$1', [tripId])).rows[0];
+  if (!orig) throw Object.assign(new Error('Viaggio non trovato'), { status: 404 });
+  const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY date NULLS LAST, start_time NULLS LAST, position, id', [tripId])).rows;
+  if (legs.length < 2) return { created: [], kept: orig };
+  // gruppi: un gruppo si chiude quando una tappa arriva a casa
+  const groups = []; let cur = [];
+  for (const l of legs) {
+    if (cur.length && isHome(l.from_name, home) && !isHome(cur[cur.length - 1].to_name, home) && cur.every(x => !isHome(x.from_name, home))) { groups.push(cur); cur = []; }
+    cur.push(l);
+    if (isHome(l.to_name, home)) { groups.push(cur); cur = []; }
+  }
+  if (cur.length) groups.push(cur);
+  if (groups.length < 2) return { created: [], kept: orig, reason: 'nessun rientro a casa trovato nelle tappe' };
+  const created = [];
+  for (const g of groups) {
+    const towns = [...new Set(g.map(l => townOf(l.to_name)).filter(t => !isHome(t, home)))];
+    const dest = towns.length > 3 ? `${towns[0]} … ${towns[towns.length - 1]}` : towns.join(' · ');
+    const d1 = g[0].date, d2 = g[g.length - 1].date;
+    const title = `${fmtD(d1)}${d2 !== d1 ? '–' + fmtD(d2) : ''} ${String(d2).slice(0, 4)} · ${dest || 'giro'}`;
+    const t = (await q('INSERT INTO trips(user_id,title,start_date,end_date,status,fuel_price,km_per_liter,closed_at,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+      [userId || orig.user_id, title, d1, d2, orig.status, orig.fuel_price, orig.km_per_liter, orig.status === 'closed' ? new Date() : null, orig.notes])).rows[0];
+    const ids = g.map(l => l.id);
+    for (let i = 0; i < ids.length; i++) await q('UPDATE legs SET trip_id=$2, position=$3 WHERE id=$1', [ids[i], t.id, i + 1]);
+    await q('UPDATE expenses SET trip_id=$2 WHERE leg_id = ANY($1)', [ids, t.id]);
+    await q('UPDATE photos SET trip_id=$2 WHERE leg_id = ANY($1)', [ids, t.id]);
+    // spese e foto senza tappa: per data
+    await q('UPDATE expenses SET trip_id=$2 WHERE trip_id=$1 AND leg_id IS NULL AND date BETWEEN $3 AND $4', [tripId, t.id, d1, d2]);
+    await q('UPDATE photos SET trip_id=$2 WHERE trip_id=$1 AND leg_id IS NULL AND taken_at::date BETWEEN $3 AND $4', [tripId, t.id, d1, d2]);
+    await q('UPDATE workouts SET trip_id=$2 WHERE trip_id=$1 AND started_at::date BETWEEN $3 AND $4', [tripId, t.id, d1, d2]);
+    created.push({ ...t, legs: g.length, km: +g.reduce((a, l) => a + num(l.distance_km), 0).toFixed(1) });
+  }
+  const left = (await q('SELECT (SELECT count(*) FROM legs WHERE trip_id=$1)+(SELECT count(*) FROM expenses WHERE trip_id=$1)+(SELECT count(*) FROM photos WHERE trip_id=$1) AS n', [tripId])).rows[0].n;
+  let kept = orig;
+  if (+left === 0) { await q('DELETE FROM trips WHERE id=$1', [tripId]); kept = null; }
+  return { created, kept };
+}
+
+router.post('/trips/:id/split', wrap(async (req, res) => {
+  const home = String(req.body?.home || 'Susegana').trim();
+  const r = await splitTripByHome(+req.params.id, home, req.user.id);
+  res.json({ home, ...r });
+}));
+
 // ---- import CarLock (CSV/XLSX esportato da my.carlock.co) ----
 // Anteprima: POST /trips/:id/import/carlock?preview=1  -> elenco tratte senza salvare
 // Import:    POST /trips/:id/import/carlock            -> crea le tappe con i km reali
@@ -202,7 +252,9 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   for (let i = 0; i < all.length; i++) await q('UPDATE legs SET position=$2 WHERE id=$1', [all[i].id, i + 1]);
   (async () => { for (const leg of created) { try { await q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, await poisAlongRoute(leg.geometry)]); } catch { } await new Promise(r => setTimeout(r, 3000)); } })();
   if (errors.size) console.warn('CarLock: errori geocoder', Object.fromEntries(errors));
-  res.json({ ...summary, imported: created.length, geocode_failed: [...new Set(failed)], geocode_errors: [...errors.keys()], totals: await tripTotals(trip.id) });
+  let split = null;
+  if (req.body.split_home && created.length) split = await splitTripByHome(trip.id, String(req.body.split_home).trim(), req.user.id);
+  res.json({ ...summary, imported: created.length, geocode_failed: [...new Set(failed)], geocode_errors: [...errors.keys()], split, totals: split?.kept === null ? null : await tripTotals(trip.id) });
 }));
 
 // ---- spese ----
