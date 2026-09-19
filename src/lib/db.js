@@ -152,6 +152,12 @@ export async function migrate() {
     UNIQUE (user_id, provider)
   );
 
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';   -- manual | carlock
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS start_time TEXT;
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS end_time TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_legs_external ON legs(trip_id, external_id) WHERE external_id IS NOT NULL;
+
   CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
   CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
   CREATE INDEX IF NOT EXISTS idx_legs_trip ON legs(trip_id, position);
