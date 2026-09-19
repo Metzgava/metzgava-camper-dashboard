@@ -304,7 +304,8 @@ function carlockImport(trip, openTrips = []) {
       }
       const r = await api(`/trips/${target}/import/carlock`, { method: 'POST', body: fd() });
       close(); if (!trip) location.hash = '#/trip/' + target;
-      toast(`Importate ${r.imported} tappe (${num(r.km)} km)` + (r.geocode_failed.length ? ` · ${r.geocode_failed.length} indirizzi non trovati` : ''), !!r.geocode_failed.length);
+      if (!r.imported && r.geocode_failed.length) modal(`<h2>Import non riuscito</h2><p>Nessun indirizzo è stato geocodificato (${r.geocode_failed.length} indirizzi).</p>${r.geocode_errors?.length ? `<p class="small muted">Motivo: ${esc(r.geocode_errors.join(' · '))}</p>` : ''}<p class="small">Riprova tra qualche minuto: i servizi di geocodifica gratuiti limitano le richieste.</p><div class="row" style="justify-content:flex-end"><button class="btn primary" data-x>Ok</button></div>`, (el2, close2) => $('[data-x]', el2).onclick = close2);
+      else toast(`Importate ${r.imported} tappe (${num(r.km)} km)` + (r.geocode_failed.length ? ` · ${r.geocode_failed.length} indirizzi non trovati` : ''), !!r.geocode_failed.length);
       render();
     });
   });
