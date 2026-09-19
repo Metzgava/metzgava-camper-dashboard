@@ -5,15 +5,35 @@ const OSRM = process.env.OSRM_URL || 'https://router.project-osrm.org';
 const OVERPASS = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
 const PHOTON = process.env.PHOTON_URL || 'https://photon.komoot.io';
 
-// Ricerca luoghi (autocomplete)
+const NOMINATIM = process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org';
+const UA = 'camper-dashboard/1.0 (uso personale; contatto: admin@camper-dashboard.local)';
+let lastNominatim = 0;
+
+// Ricerca luoghi (autocomplete): Photon, con Nominatim come riserva
 export async function geocode(query, lang = 'it') {
-  const url = `${PHOTON}/api/?q=${encodeURIComponent(query)}&limit=6&lang=${lang}&lat=45.9&lon=12.3`;
-  const data = await fetchJson(url);
-  return (data.features || []).map(f => {
-    const p = f.properties;
-    const parts = [p.name, p.city || p.town || p.village, p.state, p.country].filter(Boolean);
-    return { name: [...new Set(parts)].join(', '), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], type: p.osm_value };
-  });
+  let photonErr;
+  try {
+    const url = `${PHOTON}/api/?q=${encodeURIComponent(query)}&limit=6&lang=${lang}&lat=45.9&lon=12.3`;
+    const data = await fetchJson(url, { headers: { 'User-Agent': UA } }, 10000);
+    const res = (data.features || []).map(f => {
+      const p = f.properties;
+      const parts = [p.name, p.city || p.town || p.village, p.state, p.country].filter(Boolean);
+      return { name: [...new Set(parts)].join(', '), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], type: p.osm_value };
+    });
+    if (res.length) return res;
+  } catch (e) { photonErr = e; }
+  // Nominatim: max 1 richiesta al secondo
+  const wait = 1100 - (Date.now() - lastNominatim);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastNominatim = Date.now();
+  try {
+    const url = `${NOMINATIM}/search?q=${encodeURIComponent(query)}&format=jsonv2&limit=5&accept-language=${lang}&countrycodes=it,fr,at,si,hr,ch,de,es`;
+    const data = await fetchJson(url, { headers: { 'User-Agent': UA } }, 10000);
+    return (Array.isArray(data) ? data : []).map(r => ({ name: r.display_name.split(',').slice(0, 3).join(','), lat: +r.lat, lon: +r.lon, type: r.type }));
+  } catch (e) {
+    if (photonErr) throw Object.assign(new Error(`geocoder non disponibile (Photon: ${photonErr.message}; Nominatim: ${e.message})`), { status: 502 });
+    throw e;
+  }
 }
 
 // Percorso stradale tra due punti. Restituisce km, minuti e geometria [[lat,lon],...]
