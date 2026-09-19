@@ -1,0 +1,23 @@
+{
+  "name": "camper-dashboard",
+  "version": "1.0.0",
+  "description": "Dashboard viaggi in camper: percorsi, gasolio, spese, allenamenti, foto",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-session": "^2.1.1",
+    "exifr": "^7.1.3",
+    "express": "^5.2.1",
+    "multer": "^2.4.0",
+    "pg": "^8.23.0"
+  }
+}
