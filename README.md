@@ -6,6 +6,7 @@ Dashboard personale per i viaggi in camper: percorsi con distanze calcolate, gas
 - **Spese**: gasolio generato automaticamente per ogni tappa (modificabile a mano, ripristinabile), più traghetti, aree sosta, campeggi, pedaggi, vitto, spesa, visite, manutenzione, altro.
 - **Lungo la tappa**: aree sosta camper, campeggi, camper service e borghi/paesi attraversati (da OpenStreetMap), con link per navigare.
 - **Allenamenti**: sincronizzazione Komoot (tour registrati con traccia GPS), caricamento GPX, e invio di battito/calorie dagli iPhone tramite token dispositivo. Gli allenamenti nelle date del viaggio vengono associati automaticamente.
+- **CarLock**: importi il CSV/XLS esportato da my.carlock.co (Trips → CSV) e ogni tragitto diventa una tappa con i **km reali** del camper; tratte brevi ignorate e soste brevi accorpate (soglie regolabili), nessun duplicato se reimporti lo stesso periodo.
 - **Foto**: caricamento da telefono; se contengono il GPS compaiono sulla mappa.
 - **Riepiloghi**: per giorno, settimana, mese, anno o periodo libero — spese per categoria, km, allenamenti, calorie.
 - **Utenti**: il primo account è l'amministratore; gli altri entrano con codice invito e vanno approvati; ogni dispositivo ha un token revocabile.
