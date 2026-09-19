@@ -1,11 +1,14 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
 import { route, geocode, poisAlongRoute } from '../lib/geo.js';
+import { readCarlockFile, mergeTrips, addressCandidates, shortName } from '../lib/carlock.js';
 import { requireAuth } from './auth.js';
 
 export const router = Router();
 router.use(requireAuth);
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // I viaggi sono condivisi tra tutti gli utenti autorizzati (equipaggio del camper)
 
@@ -137,6 +140,65 @@ router.post('/legs/:id/pois', wrap(async (req, res) => {
   res.json(p);
 }));
 router.delete('/legs/:id', wrap(async (req, res) => { await q('DELETE FROM legs WHERE id=$1', [req.params.id]); res.json({ ok: true }); }));
+
+// ---- import CarLock (CSV/XLSX esportato da my.carlock.co) ----
+// Anteprima: POST /trips/:id/import/carlock?preview=1  -> elenco tratte senza salvare
+// Import:    POST /trips/:id/import/carlock            -> crea le tappe con i km reali
+router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'File CarLock mancante' });
+  const isNew = req.params.id === 'new'; // anteprima senza viaggio (import in un viaggio nuovo)
+  const trip = isNew ? { id: null, start_date: null, end_date: null } : (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
+  if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
+  if (isNew && !req.query.preview) return res.status(400).json({ error: 'Crea prima il viaggio' });
+  const minKm = num(req.body.min_km, 3), gapMin = num(req.body.merge_gap_min, 30), onlyDates = req.body.only_trip_dates !== 'false';
+  let rows;
+  try { rows = readCarlockFile(req.file.buffer, req.file.originalname); } catch (e) { return res.status(400).json({ error: 'File non leggibile: ' + e.message }); }
+  if (!rows.length) return res.status(400).json({ error: 'Nessun tragitto trovato nel file (colonne attese: Data, Orario di inizio, Orario di fine, Posizione di inizio, Posizione di fine, Distanza, Durata)' });
+  const total = rows.length;
+  if (onlyDates && (trip.start_date || trip.end_date)) rows = rows.filter(r => (!trip.start_date || r.date >= trip.start_date) && (!trip.end_date || r.date <= trip.end_date));
+  const outOfRange = total - rows.length;
+  let legsToAdd = mergeTrips(rows, gapMin);
+  const short = legsToAdd.filter(l => l.km < minKm).length;
+  legsToAdd = legsToAdd.filter(l => l.km >= minKm);
+  const existing = new Set(isNew ? [] : (await q('SELECT external_id FROM legs WHERE trip_id=$1 AND external_id IS NOT NULL', [trip.id])).rows.map(r => r.external_id));
+  const dupes = legsToAdd.filter(l => existing.has(l.external_id)).length;
+  legsToAdd = legsToAdd.filter(l => !existing.has(l.external_id));
+  const summary = { total, out_of_range: outOfRange, short, duplicates: dupes, to_import: legsToAdd.length, km: +legsToAdd.reduce((a, b) => a + b.km, 0).toFixed(1),
+    first_date: legsToAdd[0]?.date || null, last_date: legsToAdd[legsToAdd.length - 1]?.date || null };
+  if (req.query.preview) return res.json({ ...summary, legs: legsToAdd.map(l => ({ date: l.date, start: l.start, end: l.end, from: shortName(l.from), to: shortName(l.to), km: l.km, duration_min: l.duration_min, merged: l.merged || 1 })) });
+
+  // geocoding con cache per indirizzo
+  const cache = new Map();
+  const failed = [];
+  async function geo(addr) {
+    if (cache.has(addr)) return cache.get(addr);
+    let hit = null;
+    for (const c of addressCandidates(addr)) {
+      try { const r = await geocode(c); if (r.length) { hit = { name: addr.includes(',') ? `${shortName(addr)}, ${addr.split(',')[0].trim()}` : shortName(addr), lat: r[0].lat, lon: r[0].lon }; break; } } catch { }
+    }
+    if (!hit) failed.push(addr);
+    cache.set(addr, hit);
+    return hit;
+  }
+  let pos = (await q('SELECT coalesce(max(position),0) AS p FROM legs WHERE trip_id=$1', [trip.id])).rows[0].p;
+  const created = [];
+  for (const l of legsToAdd) {
+    const from = await geo(l.from), to = await geo(l.to);
+    if (!from || !to) continue;
+    let geometry = [[from.lat, from.lon], [to.lat, to.lon]];
+    try { const r = await route(from, to); geometry = r.geometry; } catch { }
+    const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,distance_km,duration_min,geometry,notes,source,external_id,start_time,end_time)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'carlock',$14,$15,$16) ON CONFLICT (trip_id, external_id) WHERE external_id IS NOT NULL DO NOTHING RETURNING *`,
+      [trip.id, ++pos, l.date, from.name, from.lat, from.lon, to.name, to.lat, to.lon, l.km, l.duration_min, JSON.stringify(geometry),
+        `CarLock ${l.start}–${l.end}` + (l.merged > 1 ? ` (${l.merged} tratte unite)` : ''), l.external_id, l.start, l.end])).rows[0];
+    if (leg) { await syncFuelExpense(leg.id); created.push(leg); }
+  }
+  // riordina le tappe per data/ora e cerca i POI in background, uno alla volta
+  const all = (await q('SELECT id FROM legs WHERE trip_id=$1 ORDER BY date NULLS LAST, start_time NULLS LAST, position, id', [trip.id])).rows;
+  for (let i = 0; i < all.length; i++) await q('UPDATE legs SET position=$2 WHERE id=$1', [all[i].id, i + 1]);
+  (async () => { for (const leg of created) { try { await q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, await poisAlongRoute(leg.geometry)]); } catch { } await new Promise(r => setTimeout(r, 3000)); } })();
+  res.json({ ...summary, imported: created.length, geocode_failed: [...new Set(failed)], totals: await tripTotals(trip.id) });
+}));
 
 // ---- spese ----
 router.post('/trips/:id/expenses', wrap(async (req, res) => {
