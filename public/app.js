@@ -150,7 +150,7 @@ async function viewTrip(id) {
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
-      <div class="small muted">${fdate(l.date)}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
+      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
       <div class="row" style="margin-top:6px"><button class="btn sm" data-poi="${l.id}">Soste & borghi</button>${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${eur(e.amount)}</b></td>
     <td class="num">${closed ? '' : `<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
@@ -166,7 +166,7 @@ async function viewTrip(id) {
     </div>
     <div class="card pad-0"><div id="map" class="map tall"></div></div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : '<button class="btn primary sm" id="addleg">＋ Tappa</button>'}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : '<div class="row"><button class="btn sm" id="carlock">📡 Importa CarLock</button><button class="btn primary sm" id="addleg">＋ Tappa</button></div>'}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2>${closed ? '' : '<button class="btn primary sm" id="addex">＋ Spesa</button>'}</div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
@@ -206,6 +206,7 @@ async function viewTrip(id) {
   }));
   $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
   $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
+  $('#carlock')?.addEventListener('click', () => carlockImport(trip));
   $('#addex')?.addEventListener('click', () => expenseForm(trip, legs));
   $('#legs').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -265,6 +266,36 @@ function legForm(trip, legs, leg = null) {
         close(); render();
       });
     });
+}
+
+function carlockImport(trip) {
+  modal(`<h2>📡 Importa da CarLock</h2>
+    <p class="small muted">Su <b>my.carlock.co</b> → Trips → scegli le date → icona <b>CSV</b> (va bene anche l'XLS). Ogni tragitto diventa una tappa con i km reali percorsi; il gasolio viene calcolato su quelli.</p>
+    <form id="f" class="stack">
+      <input type="file" name="file" accept=".csv,.xls,.xlsx,text/csv" required>
+      <div class="form-grid"><div><label class="f">Ignora tratte sotto (km)</label><input type="number" step="0.5" name="min_km" value="3"></div><div><label class="f">Unisci soste più brevi di (min)</label><input type="number" name="merge_gap_min" value="30"></div></div>
+      <label class="row small"><input type="checkbox" name="only_trip_dates" checked style="width:auto"> Solo le date del viaggio (${trip.start_date ? fdate(trip.start_date) : '…'} → ${trip.end_date ? fdate(trip.end_date) : 'oggi'})</label>
+      <div id="prev"></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn" id="pv">Anteprima</button><button class="btn primary" id="go" disabled>Importa</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = close;
+    const fd = () => { const f = new FormData($('#f', el)); f.set('only_trip_dates', $('[name=only_trip_dates]', el).checked ? 'true' : 'false'); return f; };
+    $('#pv', el).onclick = safe(async () => {
+      if (!$('[name=file]', el).files[0]) return toast('Scegli il file esportato da CarLock', true);
+      $('#prev', el).innerHTML = '<div class="muted small">Analizzo il file…</div>';
+      const r = await api(`/trips/${trip.id}/import/carlock?preview=1`, { method: 'POST', body: fd() });
+      $('#prev', el).innerHTML = `<div class="small" style="margin-bottom:6px"><b>${r.to_import} tappe</b> per <b>${num(r.km)} km</b> · ${r.total} tragitti nel file${r.out_of_range ? `, ${r.out_of_range} fuori dalle date` : ''}${r.short ? `, ${r.short} troppo brevi` : ''}${r.duplicates ? `, ${r.duplicates} già importati` : ''}</div>
+        <div style="max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:10px"><table><tbody>${r.legs.map(l => `<tr><td class="small nowrap">${fdate(l.date)} ${l.start}</td><td class="small">${esc(l.from)} → ${esc(l.to)}${l.merged > 1 ? ` <span class="muted">(${l.merged} tratte)</span>` : ''}</td><td class="num small">${num(l.km)} km</td></tr>`).join('') || '<tr><td class="empty">Niente da importare</td></tr>'}</tbody></table></div>`;
+      $('#go', el).disabled = !r.to_import;
+    });
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault(); $('#go', el).disabled = true; $('#go', el).textContent = 'Importo… (geocodifica in corso)';
+      const r = await api(`/trips/${trip.id}/import/carlock`, { method: 'POST', body: fd() });
+      close();
+      toast(`Importate ${r.imported} tappe (${num(r.km)} km)` + (r.geocode_failed.length ? ` · ${r.geocode_failed.length} indirizzi non trovati` : ''), !!r.geocode_failed.length);
+      render();
+    });
+  });
 }
 
 function expenseForm(trip, legs, ex = null) {
