@@ -158,7 +158,7 @@ async function viewTrip(id) {
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1>${esc(trip.title)} <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
       <div class="muted small">${fdate(trip.start_date)}${trip.end_date ? ' → ' + fdate(trip.end_date) : ''} · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
-      <div class="row">${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn" id="edit">Modifica</button><button class="btn primary" id="close">Concludi viaggio</button>'}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
+      <div class="row">${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn" id="edit">Modifica</button><button class="btn primary" id="close">Concludi viaggio</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
       <div class="tile"><div class="label">Distanza</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe · ${dur(totals.minutes * 60)} guida</div></div>
@@ -197,6 +197,10 @@ async function viewTrip(id) {
 
   // Azioni
   $('#edit')?.addEventListener('click', () => tripForm(trip));
+  $('#split')?.addEventListener('click', () => modal(`<h2>✂️ Dividi in viaggi</h2><p class="small muted">Ogni partenza da casa fino al rientro a casa diventa un viaggio separato, con le sue tappe, spese e foto. Il titolo prende date e mete.</p><form id="f" class="stack"><div><label class="f">Nome di casa (come compare nelle tappe)</label><input name="home" value="Susegana" required></div><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Dividi</button></div></form>`,
+    (el, close) => { $('[data-x]', el).onclick = close; $('#f', el).onsubmit = safe(async e => { e.preventDefault(); const r = await api(`/trips/${id}/split`, { method: 'POST', body: { home: $('[name=home]', el).value } }); close();
+      if (!r.created.length) return toast('Nessuna divisione possibile: ' + (r.reason || 'serve almeno un rientro a casa'), true);
+      toast(`Creati ${r.created.length} viaggi`); location.hash = '#/'; render(); }); }));
   $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare il viaggio con tappe, spese e foto?')) { await api('/trips/' + id, { method: 'DELETE' }); location.hash = '#/'; } });
   $('#close')?.addEventListener('click', safe(async () => {
     if (!await confirmDlg('Concludere il viaggio? Verranno mostrati i totali finali.')) return;
@@ -277,13 +281,14 @@ function carlockImport(trip, openTrips = []) {
       ${trip ? '' : `<div><label class="f">In quale viaggio</label><select id="dest"><option value="new">➕ Nuovo viaggio (date prese dal file)</option>${openTrips.map(t => `<option value="${t.id}">${esc(t.title)} (${fdate(t.start_date)}${t.end_date ? ' → ' + fdate(t.end_date) : ''})</option>`).join('')}</select></div>`}
       <div class="form-grid"><div><label class="f">Ignora tratte sotto (km)</label><input type="number" step="0.5" name="min_km" value="3"></div><div><label class="f">Unisci soste più brevi di (min)</label><input type="number" name="merge_gap_min" value="30"></div></div>
       <label class="row small" id="datesRow" ${trip ? '' : 'style="display:none"'}><input type="checkbox" name="only_trip_dates" checked style="width:auto"> Solo le date del viaggio${trip ? ` (${trip.start_date ? fdate(trip.start_date) : '…'} → ${trip.end_date ? fdate(trip.end_date) : 'oggi'})` : ''}</label>
+      <div class="row"><label class="row small" style="flex:0 0 auto"><input type="checkbox" id="splitChk" ${trip ? '' : 'checked'} style="width:auto"> Dividi in viaggi separati (casa → casa)</label><div class="grow"><input name="split_home" value="Susegana" placeholder="Nome di casa (es. Susegana)"></div></div>
       <div id="prev"></div>
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn" id="pv">Anteprima</button><button class="btn primary" id="go" disabled>Importa</button></div>
     </form>`, (el, close) => {
     $('[data-x]', el).onclick = close;
     const dest = () => trip ? String(trip.id) : $('#dest', el).value;
     $('#dest', el)?.addEventListener('change', () => { $('#datesRow', el).style.display = dest() === 'new' ? 'none' : ''; $('#go', el).disabled = true; });
-    const fd = () => { const f = new FormData($('#f', el)); f.set('only_trip_dates', dest() !== 'new' && $('[name=only_trip_dates]', el).checked ? 'true' : 'false'); return f; };
+    const fd = () => { const f = new FormData($('#f', el)); f.set('only_trip_dates', dest() !== 'new' && $('[name=only_trip_dates]', el).checked ? 'true' : 'false'); if (!$('#splitChk', el).checked) f.delete('split_home'); return f; };
     let last = null;
     // per "nuovo viaggio" l'anteprima usa un viaggio aperto qualsiasi solo per leggere il file (nessun filtro date)
     const previewTrip = () => dest() === 'new' ? 'new' : dest();
@@ -303,7 +308,9 @@ function carlockImport(trip, openTrips = []) {
         target = t.id;
       }
       const r = await api(`/trips/${target}/import/carlock`, { method: 'POST', body: fd() });
-      close(); if (!trip) location.hash = '#/trip/' + target;
+      close();
+      if (r.split?.created?.length) { toast(`Importate ${r.imported} tappe, divise in ${r.split.created.length} viaggi`); location.hash = '#/'; render(); return; }
+      if (!trip) location.hash = '#/trip/' + target;
       if (!r.imported && r.geocode_failed.length) modal(`<h2>Import non riuscito</h2><p>Nessun indirizzo è stato geocodificato (${r.geocode_failed.length} indirizzi).</p>${r.geocode_errors?.length ? `<p class="small muted">Motivo: ${esc(r.geocode_errors.join(' · '))}</p>` : ''}<p class="small">Riprova tra qualche minuto: i servizi di geocodifica gratuiti limitano le richieste.</p><div class="row" style="justify-content:flex-end"><button class="btn primary" data-x>Ok</button></div>`, (el2, close2) => $('[data-x]', el2).onclick = close2);
       else toast(`Importate ${r.imported} tappe (${num(r.km)} km)` + (r.geocode_failed.length ? ` · ${r.geocode_failed.length} indirizzi non trovati` : ''), !!r.geocode_failed.length);
       render();
