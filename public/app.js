@@ -1,0 +1,423 @@
+/* Camper dashboard – SPA senza framework */
+(() => {
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const eur = n => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(+n || 0);
+const num = (n, d = 1) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: d, minimumFractionDigits: 0 }).format(+n || 0);
+const fdate = d => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const fdt = d => d ? new Date(d).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+const iso = d => { if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10); const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+const dur = s => { if (!s) return '—'; const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m} min`; };
+const today = () => iso(new Date());
+const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'] };
+const catLabel = c => CAT[c] ? `${CAT[c][0]} ${CAT[c][1]}` : c;
+const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 10) % 10 + 1})`;
+const SPORT = { hike: '🥾', hiking: '🥾', walking: '🚶', walk: '🚶', running: '🏃', jogging: '🏃', touringbicycle: '🚴', mtb: '🚵', racebike: '🚴', cycling: '🚴', bike: '🚴', swimming: '🏊', skitour: '🎿', mountaineering: '🧗' };
+const sportIco = s => { s = String(s || '').toLowerCase().replace(/[^a-z]/g, ''); for (const k in SPORT) if (s.includes(k)) return SPORT[k]; return '🏅'; };
+
+let user = null, settings = {};
+
+// ---------- API ----------
+async function api(path, opts = {}) {
+  const o = { headers: {}, ...opts };
+  if (o.body && !(o.body instanceof FormData)) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(o.body); }
+  const r = await fetch('/api' + path, o);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { if (r.status === 401 && user) { user = null; render(); } throw new Error(data.error || `Errore ${r.status}`); }
+  return data;
+}
+const toast = (msg, err = false) => { const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), err ? 4500 : 2500); };
+const safe = fn => async (...a) => { try { return await fn(...a); } catch (e) { toast(e.message, true); } };
+
+function modal(html, onMount) {
+  const bg = document.createElement('div'); bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal">${html}</div>`;
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+  document.body.appendChild(bg);
+  onMount?.(bg, () => bg.remove());
+  return bg;
+}
+const confirmDlg = msg => new Promise(res => modal(`<h2>${esc(msg)}</h2><div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" data-x>Annulla</button><button class="btn danger" data-ok>Conferma</button></div>`,
+  (el, close) => { $('[data-x]', el).onclick = () => { close(); res(false); }; $('[data-ok]', el).onclick = () => { close(); res(true); }; }));
+
+// ---------- Mappe ----------
+function makeMap(el, opts = {}) {
+  const map = L.map(el, { zoomControl: !opts.simple, attributionControl: true, ...opts });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  map.setView([45.9, 12.3], 7);
+  return map;
+}
+const pin = (color, label) => L.divIcon({ className: '', html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:grid;place-items:center"><span style="transform:rotate(45deg);font-size:12px;color:#fff;font-weight:700">${label || ''}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 26], popupAnchor: [0, -24] });
+const dotIcon = (color, emoji) => L.divIcon({ className: '', html: `<div style="width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid ${color};display:grid;place-items:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.3)">${emoji}</div>`, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12] });
+
+// ---------- Geocoder autocomplete ----------
+function geoInput(input, onPick) {
+  let box, timer;
+  const wrap = input.parentElement; wrap.classList.add('rel');
+  const close = () => { box?.remove(); box = null; };
+  input.addEventListener('input', () => {
+    clearTimeout(timer); input.dataset.lat = ''; onPick(null);
+    const v = input.value.trim(); if (v.length < 3) return close();
+    timer = setTimeout(async () => {
+      let res = []; try { res = await api('/geocode?q=' + encodeURIComponent(v)); } catch { }
+      close(); if (!res.length) return;
+      box = document.createElement('div'); box.className = 'suggest';
+      box.innerHTML = res.map((r, i) => `<div data-i="${i}">📍 ${esc(r.name)}</div>`).join('');
+      box.onclick = e => { const i = e.target.closest('[data-i]')?.dataset.i; if (i == null) return; const r = res[i]; input.value = r.name; onPick(r); close(); };
+      wrap.appendChild(box);
+    }, 350);
+  });
+  input.addEventListener('blur', () => setTimeout(close, 200));
+}
+
+// ---------- Layout ----------
+const NAV = [['#/', '🚐', 'Viaggi'], ['#/allenamenti', '❤️', 'Allenamenti'], ['#/riepiloghi', '📊', 'Riepiloghi'], ['#/impostazioni', '⚙️', 'Impostazioni']];
+function layout(content) {
+  const h = location.hash || '#/';
+  const active = x => (x === '#/' ? (h === '#/' || h.startsWith('#/trip')) : h.startsWith(x)) ? 'active' : '';
+  const links = NAV.map(([href, ico, l]) => `<a href="${href}" class="${active(href)}"><span class="ico">${ico}</span>${l}</a>`).join('');
+  return `<aside class="sidebar"><div class="brand"><img src="icon.svg" alt="">Camper</div><nav class="nav">${links}</nav><div class="user">${esc(user.name)}<br><a href="#" data-logout>Esci</a></div></aside>
+  <main>${content}</main><nav class="tabbar">${links}</nav>`;
+}
+
+// ---------- Auth ----------
+function viewAuth(setup) {
+  const app = $('#app');
+  let mode = setup ? 'register' : 'login';
+  const draw = () => {
+    app.innerHTML = `<div class="auth stack"><div class="brand" style="justify-content:center;font-size:22px"><img src="icon.svg" alt="" style="width:44px;height:44px">Camper · Viaggi</div>
+    <div class="card stack">
+      <h2>${mode === 'login' ? 'Accedi' : setup ? 'Crea l\'amministratore' : 'Registrati con invito'}</h2>
+      ${setup ? '<p class="muted small">Primo avvio: questo account sarà l\'amministratore che autorizza gli altri.</p>' : ''}
+      <form id="f" class="stack">
+        ${mode === 'register' ? '<div><label class="f">Nome</label><input name="name" required autocomplete="name"></div>' : ''}
+        <div><label class="f">Email</label><input name="email" type="email" required autocomplete="email"></div>
+        <div><label class="f">Password</label><input name="password" type="password" required minlength="8" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}"></div>
+        ${mode === 'register' && !setup ? '<div><label class="f">Codice invito</label><input name="invite" required style="text-transform:uppercase" autocomplete="off"></div>' : ''}
+        <button class="btn primary" style="width:100%">${mode === 'login' ? 'Entra' : 'Crea account'}</button>
+      </form>
+      ${setup ? '' : `<a href="#" id="sw" class="small">${mode === 'login' ? 'Hai un codice invito? Registrati' : 'Hai già un account? Accedi'}</a>`}
+    </div></div>`;
+    $('#sw')?.addEventListener('click', e => { e.preventDefault(); mode = mode === 'login' ? 'register' : 'login'; draw(); });
+    $('#f').onsubmit = safe(async e => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(e.target));
+      const r = await api(mode === 'login' ? '/auth/login' : '/auth/register', { method: 'POST', body });
+      if (r.pending) { app.innerHTML = `<div class="auth"><div class="card stack"><h2>In attesa di autorizzazione</h2><p>L'amministratore deve approvare il tuo account. Riprova più tardi.</p><button class="btn" onclick="location.reload()">Ricarica</button></div></div>`; return; }
+      user = r.user; settings = await api('/settings'); render();
+    });
+  };
+  draw();
+}
+
+// ---------- Viaggi ----------
+async function viewTrips() {
+  const trips = await api('/trips');
+  const open = trips.filter(t => t.status === 'open'), closed = trips.filter(t => t.status !== 'open');
+  const card = t => `<a class="item" href="#/trip/${t.id}"><span class="dot" style="background:${t.status === 'open' ? 'var(--accent)' : 'var(--muted)'}"></span>
+    <div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">${fdate(t.start_date)}${t.end_date ? ' → ' + fdate(t.end_date) : ''} · ${t.n_legs} tappe · ${num(t.km)} km${t.n_photos ? ' · 📷 ' + t.n_photos : ''}</div></div>
+    <div class="right"><div style="font-weight:700">${eur(t.total)}</div><span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div></a>`;
+  const totKm = trips.reduce((a, t) => a + t.km, 0), totSp = trips.reduce((a, t) => a + t.total, 0);
+  $('#app').innerHTML = layout(`
+    <div class="row between" style="margin-bottom:16px"><h1>I tuoi viaggi</h1><button class="btn primary" id="new">＋ Nuovo viaggio</button></div>
+    <div class="tiles" style="margin-bottom:16px">
+      <div class="tile accent"><div class="label">Viaggi</div><div class="value">${trips.length}</div><div class="sub">${open.length} in corso</div></div>
+      <div class="tile"><div class="label">Km totali</div><div class="value">${num(totKm, 0)}</div><div class="sub">~${num(totKm / (settings.vehicle?.km_per_liter || 10), 0)} litri</div></div>
+      <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub">${totKm ? eur(totSp / totKm) + '/km' : ''}</div></div>
+    </div>
+    ${open.length ? `<div class="section"><h2 style="margin-bottom:8px">In corso</h2><div class="card pad-0 list">${open.map(card).join('')}</div></div>` : ''}
+    <div class="section"><h2 style="margin-bottom:8px">Conclusi</h2><div class="card pad-0 list">${closed.length ? closed.map(card).join('') : '<div class="empty">Nessun viaggio concluso.<br>Crea il primo viaggio e aggiungi le tappe: distanze e gasolio si calcolano da soli.</div>'}</div></div>`);
+  $('#new').onclick = () => tripForm();
+}
+
+function tripForm(t = null) {
+  const v = settings.vehicle || {};
+  modal(`<h2>${t ? 'Modifica viaggio' : 'Nuovo viaggio'}</h2><form id="f" class="stack" style="margin-top:14px">
+    <div><label class="f">Titolo</label><input name="title" required value="${esc(t?.title || '')}" placeholder="Es. Giro della Puglia"></div>
+    <div class="form-grid"><div><label class="f">Inizio</label><input type="date" name="start_date" value="${t?.start_date ? iso(t.start_date) : today()}"></div><div><label class="f">Fine</label><input type="date" name="end_date" value="${t?.end_date ? iso(t.end_date) : ''}"></div></div>
+    <div class="form-grid"><div><label class="f">Prezzo gasolio €/l</label><input type="number" step="0.001" name="fuel_price" value="${t?.fuel_price ?? v.fuel_price ?? 1.75}"></div><div><label class="f">Consumo km/l</label><input type="number" step="0.1" name="km_per_liter" value="${t?.km_per_liter ?? v.km_per_liter ?? 10}"></div></div>
+    <div><label class="f">Note</label><textarea name="notes" rows="2">${esc(t?.notes || '')}</textarea></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${t ? 'Salva' : 'Crea'}</button></div></form>`,
+    (el, close) => { $('[data-x]', el).onclick = close; $('#f', el).onsubmit = safe(async e => { e.preventDefault(); const body = Object.fromEntries(new FormData(e.target));
+      const r = t ? await api('/trips/' + t.id, { method: 'PUT', body }) : await api('/trips', { method: 'POST', body }); close(); location.hash = '#/trip/' + r.id; if (t) render(); }); });
+}
+
+async function viewTrip(id) {
+  const d = await api('/trips/' + id);
+  const { trip, legs, expenses, photos, workouts, totals } = d;
+  const closed = trip.status === 'closed';
+  const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
+  const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
+      <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
+      <div class="small muted">${fdate(l.date)}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
+      <div class="row" style="margin-top:6px"><button class="btn sm" data-poi="${l.id}">Soste & borghi</button>${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
+  const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${eur(e.amount)}</b></td>
+    <td class="num">${closed ? '' : `<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
+  $('#app').innerHTML = layout(`
+    <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1>${esc(trip.title)} <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
+      <div class="muted small">${fdate(trip.start_date)}${trip.end_date ? ' → ' + fdate(trip.end_date) : ''} · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
+      <div class="row">${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn" id="edit">Modifica</button><button class="btn primary" id="close">Concludi viaggio</button>'}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
+    <div class="tiles" style="margin-bottom:14px">
+      <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
+      <div class="tile"><div class="label">Distanza</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe · ${dur(totals.minutes * 60)} guida</div></div>
+      <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
+      <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
+    </div>
+    <div class="card pad-0"><div id="map" class="map tall"></div></div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : '<button class="btn primary sm" id="addleg">＋ Tappa</button>'}</div>
+        <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2>${closed ? '' : '<button class="btn primary sm" id="addex">＋ Spesa</button>'}</div>
+        ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
+        <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
+    </div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card"><div class="row between"><h2>Foto</h2><label class="btn sm">📷 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div>
+        <div class="photos${photos.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${photos.map(p => `<figure><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">✕</button></figure>`).join('') || '<div class="muted small">Nessuna foto. Le foto con GPS vengono posizionate sulla mappa.</div>'}</div></div>
+      <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
+    </div>`);
+
+  // Mappa
+  const map = makeMap($('#map'));
+  const bounds = [];
+  legs.forEach((l, i) => {
+    const g = l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]];
+    L.polyline(g, { color: '#0f766e', weight: 5, opacity: .85 }).addTo(map).bindPopup(`<b>Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}`);
+    L.marker([l.from_lat, l.from_lon], { icon: pin('#0f766e', i + 1) }).addTo(map).bindPopup(esc(l.from_name));
+    if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(map).bindPopup(esc(l.to_name));
+    g.forEach(p => bounds.push(p));
+    (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(map).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
+    (l.pois?.villages || []).slice(0, 12).forEach(v => L.marker([v.lat, v.lon], { icon: dotIcon('#6366f1', '🏘️') }).addTo(map).bindPopup(`<b>${esc(v.name)}</b><br>${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}${v.wikipedia ? `<br><a href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}`));
+  });
+  workouts.filter(w => w.track).forEach(w => { L.polyline(w.track.map(p => [p[0], p[1]]), { color: '#ec4899', weight: 3, dashArray: '4 6' }).addTo(map).bindPopup(`${sportIco(w.sport)} ${esc(w.name || '')}`); });
+  photos.filter(p => p.lat).forEach(p => { L.marker([p.lat, p.lon], { icon: dotIcon('#0ea5e9', '📷') }).addTo(map).bindPopup(`<img src="/uploads/${p.filename}" style="width:180px;border-radius:8px"><br>${esc(p.caption || '')}`); bounds.push([p.lat, p.lon]); });
+  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+
+  // Azioni
+  $('#edit')?.addEventListener('click', () => tripForm(trip));
+  $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare il viaggio con tappe, spese e foto?')) { await api('/trips/' + id, { method: 'DELETE' }); location.hash = '#/'; } });
+  $('#close')?.addEventListener('click', safe(async () => {
+    if (!await confirmDlg('Concludere il viaggio? Verranno mostrati i totali finali.')) return;
+    const r = await api(`/trips/${id}/close`, { method: 'POST', body: {} });
+    const t = r.totals;
+    modal(`<h2>🏁 Viaggio concluso</h2><div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Totale</div><div class="value">${eur(t.total)}</div></div><div class="tile"><div class="label">Km</div><div class="value">${num(t.km)}</div></div><div class="tile"><div class="label">Gasolio</div><div class="value">${num(t.liters)} l</div></div><div class="tile"><div class="label">Costo/km</div><div class="value">${t.cost_per_km ? eur(t.cost_per_km) : '—'}</div></div></div>
+      <table>${t.by_category.map(c => `<tr><td>${catLabel(c.category)}</td><td class="num">${eur(c.total)}</td></tr>`).join('')}</table><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary" data-x>Ok</button></div>`, (el, close) => $('[data-x]', el).onclick = () => { close(); render(); });
+  }));
+  $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
+  $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
+  $('#addex')?.addEventListener('click', () => expenseForm(trip, legs));
+  $('#legs').onclick = safe(async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.poi) { let l = legs.find(x => x.id == b.dataset.poi); if (!l.pois) { toast('Cerco aree sosta e borghi…'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); } poiModal(l); }
+    if (b.dataset.editLeg) legForm(trip, legs, legs.find(x => x.id == b.dataset.editLeg));
+    if (b.dataset.delLeg && await confirmDlg('Eliminare la tappa e la sua spesa gasolio?')) { await api('/legs/' + b.dataset.delLeg, { method: 'DELETE' }); render(); }
+  });
+  $('tbody').onclick = safe(async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.editEx) expenseForm(trip, legs, expenses.find(x => x.id == b.dataset.editEx));
+    if (b.dataset.resetEx) { await api(`/expenses/${b.dataset.resetEx}/reset`, { method: 'POST' }); toast('Calcolo automatico ripristinato'); render(); }
+    if (b.dataset.delEx && await confirmDlg('Eliminare la spesa?')) { await api('/expenses/' + b.dataset.delEx, { method: 'DELETE' }); render(); }
+  });
+  $('#ph').onchange = safe(async e => {
+    const fd = new FormData(); [...e.target.files].forEach(f => fd.append('photos', f));
+    const caption = prompt('Didascalia (opzionale)'); if (caption) fd.append('caption', caption);
+    toast('Caricamento foto…'); await api(`/trips/${id}/photos`, { method: 'POST', body: fd }); toast('Foto caricate'); render();
+  });
+  $('#photos').onclick = safe(async e => { const b = e.target.closest('[data-del-ph]'); if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); } });
+  // aggiorna quando i POI arrivano in background
+  if (legs.some(l => !l.pois)) setTimeout(() => { if (location.hash === '#/trip/' + id) render(); }, 12000);
+}
+
+function legForm(trip, legs, leg = null) {
+  const last = legs[legs.length - 1];
+  let from = leg ? { name: leg.from_name, lat: leg.from_lat, lon: leg.from_lon } : last ? { name: last.to_name, lat: last.to_lat, lon: last.to_lon } : null;
+  let to = leg ? { name: leg.to_name, lat: leg.to_lat, lon: leg.to_lon } : null;
+  modal(`<h2>${leg ? 'Modifica tappa' : 'Nuova tappa'}</h2><form id="f" class="stack" style="margin-top:14px">
+    <div><label class="f">Partenza</label><input id="from" required value="${esc(from?.name || '')}" placeholder="Cerca città o luogo…" autocomplete="off"></div>
+    <div><label class="f">Arrivo</label><input id="to" required value="${esc(to?.name || '')}" placeholder="Cerca città o luogo…" autocomplete="off"></div>
+    <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${leg?.date ? iso(leg.date) : (last?.date ? iso(last.date) : (trip.start_date ? iso(trip.start_date) : today()))}"></div>
+      <div><label class="f">Gasolio €/l (vuoto = ${trip.fuel_price ?? settings.vehicle?.fuel_price})</label><input type="number" step="0.001" name="fuel_price" value="${leg?.fuel_price ?? ''}" placeholder="${trip.fuel_price ?? settings.vehicle?.fuel_price}"></div></div>
+    <div><label class="f">Note</label><input name="notes" value="${esc(leg?.notes || '')}"></div>
+    <div id="prev" class="muted small"></div><div id="pmap" class="map sm" style="display:none"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn" id="pv">Anteprima</button><button class="btn primary">${leg ? 'Salva' : 'Aggiungi'}</button></div></form>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      geoInput($('#from', el), r => from = r); geoInput($('#to', el), r => to = r);
+      let pmap;
+      const preview = safe(async () => {
+        if (!from?.lat || !to?.lat) return toast('Seleziona partenza e arrivo dai suggerimenti', true);
+        const r = await api('/route/preview', { method: 'POST', body: { from, to } });
+        const price = +($('[name=fuel_price]', el).value || trip.fuel_price || settings.vehicle?.fuel_price || 0);
+        const lt = r.distance_km / (trip.km_per_liter || 10);
+        $('#prev', el).innerHTML = `<b>${num(r.distance_km)} km</b> · ${dur(r.duration_min * 60)} · ${num(lt)} l ≈ <b>${eur(lt * price)}</b> di gasolio${r.warning ? ' · ⚠️ ' + r.warning : ''}`;
+        const m = $('#pmap', el); m.style.display = 'block'; if (!pmap) pmap = makeMap(m, { simple: true }); else pmap.eachLayer(l => l instanceof L.Polyline && pmap.removeLayer(l));
+        pmap.invalidateSize(); pmap.fitBounds(L.polyline(r.geometry, { color: '#0f766e', weight: 4 }).addTo(pmap).getBounds(), { padding: [10, 10] });
+      });
+      $('#pv', el).onclick = preview;
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        if (!from?.lat || !to?.lat) return toast('Seleziona partenza e arrivo dai suggerimenti', true);
+        const fd = Object.fromEntries(new FormData(e.target));
+        const body = { from, to, date: fd.date || null, fuel_price: fd.fuel_price || null, notes: fd.notes };
+        const r = leg ? await api('/legs/' + leg.id, { method: 'PUT', body }) : await api(`/trips/${trip.id}/legs`, { method: 'POST', body });
+        if (r.routing_warning) toast(r.routing_warning, true);
+        close(); render();
+      });
+    });
+}
+
+function expenseForm(trip, legs, ex = null) {
+  const cats = settings.categories || Object.keys(CAT);
+  modal(`<h2>${ex ? 'Modifica spesa' : 'Nuova spesa'}</h2>${ex?.auto ? '<p class="small muted">Spesa calcolata automaticamente: se la modifichi non verrà più ricalcolata (potrai ripristinarla con ↺).</p>' : ''}<form id="f" class="stack" style="margin-top:14px">
+    <div class="form-grid"><div><label class="f">Categoria</label><select name="category">${cats.map(c => `<option value="${c}" ${ex?.category === c ? 'selected' : ''}>${catLabel(c)}</option>`).join('')}</select></div>
+      <div><label class="f">Importo €</label><input type="number" step="0.01" name="amount" required inputmode="decimal" value="${ex?.amount ?? ''}"></div></div>
+    <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${ex?.date ? iso(ex.date) : today()}"></div>
+      <div><label class="f">Tappa (opz.)</label><select name="leg_id"><option value="">—</option>${legs.map((l, i) => `<option value="${l.id}" ${ex?.leg_id === l.id ? 'selected' : ''}>${i + 1}. ${esc(l.to_name.split(',')[0])}</option>`).join('')}</select></div></div>
+    <div><label class="f">Descrizione</label><input name="description" value="${esc(ex?.description || '')}" placeholder="Es. Traghetto Piombino–Portoferraio"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
+    (el, close) => { $('[data-x]', el).onclick = close; $('#f', el).onsubmit = safe(async e => { e.preventDefault(); const body = Object.fromEntries(new FormData(e.target));
+      if (ex) await api('/expenses/' + ex.id, { method: 'PUT', body }); else await api(`/trips/${trip.id}/expenses`, { method: 'POST', body }); close(); render(); }); });
+}
+
+function poiModal(l) {
+  const p = l.pois || {};
+  const gm = (lat, lon) => `https://maps.apple.com/?daddr=${lat},${lon}`;
+  modal(`<h2>Lungo la tappa</h2><div class="muted small">${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}${p.warning ? ' · ⚠️ ' + p.warning : ''}</div>
+    <h3 style="margin:14px 0 4px">🅿️ Aree sosta e campeggi (${(p.stops || []).length})</h3>
+    ${(p.stops || []).map(s => `<div class="poi"><div class="k">${s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰'}</div><div class="grow"><b>${esc(s.name)}</b> <span class="muted small">${s.kind.replace('_', ' ')}</span><div class="small muted">${[s.fee && 'tariffa: ' + s.fee, s.capacity && s.capacity + ' posti', s.power && 'corrente', s.drinking_water && 'acqua', s.opening_hours].filter(Boolean).map(esc).join(' · ')}</div>${s.website ? `<a class="small" href="${esc(s.website)}" target="_blank">sito web</a> · ` : ''}<a class="small" href="${gm(s.lat, s.lon)}" target="_blank">naviga</a></div></div>`).join('') || '<div class="muted small">Nessuna area censita su OpenStreetMap nel raggio di 4 km.</div>'}
+    <h3 style="margin:14px 0 4px">🏘️ Borghi e paesi attraversati (${(p.villages || []).length})</h3>
+    ${(p.villages || []).map(v => `<div class="poi"><div class="k">${v.historic ? '🏰' : '🏘️'}</div><div class="grow"><b>${esc(v.name)}</b> <span class="muted small">${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}</span>${v.wikipedia ? ` · <a class="small" href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessun borgo trovato.</div>'}
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Chiudi</button><button class="btn ghost" data-r>Aggiorna ricerca</button></div>`,
+    (el, close) => { $('[data-x]', el).onclick = close; $('[data-r]', el).onclick = safe(async () => { l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); close(); poiModal(l); }); });
+}
+
+// ---------- Allenamenti ----------
+async function viewWorkouts(id) {
+  if (id) return viewWorkout(id);
+  const ws = await api('/workouts');
+  const k = await api('/komoot');
+  const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
+  $('#app').innerHTML = layout(`
+    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
+    <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
+    ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
+    <div class="card pad-0 list">${ws.map(w => `<a class="item" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
+      <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span></div></div>
+      <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''} ${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' : ''}</span></div></a>`).join('') || '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>'}</div>`);
+  $('#sync').onclick = safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} nuovi tour`); render(); });
+  $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
+}
+async function viewWorkout(id) {
+  const w = await api('/workouts/' + id);
+  const trips = await api('/trips');
+  const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
+  $('#app').innerHTML = layout(`<a href="#/allenamenti" class="small">← Allenamenti</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><button class="btn ghost danger icon" id="del">🗑</button></div>
+    <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}</div>
+    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Velocità media', w.speed_avg_kmh ? num(w.speed_avg_kmh) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
+    ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
+    <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label><select id="trip"><option value="">—</option>${trips.map(t => `<option value="${t.id}" ${w.trip_id === t.id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select></div></div></div>`);
+  if (w.track) { const map = makeMap($('#map')); const pl = L.polyline(w.track.map(p => [p[0], p[1]]), { color: '#ec4899', weight: 4 }).addTo(map); map.fitBounds(pl.getBounds(), { padding: [20, 20] });
+    L.marker(w.track[0], { icon: pin('#16a34a', '▶') }).addTo(map); L.marker(w.track[w.track.length - 1], { icon: pin('#dc2626', '■') }).addTo(map); }
+  $('#trip').onchange = safe(async e => { await api('/workouts/' + id, { method: 'PUT', body: { trip_id: e.target.value || null } }); toast('Salvato'); });
+  $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = '#/allenamenti'; } });
+}
+
+// ---------- Riepiloghi ----------
+const state = { period: 'month', from: null, to: null, group: 'month' };
+async function viewSummary() {
+  const now = new Date();
+  const presets = { week: [iso(now - 6 * 864e5), today(), 'day'], month: [iso(new Date(now.getFullYear(), now.getMonth(), 1)), today(), 'day'], year: [`${now.getFullYear()}-01-01`, today(), 'month'], all: ['2000-01-01', today(), 'year'], custom: null };
+  if (state.period !== 'custom') [state.from, state.to, state.group] = presets[state.period];
+  const s = await api(`/summary?from=${state.from}&to=${state.to}&group=${state.group}`);
+  const periods = [...new Set([...s.periods.map(p => p.period), ...s.km.map(p => p.period), ...s.workouts.map(p => p.period)])].sort();
+  const fmtP = p => state.group === 'year' ? p.slice(0, 4) : state.group === 'month' ? new Date(p).toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) : new Date(p).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+  const spentBy = Object.fromEntries(periods.map(p => [p, s.periods.filter(x => x.period === p).reduce((a, b) => a + b.total, 0)]));
+  const max = Math.max(1, ...Object.values(spentBy));
+  const kmBy = Object.fromEntries(s.km.map(k => [k.period, k.km]));
+  const woBy = Object.fromEntries(s.workouts.map(k => [k.period, k]));
+  const total = s.totals.spent || 1;
+  let acc = 0; const grad = s.by_category.map(c => { const a = acc; acc += c.total / total * 100; return `${catColor(c.category)} ${a}% ${acc}%`; }).join(', ');
+  $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Riepiloghi</h1>
+    <div class="card"><div class="chips">${[['week', '7 giorni'], ['month', 'Questo mese'], ['year', 'Quest\'anno'], ['all', 'Tutto'], ['custom', 'Periodo…']].map(([k, l]) => `<span class="chip ${state.period === k ? 'active' : ''}" data-p="${k}">${l}</span>`).join('')}</div>
+      <div class="row" style="margin-top:12px"><div class="field w-md"><label class="f">Dal</label><input type="date" id="from" value="${state.from}"></div><div class="field w-md"><label class="f">Al</label><input type="date" id="to" value="${state.to}"></div>
+      <div class="field w-sm"><label class="f">Raggruppa</label><select id="group">${[['day', 'Giorno'], ['week', 'Settimana'], ['month', 'Mese'], ['year', 'Anno']].map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div><div class="field" style="align-self:flex-end"><button class="btn primary" id="go">Applica</button></div></div></div>
+    <div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Speso</div><div class="value">${eur(s.totals.spent)}</div><div class="sub">${s.totals.trips} viaggi</div></div><div class="tile"><div class="label">Km in camper</div><div class="value">${num(s.totals.km, 0)}</div><div class="sub">${s.totals.legs} tappe · ${s.totals.km ? eur(s.totals.spent / s.totals.km) + '/km' : ''}</div></div><div class="tile"><div class="label">Allenamenti</div><div class="value">${s.totals.workouts}</div><div class="sub">${num(s.totals.workout_km)} km</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(s.totals.calories, 0)}</div></div></div>
+    <div class="grid cols-2">
+      <div class="card"><h2>Spese per ${({ day: 'giorno', week: 'settimana', month: 'mese', year: 'anno' })[state.group]}</h2>
+        <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${eur(spentBy[p])}"><i style="height:${(spentBy[p] || 0) / max * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
+      <div class="card"><h2>Per categoria</h2><div class="donut" style="margin-top:10px"><div class="ring" style="background:conic-gradient(${grad || 'var(--surface-2) 0 100%'})"><b>${eur(s.totals.spent)}</b></div>
+        <div class="legend" style="flex-direction:column;gap:6px">${s.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b> <span class="muted">${Math.round(c.total / total * 100)}%</span></span>`).join('') || '<span class="muted">—</span>'}</div></div></div>
+    </div>
+    <div class="card pad-0" style="margin-top:14px"><div class="table-wrap"><table><thead><tr><th>Periodo</th><th class="num">Spese</th><th class="num">Km camper</th><th class="num">Allenamenti</th><th class="num">Km attività</th><th class="num">Calorie</th><th class="num">❤️ medio</th></tr></thead>
+      <tbody>${periods.map(p => `<tr><td>${fmtP(p)}</td><td class="num"><b>${eur(spentBy[p])}</b></td><td class="num">${num(kmBy[p] || 0, 0)}</td><td class="num">${woBy[p]?.n || 0}</td><td class="num">${num(woBy[p]?.km || 0)}</td><td class="num">${num(woBy[p]?.calories || 0, 0)}</td><td class="num">${woBy[p]?.hr_avg || '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nessun dato</td></tr>'}</tbody></table></div></div>`);
+  $$('.chip').forEach(c => c.onclick = () => { state.period = c.dataset.p; render(); });
+  $('#go').onclick = () => { state.period = 'custom'; state.from = $('#from').value; state.to = $('#to').value; state.group = $('#group').value; render(); };
+}
+
+// ---------- Impostazioni ----------
+async function viewSettings() {
+  const v = settings.vehicle || {};
+  const devices = await api('/auth/devices');
+  const k = await api('/komoot');
+  const adm = user.role === 'admin' ? await api('/auth/users') : null;
+  const endpoint = location.origin + '/api/ingest/health';
+  $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Impostazioni</h1>
+    <div class="grid cols-2">
+    <div class="card"><h2>🚐 Camper</h2><form id="veh" class="form-grid" style="margin-top:12px"><div><label class="f">Lunghezza (m)</label><input type="number" step="0.1" name="length_m" value="${v.length_m ?? 6}"></div><div><label class="f">Consumo (km/l)</label><input type="number" step="0.1" name="km_per_liter" value="${v.km_per_liter ?? 10}"></div><div><label class="f">Prezzo gasolio predefinito (€/l)</label><input type="number" step="0.001" name="fuel_price" value="${v.fuel_price ?? 1.75}"></div><div style="align-self:end"><button class="btn primary" style="width:100%">Salva</button></div></form>
+      <p class="small muted" style="margin:10px 0 0">Il prezzo si può cambiare per ogni viaggio e per ogni singola tappa. Le spese gasolio si ricalcolano finché non le modifichi a mano.</p></div>
+    <div class="card"><h2>🗺️ Komoot</h2>${k.connected ? `<p>Collegato (utente ${esc(k.external_user_id)})${k.last_sync_at ? ' · ultima sincronizzazione ' + fdt(k.last_sync_at) : ''}. I tour registrati vengono scaricati ogni 6 ore e quando premi «Sincronizza».</p><div class="row"><button class="btn" id="ksync">Sincronizza ora</button><button class="btn" id="kfull">Importa tutto lo storico</button><button class="btn ghost danger" id="kdel">Scollega</button></div>`
+      : `<p class="small muted">Komoot non ha un'API pubblica: la dashboard usa lo stesso accesso del sito. La password serve solo una volta per ottenere un token, che viene salvato cifrato; la password non viene mai memorizzata.</p><form id="kf" class="stack"><input name="email" type="email" placeholder="Email Komoot" required autocomplete="off"><input name="password" type="password" placeholder="Password Komoot" required autocomplete="off"><button class="btn primary">Collega Komoot</button></form>`}</div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="row between"><h2>📱 iPhone e Apple Watch</h2><button class="btn primary sm" id="adddev">＋ Aggiungi dispositivo</button></div>
+      <p class="small muted">Ogni iPhone riceve un token personale con cui invia allenamenti (battito, calorie, distanza) a questa dashboard. I dati restano solo qui, sul tuo server. ${user.role === 'admin' ? 'I dispositivi degli altri utenti vanno approvati da te.' : 'Il dispositivo deve essere approvato dall\'amministratore.'}</p>
+      <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Utente</th><th>Token</th><th>Stato</th><th>Ultimo invio</th><th></th></tr></thead><tbody>${devices.map(d => `<tr><td><b>${esc(d.name)}</b></td><td>${esc(d.owner)}</td><td class="small muted">${esc(d.token_hint)}</td><td>${d.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="small">${d.last_seen_at ? fdt(d.last_seen_at) : '—'}</td>
+        <td class="num">${user.role === 'admin' && !d.approved ? `<button class="btn sm" data-appr="${d.id}">Autorizza</button>` : ''}<button class="btn sm ghost danger" data-deldev="${d.id}">Revoca</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nessun dispositivo</td></tr>'}</tbody></table></div>
+      <details style="margin-top:12px"><summary>Come configurare l'iPhone</summary><div class="stack small" style="margin-top:8px">
+        <div><b>Opzione A – Health Auto Export</b> (app App Store, la più completa): crea un'automazione «REST API», metodo POST, URL <span class="code">${endpoint}</span>, header <span class="code">Authorization: Bearer &lt;token&gt;</span>, tipo di dati «Workouts», formato JSON, e imposta la frequenza (es. ogni ora). Includi «Route» se vuoi anche il GPS.</div>
+        <div><b>Opzione B – Comandi Rapidi</b> (gratis): un comando «Trova allenamenti» (ultimi 7 giorni) → per ogni allenamento «Ottieni contenuti di URL» POST a <span class="code">${endpoint}</span> con header Authorization e corpo JSON: <span class="code">{"start": "…", "type": "…", "duration_min": …, "distance_km": …, "calories": …, "hr_avg": …}</span>. Aggiungilo a un'automazione «Fine allenamento».</div>
+        <div>Gli allenamenti senza GPS che iniziano entro 15 minuti da un tour Komoot vengono uniti a quel tour: così il percorso Komoot acquista battito e calorie.</div></div></details></div>
+    ${adm ? `<div class="card" style="margin-top:14px"><div class="row between"><h2>👥 Utenti</h2><button class="btn primary sm" id="inv">＋ Codice invito</button></div>
+      <p class="small muted">Chi si registra con un codice invito entra in attesa finché non lo autorizzi. Ogni utente vede i viaggi condivisi e i propri allenamenti.</p>
+      <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th></th></tr></thead><tbody>${adm.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="small">${esc(u.email)}</td><td>${u.role}</td><td>${u.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="num">${u.id !== user.id ? `<button class="btn sm" data-uappr="${u.id}" data-v="${!u.approved}">${u.approved ? 'Sospendi' : 'Autorizza'}</button><button class="btn sm ghost danger" data-udel="${u.id}">Elimina</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
+      ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).length ? `<div class="small" style="margin-top:10px">Inviti attivi: ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).map(i => `<span class="code">${i.code}</span>`).join(' ')}</div>` : ''}</div>` : ''}
+    <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta e borghi da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
+  $('#veh').onsubmit = safe(async e => { e.preventDefault(); settings.vehicle = await api('/settings/vehicle', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('Salvato'); });
+  $('#kf')?.addEventListener('submit', safe(async e => { e.preventDefault(); toast('Collegamento…'); const r = await api('/komoot/connect', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('Komoot collegato' + (r.displayName ? ' come ' + r.displayName : '')); render(); }));
+  $('#ksync')?.addEventListener('click', safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} tour`); render(); }));
+  $('#kfull')?.addEventListener('click', safe(async () => { toast('Importazione storico… può richiedere un minuto'); const r = await api('/komoot/sync', { method: 'POST', body: { full: true } }); toast(`Importati ${r.imported} tour`); render(); }));
+  $('#kdel')?.addEventListener('click', safe(async () => { if (await confirmDlg('Scollegare Komoot?')) { await api('/komoot', { method: 'DELETE' }); render(); } }));
+  $('#adddev').onclick = () => modal(`<h2>Nuovo dispositivo</h2><form id="f" class="stack" style="margin-top:12px"><input name="name" placeholder="Es. iPhone di Andrea" required><button class="btn primary">Genera token</button></form>`, (el, close) => $('#f', el).onsubmit = safe(async e => {
+    e.preventDefault(); const r = await api('/auth/devices', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); close();
+    modal(`<h2>Token per «${esc(r.name)}»</h2><p class="small">Copialo ora: non sarà più visibile.${r.approved ? '' : ' Deve ancora essere autorizzato dall\'amministratore.'}</p><div class="code">${r.token}</div><p class="small muted" style="margin-top:8px">Endpoint: <span class="code">${esc(r.endpoint)}</span></p><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="cp">Copia</button><button class="btn primary" data-x>Fatto</button></div>`,
+      (el2, close2) => { $('#cp', el2).onclick = () => { navigator.clipboard?.writeText(r.token); toast('Copiato'); }; $('[data-x]', el2).onclick = () => { close2(); render(); }; });
+  }));
+  document.body.onclick = safe(async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.appr) { await api(`/auth/devices/${b.dataset.appr}/approve`, { method: 'POST', body: {} }); render(); }
+    if (b.dataset.deldev && await confirmDlg('Revocare il dispositivo?')) { await api('/auth/devices/' + b.dataset.deldev, { method: 'DELETE' }); render(); }
+    if (b.dataset.uappr) { await api(`/auth/users/${b.dataset.uappr}/approve`, { method: 'POST', body: { approved: b.dataset.v === 'true' } }); render(); }
+    if (b.dataset.udel && await confirmDlg('Eliminare l\'utente e i suoi dati?')) { await api('/auth/users/' + b.dataset.udel, { method: 'DELETE' }); render(); }
+    if (b.id === 'inv') { const r = await api('/auth/invites', { method: 'POST', body: {} }); modal(`<h2>Codice invito</h2><p class="small">Valido 7 giorni, monouso. Chi lo usa dovrà poi essere autorizzato.</p><div class="code" style="font-size:24px;text-align:center">${r.code}</div><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" data-x>Ok</button></div>`, (el, close) => $('[data-x]', el).onclick = () => { close(); render(); }); }
+  });
+}
+
+// ---------- Router ----------
+async function render() {
+  document.body.onclick = null;
+  try {
+    if (!user) { const me = await api('/auth/me'); if (me.user?.approved) { user = me.user; settings = await api('/settings'); } else return viewAuth(me.setup); }
+    const h = location.hash || '#/';
+    const m = h.match(/^#\/(trip|allenamenti)\/?(\d+)?/);
+    if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
+    else if (m?.[1] === 'allenamenti') await viewWorkouts(m[2]);
+    else if (h.startsWith('#/riepiloghi')) await viewSummary();
+    else if (h.startsWith('#/impostazioni')) await viewSettings();
+    else await viewTrips();
+    window.scrollTo(0, 0);
+  } catch (e) { $('#app').innerHTML = `<div class="loading">⚠️ ${esc(e.message)}<br><button class="btn" onclick="location.reload()">Ricarica</button></div>`; }
+}
+document.addEventListener('click', e => { const a = e.target.closest('[data-logout]'); if (a) { e.preventDefault(); api('/auth/logout', { method: 'POST' }).then(() => { user = null; location.hash = '#/'; render(); }); } });
+window.addEventListener('hashchange', render);
+render();
+})();
