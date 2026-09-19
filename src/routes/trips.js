@@ -169,14 +169,18 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
 
   // geocoding con cache per indirizzo
   const cache = new Map();
-  const failed = [];
+  const failed = [], errors = new Map();
   async function geo(addr) {
     if (cache.has(addr)) return cache.get(addr);
     let hit = null;
     for (const c of addressCandidates(addr)) {
-      try { const r = await geocode(c); if (r.length) { hit = { name: addr.includes(',') ? `${shortName(addr)}, ${addr.split(',')[0].trim()}` : shortName(addr), lat: r[0].lat, lon: r[0].lon }; break; } } catch { }
+      try {
+        const r = await geocode(c);
+        if (r.length) { hit = { name: addr.includes(',') ? `${shortName(addr)}, ${addr.split(',')[0].trim()}` : shortName(addr), lat: r[0].lat, lon: r[0].lon }; break; }
+      } catch (e) { errors.set(String(e.message).slice(0, 160), (errors.get(String(e.message).slice(0, 160)) || 0) + 1); }
+      await new Promise(r => setTimeout(r, 250)); // non martellare i geocoder gratuiti
     }
-    if (!hit) failed.push(addr);
+    if (!hit) { failed.push(addr); console.warn('CarLock: indirizzo non geocodificato:', addr); }
     cache.set(addr, hit);
     return hit;
   }
@@ -197,7 +201,8 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   const all = (await q('SELECT id FROM legs WHERE trip_id=$1 ORDER BY date NULLS LAST, start_time NULLS LAST, position, id', [trip.id])).rows;
   for (let i = 0; i < all.length; i++) await q('UPDATE legs SET position=$2 WHERE id=$1', [all[i].id, i + 1]);
   (async () => { for (const leg of created) { try { await q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, await poisAlongRoute(leg.geometry)]); } catch { } await new Promise(r => setTimeout(r, 3000)); } })();
-  res.json({ ...summary, imported: created.length, geocode_failed: [...new Set(failed)], totals: await tripTotals(trip.id) });
+  if (errors.size) console.warn('CarLock: errori geocoder', Object.fromEntries(errors));
+  res.json({ ...summary, imported: created.length, geocode_failed: [...new Set(failed)], geocode_errors: [...errors.keys()], totals: await tripTotals(trip.id) });
 }));
 
 // ---- spese ----
