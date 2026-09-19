@@ -142,10 +142,14 @@ const provRe = new RegExp(`\\s+(?:(?:Province of|Provincia di|Metropolitan City 
 
 // "31058 Susegana Treviso" -> { cap: "31058", town: "Susegana" }
 function capTown(addr) {
-  const last = String(addr).replace(/\s+/g, ' ').trim().split(',').pop().trim();
-  const m = last.match(/^(\d{5})\s+(.+)$/);
-  if (!m) return { cap: null, town: last.replace(provRe, '') };
-  return { cap: m[1], town: m[2].replace(provRe, '').trim() };
+  const parts = String(addr).replace(/\s+/g, ' ').trim().split(',').map(s => s.trim()).filter(Boolean);
+  const last = parts[parts.length - 1] || '';
+  let m = last.match(/^(\d{5})\s+(.+)$/);
+  if (m) return { cap: m[1], town: m[2].replace(provRe, '').trim() };
+  // formato "…, Caorle, Venice 30021": provincia + CAP in coda, comune nel pezzo precedente
+  m = last.match(/^(.+?)\s+(\d{5})$/);
+  if (m) { const prev = parts[parts.length - 2]; const town = (prev && !/\d/.test(prev) ? prev : m[1]).replace(provRe, '').trim(); return { cap: m[2], town }; }
+  return { cap: null, town: last.replace(provRe, '') };
 }
 
 // Candidati per il geocoder, dal più preciso al più generico
