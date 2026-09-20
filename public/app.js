@@ -397,10 +397,23 @@ async function viewWorkout(id) {
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
     <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Velocità media', w.speed_avg_kmh ? num(w.speed_avg_kmh) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
-    <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label><select id="trip"><option value="">—</option>${trips.map(t => `<option value="${t.id}" ${w.trip_id === t.id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select></div></div></div>`);
+    <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
+      <select id="trip">
+        <option value="auto" ${w.trip_manual ? '' : 'selected'}>Automatico, in base alle date</option>
+        <option value="" ${w.trip_manual && !w.trip_id ? 'selected' : ''}>Nessun viaggio</option>
+        ${trips.map(t => `<option value="${t.id}" ${w.trip_manual && w.trip_id === t.id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
+      </select>
+      <div class="small muted" style="margin-top:6px">${w.trip_manual
+        ? (w.trip_id ? 'Scelta tua: resta su questo viaggio anche se le date non coincidono.' : 'Scelta tua: resta senza viaggio, l\u2019abbinamento automatico non lo tocca.')
+        : (w.trip_title ? `Abbinato da solo a «${esc(w.trip_title)}» perché la data ricade nel periodo.` : 'Nessun viaggio copre questa data.')}</div>
+      </div></div></div>`);
   if (w.track) { const map = makeMap($('#map')); const pl = L.polyline(w.track.map(p => [p[0], p[1]]), { color: '#ec4899', weight: 4 }).addTo(map); map.fitBounds(pl.getBounds(), { padding: [20, 20] });
     L.marker(w.track[0], { icon: pin('#16a34a', '▶') }).addTo(map); L.marker(w.track[w.track.length - 1], { icon: pin('#dc2626', '■') }).addTo(map); }
-  $('#trip').onchange = safe(async e => { await api('/workouts/' + id, { method: 'PUT', body: { trip_id: e.target.value || null } }); toast('Salvato'); });
+  $('#trip').onchange = safe(async e => {
+    const v = e.target.value;
+    await api('/workouts/' + id, { method: 'PUT', body: v === 'auto' ? { trip_auto: true } : { trip_id: v || null } });
+    toast(v === 'auto' ? 'Torna all\u2019abbinamento automatico' : 'Salvato'); render();
+  });
   $('#ren').onclick = () => renameWorkout(id, w.name || w.sport || '', render);
   $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = '#/allenamenti'; } });
 }

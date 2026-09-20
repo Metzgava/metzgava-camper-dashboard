@@ -66,12 +66,13 @@ const NEL_PERIODO = `t.start_date IS NOT NULL
        OR (t.end_date IS NULL AND t.status = 'open'))`;
 
 // Aggancia al viaggio gli allenamenti ancora liberi che cadono nel suo periodo.
-// Solo quelli senza viaggio: un'assegnazione fatta a mano non viene mai disfatta.
+// Restano esclusi quelli con un viaggio gia' assegnato e quelli che l'utente ha
+// deciso a mano, compreso chi ha scelto di lasciarli senza viaggio.
 export async function agganciaAllenamenti() {
   const r = await q(`UPDATE workouts w SET trip_id = (
       SELECT t.id FROM trips t WHERE ${NEL_PERIODO}
       ORDER BY (t.status = 'open') DESC, t.start_date DESC LIMIT 1)
-    WHERE w.trip_id IS NULL AND EXISTS (SELECT 1 FROM trips t WHERE ${NEL_PERIODO})`);
+    WHERE w.trip_id IS NULL AND NOT w.trip_manual AND EXISTS (SELECT 1 FROM trips t WHERE ${NEL_PERIODO})`);
   if (r.rowCount) console.log(`agganciati ${r.rowCount} allenamenti ai viaggi corrispondenti`);
   return r.rowCount;
 }

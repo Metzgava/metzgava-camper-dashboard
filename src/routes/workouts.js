@@ -5,6 +5,7 @@ import { wrap, encrypt, decrypt, num } from '../lib/util.js';
 import { parseGpx } from '../lib/gpx.js';
 import * as komoot from '../lib/komoot.js';
 import { requireAuth, requireDevice } from './auth.js';
+import { agganciaAllenamenti } from './trips.js';
 
 export const router = Router();
 export const ingest = Router(); // montato PRIMA delle rotte con sessione: usa il token dispositivo
@@ -142,14 +143,24 @@ router.get('/workouts/:id', wrap(async (req, res) => {
 }));
 router.put('/workouts/:id', wrap(async (req, res) => {
   const b = req.body || {};
-  // Il viaggio si tocca solo se il chiamante lo manda davvero: rinominare non deve slegarlo
-  const cambiaViaggio = Object.prototype.hasOwnProperty.call(b, 'trip_id');
+  // trip_auto: torna all'abbinamento automatico in base alle date del viaggio.
+  // Altrimenti il viaggio si tocca solo se il chiamante lo manda davvero, cosi'
+  // rinominare non lo slega; e una scelta esplicita resta tale, anche "nessun viaggio".
+  const tornaAutomatico = b.trip_auto === true;
+  const cambiaViaggio = tornaAutomatico || Object.prototype.hasOwnProperty.call(b, 'trip_id');
   const nome = typeof b.name === 'string' && b.name.trim() ? b.name.trim() : null;
-  const r = (await q(`UPDATE workouts SET trip_id=CASE WHEN $2 THEN $3::int ELSE trip_id END, name=coalesce($4,name), sport=coalesce($5,sport),
+  let r = (await q(`UPDATE workouts SET
+      trip_id=CASE WHEN $2 THEN $3::int ELSE trip_id END,
+      trip_manual=CASE WHEN $11 THEN false WHEN $2 THEN true ELSE trip_manual END,
+      name=coalesce($4,name), sport=coalesce($5,sport),
       calories=coalesce($6,calories), hr_avg=coalesce($7,hr_avg), hr_max=coalesce($8,hr_max)
     WHERE id=$1 AND (user_id=$9 OR $10) RETURNING *`,
-    [req.params.id, cambiaViaggio, b.trip_id || null, nome, b.sport, b.calories, b.hr_avg, b.hr_max, req.user.id, req.user.role === 'admin'])).rows[0];
+    [req.params.id, cambiaViaggio, tornaAutomatico ? null : (b.trip_id || null), nome, b.sport, b.calories, b.hr_avg, b.hr_max, req.user.id, req.user.role === 'admin', tornaAutomatico])).rows[0];
   if (!r) return res.status(404).json({ error: 'Allenamento non trovato, o non tuo' });
+  if (tornaAutomatico) {
+    await agganciaAllenamenti();
+    r = (await q('SELECT * FROM workouts WHERE id=$1', [req.params.id])).rows[0];
+  }
   res.json(r);
 }));
 router.delete('/workouts/:id', wrap(async (req, res) => {
