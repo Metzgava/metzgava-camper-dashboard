@@ -72,7 +72,7 @@ function geoInput(input, onPick) {
 }
 
 // ---------- Layout ----------
-const NAV = [['#/', '🚐', 'Viaggi'], ['#/allenamenti', '❤️', 'Allenamenti'], ['#/riepiloghi', '📊', 'Riepiloghi'], ['#/impostazioni', '⚙️', 'Impostazioni']];
+const NAV = [['#/', '🚐', 'Viaggi'], ['#/allenamenti', '👟', 'Allenamenti'], ['#/cruscotto', '🎛️', 'Cruscotto'], ['#/riepiloghi', '📊', 'Riepiloghi'], ['#/impostazioni', '⚙️', 'Impostazioni']];
 function layout(content) {
   const h = location.hash || '#/';
   const active = x => (x === '#/' ? (h === '#/' || h.startsWith('#/trip')) : h.startsWith(x)) ? 'active' : '';
@@ -399,6 +399,95 @@ async function viewWorkout(id) {
   $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = '#/allenamenti'; } });
 }
 
+// ---------- Cruscotto ----------
+const dash = { trip: '', stato: '', athlete: '', sport: '', source: '', from: '', to: '', q: '' };
+
+async function viewDashboard() {
+  const [ws, trips] = await Promise.all([api('/workouts'), api('/trips')]);
+  const atleti = [...new Set(ws.map(w => w.athlete).filter(Boolean))].sort();
+  const sports = [...new Set(ws.map(w => w.sport).filter(Boolean))].sort();
+  const fonti = [...new Set(ws.map(w => w.source).filter(Boolean))].sort();
+  const opz = (arr, sel) => arr.map(v => `<option value="${esc(v)}" ${sel === v ? 'selected' : ''}>${esc(v)}</option>`).join('');
+
+  // Filtra gli allenamenti secondo lo stato corrente dei controlli
+  const filtra = () => {
+    const q = dash.q.trim().toLowerCase();
+    const idsStato = new Set(trips.filter(t => !dash.stato || t.status === dash.stato).map(t => t.id));
+    return ws.filter(w => {
+      if (dash.trip === 'none' ? w.trip_id : dash.trip && String(w.trip_id) !== dash.trip) return false;
+      if (dash.stato && !(w.trip_id && idsStato.has(w.trip_id))) return false;
+      if (dash.athlete && w.athlete !== dash.athlete) return false;
+      if (dash.sport && w.sport !== dash.sport) return false;
+      if (dash.source && w.source !== dash.source) return false;
+      const d = iso(w.started_at);
+      if (dash.from && d < dash.from) return false;
+      if (dash.to && d > dash.to) return false;
+      if (q && !`${w.name || ''} ${w.sport || ''} ${w.trip_title || ''} ${w.athlete || ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  };
+
+  $('#app').innerHTML = layout(`<div class="row between" style="margin-bottom:12px"><h1>Cruscotto</h1><button class="btn" id="reset">Azzera filtri</button></div>
+    <div class="card">
+      <div class="row">
+        <div class="field w-md"><label class="f">Viaggio</label><select id="f-trip"><option value="">Tutti i viaggi</option><option value="none" ${dash.trip === 'none' ? 'selected' : ''}>Senza viaggio</option>${trips.map(t => `<option value="${t.id}" ${dash.trip === String(t.id) ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select></div>
+        <div class="field w-sm"><label class="f">Stato</label><select id="f-stato"><option value="">Tutti</option><option value="open" ${dash.stato === 'open' ? 'selected' : ''}>Aperti</option><option value="closed" ${dash.stato === 'closed' ? 'selected' : ''}>Chiusi</option></select></div>
+        <div class="field w-sm"><label class="f">Atleta</label><select id="f-ath"><option value="">Tutti</option>${opz(atleti, dash.athlete)}</select></div>
+        <div class="field w-sm"><label class="f">Sport</label><select id="f-sport"><option value="">Tutti</option>${opz(sports, dash.sport)}</select></div>
+        <div class="field w-md"><label class="f">Dal</label><input type="date" id="f-from" value="${dash.from}"></div>
+        <div class="field w-md"><label class="f">Al</label><input type="date" id="f-to" value="${dash.to}"></div>
+        <div class="field grow" style="min-width:180px"><label class="f">Cerca</label><input id="f-q" placeholder="Nome allenamento, sport o viaggio" value="${esc(dash.q)}"></div>
+      </div>
+      <div class="chips" style="margin-top:12px"><span class="chip ${dash.source ? '' : 'active'}" data-src="">Tutte le fonti</span>${fonti.map(f => `<span class="chip ${dash.source === f ? 'active' : ''}" data-src="${esc(f)}">${esc(f)}</span>`).join('')}</div>
+    </div>
+    <div id="out"></div>`);
+
+  const disegna = () => {
+    const f = filtra();
+    const t = f.reduce((a, w) => ({ n: a.n + 1, km: a.km + (w.distance_m || 0) / 1000, s: a.s + (w.duration_s || 0), kcal: a.kcal + (w.calories || 0), up: a.up + (w.elevation_up_m || 0), hr: a.hr + (w.hr_avg || 0), hrn: a.hrn + (w.hr_avg ? 1 : 0) }),
+      { n: 0, km: 0, s: 0, kcal: 0, up: 0, hr: 0, hrn: 0 });
+
+    const perSport = {};
+    f.forEach(w => { const k = w.sport || 'altro'; perSport[k] = (perSport[k] || 0) + (w.distance_m || 0) / 1000; });
+    const sportOrd = Object.entries(perSport).sort((a, b) => b[1] - a[1]);
+    const maxKm = Math.max(1, ...sportOrd.map(x => x[1]));
+
+    const perTrip = {};
+    f.forEach(w => { const k = w.trip_id || 0; (perTrip[k] ||= { titolo: w.trip_title || 'Senza viaggio', n: 0, km: 0, kcal: 0, s: 0 }); const r = perTrip[k]; r.n++; r.km += (w.distance_m || 0) / 1000; r.kcal += w.calories || 0; r.s += w.duration_s || 0; });
+    const tripOrd = Object.entries(perTrip).sort((a, b) => b[1].km - a[1].km);
+    const datiViaggio = id => trips.find(x => x.id === +id);
+
+    const MAX = 60;
+    $('#out').innerHTML = `
+      <div class="tiles" style="margin:14px 0">
+        <div class="tile accent"><div class="label">Attività</div><div class="value">${t.n}</div><div class="sub">su ${ws.length} totali</div></div>
+        <div class="tile"><div class="label">Distanza</div><div class="value">${num(t.km)} km</div></div>
+        <div class="tile"><div class="label">Tempo</div><div class="value">${dur(t.s)}</div></div>
+        <div class="tile"><div class="label">Calorie</div><div class="value">${num(t.kcal, 0)}</div></div>
+        <div class="tile"><div class="label">Dislivello</div><div class="value">${num(t.up, 0)} m</div></div>
+        <div class="tile"><div class="label">Battito medio</div><div class="value">${t.hrn ? Math.round(t.hr / t.hrn) + ' bpm' : '—'}</div></div>
+      </div>
+      <div class="grid cols-2">
+        <div class="card"><h2>Chilometri per sport</h2>
+          <div class="bars">${sportOrd.map(([k, v]) => `<div class="bar" title="${esc(k)}: ${num(v)} km"><i style="height:${v / maxKm * 100}%"></i><b>${esc(k)}</b></div>`).join('') || '<div class="empty grow">Nessun dato con questi filtri</div>'}</div></div>
+        <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Per viaggio</h2></div>
+          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th class="num">Attività</th><th class="num">Km</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
+          <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
+      </div>
+      <div class="card pad-0" style="margin-top:14px"><div class="row between" style="padding:14px 16px 6px"><h2>Allenamenti (${f.length})</h2>${f.length > MAX ? `<span class="small muted">mostrati i primi ${MAX}</span>` : ''}</div>
+        <div class="list">${f.slice(0, MAX).map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
+          <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
+          <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''}</span></div></a></div>`).join('') || '<div class="empty">Nessun allenamento corrisponde ai filtri.</div>'}</div></div>`;
+  };
+
+  const lega = (sel, chiave, evento = 'change') => { const el = $(sel); el.addEventListener(evento, () => { dash[chiave] = el.value; disegna(); }); };
+  lega('#f-trip', 'trip'); lega('#f-stato', 'stato'); lega('#f-ath', 'athlete'); lega('#f-sport', 'sport');
+  lega('#f-from', 'from'); lega('#f-to', 'to'); lega('#f-q', 'q', 'input');
+  $$('[data-src]').forEach(c => c.onclick = () => { dash.source = c.dataset.src; $$('[data-src]').forEach(x => x.classList.toggle('active', x === c)); disegna(); });
+  $('#reset').onclick = () => { Object.keys(dash).forEach(k => dash[k] = ''); render(); };
+  disegna();
+}
+
 // ---------- Riepiloghi ----------
 const state = { period: 'month', from: null, to: null, group: 'month' };
 async function viewSummary() {
@@ -487,6 +576,7 @@ async function render() {
     const m = h.match(/^#\/(trip|allenamenti)\/?(\d+)?/);
     if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
     else if (m?.[1] === 'allenamenti') await viewWorkouts(m[2]);
+    else if (h.startsWith('#/cruscotto')) await viewDashboard();
     else if (h.startsWith('#/riepiloghi')) await viewSummary();
     else if (h.startsWith('#/impostazioni')) await viewSettings();
     else await viewTrips();

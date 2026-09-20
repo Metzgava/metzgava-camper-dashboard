@@ -83,6 +83,8 @@ tr:last-child td { border-bottom: 0; } td.num, th.num { text-align: right; font-
 @media (max-width: 800px) {
   .item .item-main { flex-wrap: wrap; align-items: flex-start; }
   .item .item-main > .right { width: 100%; text-align: left; white-space: normal; padding-left: 52px; }
+  /* Due campi per riga invece di uno: altrimenti i filtri riempiono tutto lo schermo */
+  .field.w-sm, .field.w-md { flex: 1 1 calc(50% - 5px); }
 }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
 .map { height: 380px; border-radius: var(--radius); overflow: hidden; z-index: 0; background: var(--surface-2); }
