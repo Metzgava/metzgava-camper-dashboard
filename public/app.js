@@ -367,7 +367,7 @@ async function viewWorkouts(id) {
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
-    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
+    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
@@ -376,6 +376,12 @@ async function viewWorkouts(id) {
       <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>'}</div>`);
   $('#sync').onclick = safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} nuovi tour`); render(); });
   $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
+  $('#hjson').onchange = safe(async e => {
+    const fd = new FormData(); fd.append('file', e.target.files[0]);
+    toast('Importazione in corso\u2026');
+    const r = await api('/workouts/health-json', { method: 'POST', body: fd });
+    toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti ad attivit\u00e0 esistenti`); render();
+  });
   $$('[data-ren]').forEach(b => b.onclick = () => renameWorkout(b.dataset.ren, b.dataset.name, render));
   $$('[data-del]').forEach(b => b.onclick = safe(async () => {
     if (!await confirmDlg('Eliminare l\'allenamento?')) return;

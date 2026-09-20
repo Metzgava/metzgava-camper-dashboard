@@ -9,6 +9,8 @@ import { requireAuth, requireDevice } from './auth.js';
 export const router = Router();
 export const ingest = Router(); // montato PRIMA delle rotte con sessione: usa il token dispositivo
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+// L'export di mesi di allenamenti puo' superare il limite pensato per un singolo GPX
+const uploadJson = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 async function saveWorkout(userId, w, tripId = null) {
   const r = await q(`INSERT INTO workouts(user_id,trip_id,source,external_id,sport,name,started_at,duration_s,distance_m,elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,meta)
@@ -69,13 +71,12 @@ function healthTrack(route) {
   return pts.length ? pts : null;
 }
 
-// ---------- ingest da iPhone (token dispositivo) ----------
-// Accetta sia il formato semplice (Comandi Rapidi) sia l'export di "Health Auto Export" (data.workouts[])
-ingest.post('/health', requireDevice, wrap(async (req, res) => {
-  const body = req.body || {};
-  let items = [];
+// ---------- arrivo dei dati da iPhone ----------
+// Ricava gli allenamenti dal pacchetto: sia il formato di "Health Auto Export"
+// (data.workouts[]) sia quello semplice dei Comandi Rapidi
+function itemsDaPacchetto(body, origine) {
   if (Array.isArray(body.data?.workouts)) {
-    items = body.data.workouts.map(w => ({
+    return body.data.workouts.map(w => ({
       source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: w.name, name: w.name,
       started_at: new Date(w.start), duration_s: healthDuration(w),
       distance_m: healthDistance(w.distance),
@@ -84,31 +85,41 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
       hr_max: w.maxHeartRate?.qty != null ? Math.round(num(w.maxHeartRate.qty)) : (w.heartRate?.max?.qty != null ? Math.round(num(w.heartRate.max.qty)) : null),
       elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
       track: healthTrack(w.route),
-      meta: { device: req.device.name, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null, raw_units: { distance: w.distance?.units } },
-    }));
-  } else {
-    const list = Array.isArray(body) ? body : Array.isArray(body.workouts) ? body.workouts : [body];
-    items = list.filter(w => w && (w.start || w.started_at)).map(w => ({
-      source: 'health', external_id: w.id || w.uuid || null, sport: w.type || w.sport || null, name: w.name || w.type || 'Allenamento',
-      started_at: new Date(w.start || w.started_at), duration_s: w.duration_s != null ? num(w.duration_s) : (w.duration_min != null ? Math.round(num(w.duration_min) * 60) : null),
-      distance_m: w.distance_m != null ? num(w.distance_m) : (w.distance_km != null ? Math.round(num(w.distance_km) * 1000) : null),
-      calories: w.calories != null ? Math.round(num(w.calories)) : null, hr_avg: w.hr_avg != null ? Math.round(num(w.hr_avg)) : null, hr_max: w.hr_max != null ? Math.round(num(w.hr_max)) : null,
-      elevation_up_m: w.elevation_up_m != null ? num(w.elevation_up_m) : null,
-      track: Array.isArray(w.track) ? w.track : null, meta: { device: req.device.name, ...(w.meta || {}) },
+      meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null, raw_units: { distance: w.distance?.units } },
     }));
   }
+  const list = Array.isArray(body) ? body : Array.isArray(body.workouts) ? body.workouts : [body];
+  return list.filter(w => w && (w.start || w.started_at)).map(w => ({
+    source: 'health', external_id: w.id || w.uuid || null, sport: w.type || w.sport || null, name: w.name || w.type || 'Allenamento',
+    started_at: new Date(w.start || w.started_at), duration_s: w.duration_s != null ? num(w.duration_s) : (w.duration_min != null ? Math.round(num(w.duration_min) * 60) : null),
+    distance_m: w.distance_m != null ? num(w.distance_m) : (w.distance_km != null ? Math.round(num(w.distance_km) * 1000) : null),
+    calories: w.calories != null ? Math.round(num(w.calories)) : null, hr_avg: w.hr_avg != null ? Math.round(num(w.hr_avg)) : null, hr_max: w.hr_max != null ? Math.round(num(w.hr_max)) : null,
+    elevation_up_m: w.elevation_up_m != null ? num(w.elevation_up_m) : null,
+    track: Array.isArray(w.track) ? w.track : null, meta: { device: origine, ...(w.meta || {}) },
+  }));
+}
+// Salva gli allenamenti, fondendo quelli senza GPS con l'attivita' Komoot/GPX corrispondente
+async function archivia(userId, items) {
   const saved = [], merged = [];
   for (const w of items) {
-    const m = w.track ? null : await mergeHealthIntoTrack(req.user.id, w);
+    const m = w.track ? null : await mergeHealthIntoTrack(userId, w);
     if (m) { merged.push(m); continue; }
-    saved.push((await saveWorkout(req.user.id, w)).id);
+    saved.push((await saveWorkout(userId, w)).id);
   }
+  return { saved: saved.length, merged: merged.length };
+}
+
+const formaPacchetto = body => Array.isArray(body.data?.workouts) ? `data.workouts[${body.data.workouts.length}]`
+  : `non riconosciuta (chiavi: ${Object.keys(body).join(',') || 'nessuna'}${body.data ? '; dentro data: ' + Object.keys(body.data).join(',') : ''})`;
+
+ingest.post('/health', requireDevice, wrap(async (req, res) => {
+  const body = req.body || {};
+  const items = itemsDaPacchetto(body, req.device.name);
+  const r = await archivia(req.user.id, items);
   // Traccia l'esito: un invio accettato ma vuoto altrimenti non lascerebbe alcun segno.
   // Registriamo solo la forma del pacchetto e i conteggi, mai i dati sanitari.
-  const forma = Array.isArray(body.data?.workouts) ? `data.workouts[${body.data.workouts.length}]`
-    : `non riconosciuta (chiavi: ${Object.keys(body).join(',') || 'nessuna'}${body.data ? '; dentro data: ' + Object.keys(body.data).join(',') : ''})`;
-  console.log(`ingest: forma=${forma} elementi=${items.length} salvati=${saved.length} uniti=${merged.length} dispositivo=${req.device.name}`);
-  res.json({ ok: true, saved: saved.length, merged: merged.length, device: req.device.name });
+  console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged} dispositivo=${req.device.name}`);
+  res.json({ ok: true, ...r, device: req.device.name });
 }));
 
 // ---------- rotte autenticate ----------
@@ -143,6 +154,20 @@ router.put('/workouts/:id', wrap(async (req, res) => {
 }));
 router.delete('/workouts/:id', wrap(async (req, res) => {
   await q('DELETE FROM workouts WHERE id=$1 AND (user_id=$2 OR $3)', [req.params.id, req.user.id, req.user.role === 'admin']); res.json({ ok: true });
+}));
+
+// Importazione manuale del JSON di Health Auto Export: serve per recuperare lo
+// storico, visto che l'automazione sul telefono copre al massimo sette giorni.
+router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'File JSON mancante' });
+  let body;
+  try { body = JSON.parse(req.file.buffer.toString('utf8')); }
+  catch { return res.status(400).json({ error: 'Il file non e\u2019 un JSON valido' }); }
+  const items = itemsDaPacchetto(body, `file ${req.file.originalname}`);
+  if (!items.length) return res.status(400).json({ error: `Nessun allenamento nel file (forma: ${formaPacchetto(body)}). Esporta il tipo di dato "Allenamenti", non le metriche.` });
+  const r = await archivia(req.user.id, items);
+  console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} utente=${req.user.id}`);
+  res.json({ ok: true, letti: items.length, ...r });
 }));
 
 // Upload GPX manuale
