@@ -123,7 +123,7 @@ async function viewTrips() {
     <div class="row between" style="margin-bottom:16px"><h1>I tuoi viaggi</h1><div class="row"><button class="btn" id="carlock">📡 Importa CarLock</button><button class="btn primary" id="new">＋ Nuovo viaggio</button></div></div>
     <div class="tiles" style="margin-bottom:16px">
       <div class="tile accent"><div class="label">Viaggi</div><div class="value">${trips.length}</div><div class="sub">${open.length} in corso</div></div>
-      <div class="tile"><div class="label">Km totali</div><div class="value">${num(totKm, 0)}</div><div class="sub">~${num(totKm / (settings.vehicle?.km_per_liter || 10), 0)} litri</div></div>
+      <div class="tile"><div class="label">Km in camper</div><div class="value">${num(totKm, 0)}</div><div class="sub">~${num(totKm / (settings.vehicle?.km_per_liter || 10), 0)} litri</div></div>
       <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub">${totKm ? eur(totSp / totKm) + '/km' : ''}</div></div>
     </div>
     ${open.length ? `<div class="section"><h2 style="margin-bottom:8px">In corso</h2><div class="card pad-0 list">${open.map(card).join('')}</div></div>` : ''}
@@ -161,9 +161,9 @@ async function viewTrip(id) {
       <div class="row"><button class="btn" id="edit">✏️ Modifica</button>${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn primary" id="close">Concludi viaggio</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
-      <div class="tile"><div class="label">Distanza</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe · ${dur(totals.minutes * 60)} guida</div></div>
+      <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe · ${dur(totals.minutes * 60)} guida</div></div>
       <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
-      <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
+      <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
     </div>
     <div class="card pad-0"><div id="map" class="map tall"></div></div>
     <div class="grid cols-2" style="margin-top:14px">
@@ -462,23 +462,27 @@ async function viewDashboard() {
     f.forEach(w => { const k = w.trip_id || 0; (perTrip[k] ||= { titolo: w.trip_title || 'Senza viaggio', n: 0, km: 0, kcal: 0, s: 0 }); const r = perTrip[k]; r.n++; r.km += (w.distance_m || 0) / 1000; r.kcal += w.calories || 0; r.s += w.duration_s || 0; });
     const tripOrd = Object.entries(perTrip).sort((a, b) => b[1].km - a[1].km);
     const datiViaggio = id => trips.find(x => x.id === +id);
+    // I km del camper vengono dalle tappe del viaggio, non dagli allenamenti:
+    // sono due grandezze diverse e vanno tenute separate.
+    const kmCamper = tripOrd.reduce((a, [id]) => a + (datiViaggio(id)?.km || 0), 0);
 
     const MAX = 60;
     $('#out').innerHTML = `
       <div class="tiles" style="margin:14px 0">
         <div class="tile accent"><div class="label">Attività</div><div class="value">${t.n}</div><div class="sub">su ${ws.length} totali</div></div>
-        <div class="tile"><div class="label">Distanza</div><div class="value">${num(t.km)} km</div></div>
+        <div class="tile"><div class="label">Km allenamento</div><div class="value">${num(t.km)} km</div></div>
+        <div class="tile"><div class="label">Km in camper</div><div class="value">${num(kmCamper, 0)} km</div><div class="sub">dei viaggi in elenco</div></div>
         <div class="tile"><div class="label">Tempo</div><div class="value">${dur(t.s)}</div></div>
         <div class="tile"><div class="label">Calorie</div><div class="value">${num(t.kcal, 0)}</div></div>
         <div class="tile"><div class="label">Dislivello</div><div class="value">${num(t.up, 0)} m</div></div>
         <div class="tile"><div class="label">Battito medio</div><div class="value">${t.hrn ? Math.round(t.hr / t.hrn) + ' bpm' : '—'}</div></div>
       </div>
       <div class="grid cols-2">
-        <div class="card"><h2>Chilometri per sport</h2>
+        <div class="card"><h2>Km di allenamento per sport</h2><div class="small muted">i km in camper sono nella tabella accanto</div>
           <div class="bars">${sportOrd.map(([k, v]) => `<div class="bar" title="${esc(k)}: ${num(v)} km"><i style="height:${v / maxKm * 100}%"></i><b>${esc(k)}</b></div>`).join('') || '<div class="empty grow">Nessun dato con questi filtri</div>'}</div></div>
         <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Per viaggio</h2></div>
-          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th class="num">Attività</th><th class="num">Km</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
-          <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th class="num">Km camper</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
+          <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
       </div>
       <div class="card pad-0" style="margin-top:14px"><div class="row between" style="padding:14px 16px 6px"><h2>Allenamenti (${f.length})</h2>${f.length > MAX ? `<span class="small muted">mostrati i primi ${MAX}</span>` : ''}</div>
         <div class="list">${f.slice(0, MAX).map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
@@ -507,6 +511,9 @@ async function viewSummary() {
   const max = Math.max(1, ...Object.values(spentBy));
   const kmBy = Object.fromEntries(s.km.map(k => [k.period, k.km]));
   const woBy = Object.fromEntries(s.workouts.map(k => [k.period, k]));
+  // Scale separate: i km in camper sono di un ordine di grandezza piu' grandi
+  const maxKmCamper = Math.max(1, ...Object.values(kmBy));
+  const maxKmSport = Math.max(1, ...Object.values(woBy).map(x => x.km || 0));
   const total = s.totals.spent || 1;
   let acc = 0; const grad = s.by_category.map(c => { const a = acc; acc += c.total / total * 100; return `${catColor(c.category)} ${a}% ${acc}%`; }).join(', ');
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Riepiloghi</h1>
@@ -520,7 +527,14 @@ async function viewSummary() {
       <div class="card"><h2>Per categoria</h2><div class="donut" style="margin-top:10px"><div class="ring" style="background:conic-gradient(${grad || 'var(--surface-2) 0 100%'})"><b>${eur(s.totals.spent)}</b></div>
         <div class="legend" style="flex-direction:column;gap:6px">${s.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b> <span class="muted">${Math.round(c.total / total * 100)}%</span></span>`).join('') || '<span class="muted">—</span>'}</div></div></div>
     </div>
-    <div class="card pad-0" style="margin-top:14px"><div class="table-wrap"><table><thead><tr><th>Periodo</th><th class="num">Spese</th><th class="num">Km camper</th><th class="num">Allenamenti</th><th class="num">Km attività</th><th class="num">Calorie</th><th class="num">❤️ medio</th></tr></thead>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card"><h2>Km in camper</h2><div class="small muted">dalle tappe del viaggio</div>
+        <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${num(kmBy[p] || 0, 0)} km in camper"><i style="height:${(kmBy[p] || 0) / maxKmCamper * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
+      <div class="card"><h2>Km di allenamento</h2><div class="small muted">a piedi, in bici e le altre attività</div>
+        <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${num(woBy[p]?.km || 0)} km di attività"><i class="sport" style="height:${(woBy[p]?.km || 0) / maxKmSport * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
+    </div>
+    <div class="small muted" style="margin:6px 2px 0">I due grafici hanno scale indipendenti: le altezze non sono confrontabili fra loro.</div>
+    <div class="card pad-0" style="margin-top:14px"><div class="table-wrap"><table><thead><tr><th>Periodo</th><th class="num">Spese</th><th class="num">Km camper</th><th class="num">Allenamenti</th><th class="num">Km allenamento</th><th class="num">Calorie</th><th class="num">❤️ medio</th></tr></thead>
       <tbody>${periods.map(p => `<tr><td>${fmtP(p)}</td><td class="num"><b>${eur(spentBy[p])}</b></td><td class="num">${num(kmBy[p] || 0, 0)}</td><td class="num">${woBy[p]?.n || 0}</td><td class="num">${num(woBy[p]?.km || 0)}</td><td class="num">${num(woBy[p]?.calories || 0, 0)}</td><td class="num">${woBy[p]?.hr_avg || '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nessun dato</td></tr>'}</tbody></table></div></div>`);
   $$('.chip').forEach(c => c.onclick = () => { state.period = c.dataset.p; render(); });
   $('#go').onclick = () => { state.period = 'custom'; state.from = $('#from').value; state.to = $('#to').value; state.group = $('#group').value; render(); };

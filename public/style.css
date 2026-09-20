@@ -106,6 +106,8 @@ tr:last-child td { border-bottom: 0; } td.num, th.num { text-align: right; font-
 .bars { display: flex; align-items: flex-end; gap: 4px; height: 150px; padding-top: 10px; }
 .bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; }
 .bar i { display: block; width: 100%; border-radius: 6px 6px 2px 2px; background: var(--accent); min-height: 2px; transition: height .3s; }
+/* Colore diverso per le distanze di allenamento, da non confondere con i km in camper */
+.bar i.sport { background: var(--accent-2); }
 .bar b { font-size: 10px; color: var(--muted); font-weight: 500; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 13px; } .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .donut { display: flex; align-items: center; gap: 18px; } .donut .ring { width: 130px; height: 130px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; }
