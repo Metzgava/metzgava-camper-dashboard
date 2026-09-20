@@ -103,6 +103,11 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
     if (m) { merged.push(m); continue; }
     saved.push((await saveWorkout(req.user.id, w)).id);
   }
+  // Traccia l'esito: un invio accettato ma vuoto altrimenti non lascerebbe alcun segno.
+  // Registriamo solo la forma del pacchetto e i conteggi, mai i dati sanitari.
+  const forma = Array.isArray(body.data?.workouts) ? `data.workouts[${body.data.workouts.length}]`
+    : `non riconosciuta (chiavi: ${Object.keys(body).join(',') || 'nessuna'}${body.data ? '; dentro data: ' + Object.keys(body.data).join(',') : ''})`;
+  console.log(`ingest: forma=${forma} elementi=${items.length} salvati=${saved.length} uniti=${merged.length} dispositivo=${req.device.name}`);
   res.json({ ok: true, saved: saved.length, merged: merged.length, device: req.device.name });
 }));
 
