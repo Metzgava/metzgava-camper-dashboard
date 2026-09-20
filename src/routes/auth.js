@@ -18,11 +18,15 @@ export const requireAdmin = (req, res, next) => req.user?.role === 'admin' ? nex
 
 // Autenticazione tramite token dispositivo (per Comandi Rapidi iPhone / Health Auto Export)
 export const requireDevice = wrap(async (req, res, next) => {
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.query.token;
-  if (!token) return res.status(401).json({ error: 'Token dispositivo mancante' });
+  // Il token può arrivare come Authorization: Bearer <t>, Authorization: <t>, X-API-Key, X-Token, ?token= o nel corpo { token }
+  const hdr = Object.entries(req.headers).find(([k]) => /auth|api-?key|x-token/i.test(k));
+  let token = (hdr?.[1] || req.query.token || req.body?.token || '').toString().trim();
+  token = token.replace(/^(Bearer|Token)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+  const m = token.match(/cd_[A-Za-z0-9_-]+/); if (m) token = m[0];
+  if (!token) { console.warn('ingest: token mancante; header presenti:', Object.keys(req.headers).join(',')); return res.status(401).json({ error: 'Token dispositivo mancante', hint: 'invia Authorization: Bearer <token> oppure ?token=<token> nell\'URL', headers_ricevuti: Object.keys(req.headers) }); }
   const { rows } = await q(`SELECT d.id AS device_id, d.approved, d.name AS device_name, u.id, u.email, u.name, u.role
                             FROM devices d JOIN users u ON u.id=d.user_id WHERE d.token_hash=$1`, [sha256(token)]);
-  if (!rows[0]) return res.status(401).json({ error: 'Token non valido' });
+  if (!rows[0]) { console.warn('ingest: token non valido', token.slice(0, 6) + '…' + token.slice(-4), 'lunghezza', token.length); return res.status(401).json({ error: 'Token non valido', ricevuto: token.slice(0, 6) + '…' + token.slice(-4), lunghezza: token.length }); }
   if (!rows[0].approved) return res.status(403).json({ error: 'Dispositivo non ancora autorizzato' });
   await q('UPDATE devices SET last_seen_at=now() WHERE id=$1', [rows[0].device_id]);
   req.user = rows[0]; req.device = { id: rows[0].device_id, name: rows[0].device_name };
