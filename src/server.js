@@ -14,7 +14,10 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
-app.use(express.json({ limit: '10mb' }));
+// L’export di Health Auto Export con le tracce GPS supera facilmente i 10 MB
+const jsonNormale = express.json({ limit: '10mb' });
+const jsonIngest = express.json({ limit: '50mb' });
+app.use((req, res, next) => (req.path.startsWith('/api/ingest') ? jsonIngest : jsonNormale)(req, res, next));
 app.use(cookieSession({
   name: 'camper.sid',
   secret: SECRET,

@@ -44,6 +44,31 @@ async function mergeHealthIntoTrack(userId, w) {
   return match.id;
 }
 
+// HAE dichiara la durata in secondi: quando ci sono inizio e fine usiamo quelli, che non dipendono dall’unità
+function healthDuration(w) {
+  const start = new Date(w.start), end = w.end ? new Date(w.end) : null;
+  if (end && !isNaN(start) && !isNaN(end) && end > start) return Math.round((end - start) / 1000);
+  return w.duration != null ? Math.round(num(w.duration)) : null;
+}
+
+// Converte la distanza nell’unità dichiarata da HAE (km, miglia, iarde, piedi; altrimenti metri)
+function healthDistance(d) {
+  if (!d || d.qty == null) return null;
+  const u = String(d.units || '').trim().toLowerCase();
+  const f = u.startsWith('km') ? 1000 : u.startsWith('mi') ? 1609.344 : u.startsWith('yd') ? 0.9144 : u.startsWith('ft') ? 0.3048 : 1;
+  return Math.round(num(d.qty) * f);
+}
+
+// I punti della traccia arrivano come lat/lon oppure latitude/longitude secondo la versione di HAE
+function healthTrack(route) {
+  if (!Array.isArray(route)) return null;
+  const pts = route
+    .map(p => [Number(p?.lat ?? p?.latitude), Number(p?.lon ?? p?.longitude)])
+    .filter(([la, lo]) => Number.isFinite(la) && Number.isFinite(lo))
+    .map(([la, lo]) => [+la.toFixed(5), +lo.toFixed(5)]);
+  return pts.length ? pts : null;
+}
+
 // ---------- ingest da iPhone (token dispositivo) ----------
 // Accetta sia il formato semplice (Comandi Rapidi) sia l'export di "Health Auto Export" (data.workouts[])
 ingest.post('/health', requireDevice, wrap(async (req, res) => {
@@ -52,13 +77,13 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
   if (Array.isArray(body.data?.workouts)) {
     items = body.data.workouts.map(w => ({
       source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: w.name, name: w.name,
-      started_at: new Date(w.start), duration_s: w.duration ? Math.round(num(w.duration) * (w.duration > 1000 ? 1 : 60)) : null,
-      distance_m: w.distance?.qty != null ? Math.round(num(w.distance.qty) * (String(w.distance.units).startsWith('km') ? 1000 : 1)) : null,
+      started_at: new Date(w.start), duration_s: healthDuration(w),
+      distance_m: healthDistance(w.distance),
       calories: w.activeEnergy?.qty != null ? Math.round(num(w.activeEnergy.qty)) : (w.activeEnergyBurned?.qty != null ? Math.round(num(w.activeEnergyBurned.qty)) : null),
       hr_avg: w.avgHeartRate?.qty != null ? Math.round(num(w.avgHeartRate.qty)) : (w.heartRate?.avg?.qty != null ? Math.round(num(w.heartRate.avg.qty)) : null),
       hr_max: w.maxHeartRate?.qty != null ? Math.round(num(w.maxHeartRate.qty)) : (w.heartRate?.max?.qty != null ? Math.round(num(w.heartRate.max.qty)) : null),
       elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
-      track: Array.isArray(w.route) ? w.route.map(p => [+(+p.lat).toFixed(5), +(+p.lon).toFixed(5)]) : null,
+      track: healthTrack(w.route),
       meta: { device: req.device.name, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null, raw_units: { distance: w.distance?.units } },
     }));
   } else {
