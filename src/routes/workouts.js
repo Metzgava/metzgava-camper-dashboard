@@ -116,18 +116,24 @@ router.get('/workouts', wrap(async (req, res) => {
   if (to) { params.push(to); conds.push(`started_at < $${params.length}::date + 1`); }
   if (user_id) { params.push(+user_id); conds.push(`w.user_id = $${params.length}`); }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
-  const rows = (await q(`SELECT w.id,w.user_id,w.trip_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,w.hr_max,w.speed_avg_kmh,w.meta,(w.track IS NOT NULL) AS has_track,u.name AS athlete
-    FROM workouts w JOIN users u ON u.id=w.user_id ${where} ORDER BY started_at DESC LIMIT 300`, params)).rows;
+  const rows = (await q(`SELECT w.id,w.user_id,w.trip_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,w.hr_max,w.speed_avg_kmh,w.meta,(w.track IS NOT NULL) AS has_track,u.name AS athlete,t.title AS trip_title
+    FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id ${where} ORDER BY started_at DESC LIMIT 300`, params)).rows;
   res.json(rows);
 }));
 router.get('/workouts/:id', wrap(async (req, res) => {
-  const r = (await q('SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id WHERE w.id=$1', [req.params.id])).rows[0];
+  const r = (await q('SELECT w.*, u.name AS athlete, t.title AS trip_title FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id WHERE w.id=$1', [req.params.id])).rows[0];
   r ? res.json(r) : res.status(404).json({ error: 'Non trovato' });
 }));
 router.put('/workouts/:id', wrap(async (req, res) => {
   const b = req.body || {};
-  const r = (await q('UPDATE workouts SET trip_id=$2, name=coalesce($3,name), sport=coalesce($4,sport), calories=coalesce($5,calories), hr_avg=coalesce($6,hr_avg), hr_max=coalesce($7,hr_max) WHERE id=$1 AND (user_id=$8 OR $9) RETURNING *',
-    [req.params.id, b.trip_id || null, b.name, b.sport, b.calories, b.hr_avg, b.hr_max, req.user.id, req.user.role === 'admin'])).rows[0];
+  // Il viaggio si tocca solo se il chiamante lo manda davvero: rinominare non deve slegarlo
+  const cambiaViaggio = Object.prototype.hasOwnProperty.call(b, 'trip_id');
+  const nome = typeof b.name === 'string' && b.name.trim() ? b.name.trim() : null;
+  const r = (await q(`UPDATE workouts SET trip_id=CASE WHEN $2 THEN $3::int ELSE trip_id END, name=coalesce($4,name), sport=coalesce($5,sport),
+      calories=coalesce($6,calories), hr_avg=coalesce($7,hr_avg), hr_max=coalesce($8,hr_max)
+    WHERE id=$1 AND (user_id=$9 OR $10) RETURNING *`,
+    [req.params.id, cambiaViaggio, b.trip_id || null, nome, b.sport, b.calories, b.hr_avg, b.hr_max, req.user.id, req.user.role === 'admin'])).rows[0];
+  if (!r) return res.status(404).json({ error: 'Allenamento non trovato, o non tuo' });
   res.json(r);
 }));
 router.delete('/workouts/:id', wrap(async (req, res) => {

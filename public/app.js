@@ -346,6 +346,21 @@ function poiModal(l) {
 }
 
 // ---------- Allenamenti ----------
+// Rinomina un allenamento; usata sia dall'elenco sia dalla scheda di dettaglio
+function renameWorkout(id, nome, dopo) {
+  modal(`<h2>Rinomina allenamento</h2><form id="f" class="stack" style="margin-top:12px"><input name="name" value="${esc(nome || '')}" maxlength="120" required autofocus><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const nuovo = String(new FormData(e.target).get('name') || '').trim();
+        if (!nuovo) return;
+        await api('/workouts/' + id, { method: 'PUT', body: { name: nuovo } });
+        close(); toast('Rinominato'); dopo?.();
+      });
+    });
+}
+
 async function viewWorkouts(id) {
   if (id) return viewWorkout(id);
   const ws = await api('/workouts');
@@ -355,24 +370,32 @@ async function viewWorkouts(id) {
     <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
-    <div class="card pad-0 list">${ws.map(w => `<a class="item" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
-      <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span></div></div>
-      <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''} ${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' : ''}</span></div></a>`).join('') || '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>'}</div>`);
+    <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
+      <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
+      <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''} ${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' : ''}</span></div></a>
+      <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>'}</div>`);
   $('#sync').onclick = safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} nuovi tour`); render(); });
   $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
+  $$('[data-ren]').forEach(b => b.onclick = () => renameWorkout(b.dataset.ren, b.dataset.name, render));
+  $$('[data-del]').forEach(b => b.onclick = safe(async () => {
+    if (!await confirmDlg('Eliminare l\'allenamento?')) return;
+    await api('/workouts/' + b.dataset.del, { method: 'DELETE' });
+    toast('Allenamento eliminato'); render();
+  }));
 }
 async function viewWorkout(id) {
   const w = await api('/workouts/' + id);
   const trips = await api('/trips');
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
-  $('#app').innerHTML = layout(`<a href="#/allenamenti" class="small">← Allenamenti</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><button class="btn ghost danger icon" id="del">🗑</button></div>
-    <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}</div>
+  $('#app').innerHTML = layout(`<a href="#/allenamenti" class="small">← Allenamenti</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
+    <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
     <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Velocità media', w.speed_avg_kmh ? num(w.speed_avg_kmh) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label><select id="trip"><option value="">—</option>${trips.map(t => `<option value="${t.id}" ${w.trip_id === t.id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select></div></div></div>`);
   if (w.track) { const map = makeMap($('#map')); const pl = L.polyline(w.track.map(p => [p[0], p[1]]), { color: '#ec4899', weight: 4 }).addTo(map); map.fitBounds(pl.getBounds(), { padding: [20, 20] });
     L.marker(w.track[0], { icon: pin('#16a34a', '▶') }).addTo(map); L.marker(w.track[w.track.length - 1], { icon: pin('#dc2626', '■') }).addTo(map); }
   $('#trip').onchange = safe(async e => { await api('/workouts/' + id, { method: 'PUT', body: { trip_id: e.target.value || null } }); toast('Salvato'); });
+  $('#ren').onclick = () => renameWorkout(id, w.name || w.sport || '', render);
   $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = '#/allenamenti'; } });
 }
 
