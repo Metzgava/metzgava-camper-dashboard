@@ -116,7 +116,7 @@ async function viewTrips() {
   const trips = await api('/trips');
   const open = trips.filter(t => t.status === 'open'), closed = trips.filter(t => t.status !== 'open');
   const card = t => `<a class="item" href="#/trip/${t.id}"><span class="dot" style="background:${t.status === 'open' ? 'var(--accent)' : 'var(--muted)'}"></span>
-    <div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">${fdate(t.start_date)}${t.end_date ? ' → ' + fdate(t.end_date) : ''} · ${t.n_legs} tappe · ${num(t.km)} km${t.n_photos ? ' · 📷 ' + t.n_photos : ''}</div></div>
+    <div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">${fdate(t.start_date)}${t.end_date ? ' → ' + fdate(t.end_date) : ''} · ${t.n_legs} tappe · ${num(t.km)} km${t.n_workouts ? ' · 👟 ' + t.n_workouts + ' allenament' + (t.n_workouts === 1 ? 'o' : 'i') : ''}${t.n_photos ? ' · 📷 ' + t.n_photos : ''}</div></div>
     <div class="right"><div style="font-weight:700">${eur(t.total)}</div><span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div></a>`;
   const totKm = trips.reduce((a, t) => a + t.km, 0), totSp = trips.reduce((a, t) => a + t.total, 0);
   $('#app').innerHTML = layout(`

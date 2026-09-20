@@ -58,12 +58,31 @@ router.post('/route/preview', wrap(async (req, res) => {
 }));
 
 // ---- viaggi ----
+// Un allenamento appartiene al viaggio nelle cui date ricade. Il confronto usa
+// l'ora italiana: un'attivita' di tarda sera non deve finire nel giorno dopo.
+const NEL_PERIODO = `t.start_date IS NOT NULL
+  AND (w.started_at AT TIME ZONE 'Europe/Rome')::date >= t.start_date
+  AND ((t.end_date IS NOT NULL AND (w.started_at AT TIME ZONE 'Europe/Rome')::date <= t.end_date)
+       OR (t.end_date IS NULL AND t.status = 'open'))`;
+
+// Aggancia al viaggio gli allenamenti ancora liberi che cadono nel suo periodo.
+// Solo quelli senza viaggio: un'assegnazione fatta a mano non viene mai disfatta.
+export async function agganciaAllenamenti() {
+  const r = await q(`UPDATE workouts w SET trip_id = (
+      SELECT t.id FROM trips t WHERE ${NEL_PERIODO}
+      ORDER BY (t.status = 'open') DESC, t.start_date DESC LIMIT 1)
+    WHERE w.trip_id IS NULL AND EXISTS (SELECT 1 FROM trips t WHERE ${NEL_PERIODO})`);
+  if (r.rowCount) console.log(`agganciati ${r.rowCount} allenamenti ai viaggi corrispondenti`);
+  return r.rowCount;
+}
+
 router.get('/trips', wrap(async (req, res) => {
   const trips = (await q(`SELECT t.*, u.name AS owner,
       (SELECT coalesce(sum(distance_km),0)::float FROM legs WHERE trip_id=t.id) AS km,
       (SELECT coalesce(sum(amount),0)::float FROM expenses WHERE trip_id=t.id) AS total,
       (SELECT count(*)::int FROM legs WHERE trip_id=t.id) AS n_legs,
-      (SELECT count(*)::int FROM photos WHERE trip_id=t.id) AS n_photos
+      (SELECT count(*)::int FROM photos WHERE trip_id=t.id) AS n_photos,
+      (SELECT count(*)::int FROM workouts WHERE trip_id=t.id) AS n_workouts
     FROM trips t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
   res.json(trips);
 }));
@@ -72,6 +91,7 @@ router.post('/trips', wrap(async (req, res) => {
   const b = req.body || {};
   const row = (await q('INSERT INTO trips(user_id,title,start_date,end_date,fuel_price,km_per_liter,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',
     [req.user.id, String(b.title || 'Nuovo viaggio').trim(), b.start_date || null, b.end_date || null, b.fuel_price ? num(b.fuel_price) : null, num(b.km_per_liter, s.vehicle?.km_per_liter || 10) || 10, b.notes || null])).rows[0];
+  await agganciaAllenamenti();
   res.json(row);
 }));
 router.get('/trips/:id', wrap(async (req, res) => {
@@ -89,6 +109,7 @@ router.put('/trips/:id', wrap(async (req, res) => {
     [req.params.id, b.title, b.start_date || null, b.end_date || null, b.fuel_price ? num(b.fuel_price) : null, b.km_per_liter ? num(b.km_per_liter) : null, b.notes || null])).rows[0];
   // il prezzo del gasolio è cambiato: ricalcola le spese automatiche non modificate
   for (const l of (await q('SELECT id FROM legs WHERE trip_id=$1', [row.id])).rows) await syncFuelExpense(l.id);
+  await agganciaAllenamenti();
   res.json(row);
 }));
 router.post('/trips/:id/close', wrap(async (req, res) => {
