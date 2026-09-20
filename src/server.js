@@ -43,8 +43,17 @@ app.use('/api', workouts);
 app.use('/api', photos);
 app.use('/uploads', requireAuth, express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true }));
 
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
-app.get(/^\/(?!api|uploads).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+// La pagina e il suo codice cambiano a ogni pubblicazione: vanno riconvalidati a
+// ogni visita, altrimenti dopo un aggiornamento il browser continua a mostrare la
+// versione vecchia fino allo scadere della cache. Le librerie in vendor/ e le
+// immagini non cambiano mai, e restano memorizzate.
+const indice = path.join(__dirname, '..', 'public', 'index.html');
+const daRiconvalidare = f => /\.(html|js|css|json)$/.test(f) && !f.includes(`${path.sep}vendor${path.sep}`);
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, f) => { if (daRiconvalidare(f)) res.setHeader('Cache-Control', 'no-cache'); },
+}));
+app.get(/^\/(?!api|uploads).*/, (req, res) => res.set('Cache-Control', 'no-cache').sendFile(indice));
 
 app.use((err, req, res, next) => {
   if (err?.type === 'entity.too.large' || err?.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'File troppo grande' });
