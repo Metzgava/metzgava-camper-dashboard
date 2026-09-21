@@ -347,14 +347,27 @@ function poiModal(l) {
 
 // ---------- Allenamenti ----------
 // Filtri dell'elenco allenamenti: periodo e viaggio, ricordati fra una schermata e l'altra
-const elenco = { periodo: 'mese', trip: '', from: null, to: null };
+const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+const elenco = {
+  periodo: 'mese',              // scorciatoia attiva, oppure 'scelta'
+  trips: [],                    // elenco vuoto = tutti i viaggi
+  scelta: { tipo: 'giorno', giorno: today(), mese: new Date().getMonth(), anno: new Date().getFullYear(), from: null, to: null },
+};
+const ultimoGiorno = (anno, mese) => iso(new Date(anno, mese + 1, 0));
+
 function intervallo(periodo) {
   const oggi = new Date();
   if (periodo === 'giorno') return [today(), today()];
   if (periodo === 'settimana') return [iso(oggi - 6 * 864e5), today()];
   if (periodo === 'mese') return [iso(new Date(oggi.getFullYear(), oggi.getMonth(), 1)), today()];
   if (periodo === 'anno') return [`${oggi.getFullYear()}-01-01`, today()];
-  if (periodo === 'libero') return [elenco.from, elenco.to];
+  if (periodo === 'scelta') {
+    const c = elenco.scelta;
+    if (c.tipo === 'giorno') return [c.giorno, c.giorno];
+    if (c.tipo === 'mese') return [iso(new Date(c.anno, c.mese, 1)), ultimoGiorno(c.anno, c.mese)];
+    if (c.tipo === 'anno') return [`${c.anno}-01-01`, `${c.anno}-12-31`];
+    return [c.from, c.to];
+  }
   return [null, null];
 }
 
@@ -379,28 +392,38 @@ async function viewWorkouts(id) {
   const qs = new URLSearchParams();
   if (da) qs.set('from', da);
   if (a) qs.set('to', a);
-  if (elenco.trip) qs.set('trip_id', elenco.trip);
-  const [ws, trips] = await Promise.all([api('/workouts?' + qs), api('/trips')]);
+  if (elenco.trips.length) qs.set('trip_id', elenco.trips.join(','));
+  const [ws, trips, anni] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni')]);
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="card" style="margin-bottom:16px">
-      <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto'], ['libero', 'Periodo\u2026']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
-      <div class="row" style="margin-top:12px">${elenco.periodo === 'libero' ? `
-        <div class="field w-md"><label class="f">Dal</label><input type="date" id="f-dal" value="${elenco.from || ''}"></div>
-        <div class="field w-md"><label class="f">Al</label><input type="date" id="f-al" value="${elenco.to || ''}"></div>
-        <div class="field" style="align-self:flex-end"><button class="btn primary" id="f-applica">Applica</button></div>` : ''}
-        <div class="field grow" style="min-width:200px"><label class="f">Viaggio</label>
-        <select id="f-viaggio"><option value="">Tutti i viaggi</option><option value="none" ${elenco.trip === 'none' ? 'selected' : ''}>Senza viaggio</option>${trips.map(t => `<option value="${t.id}" ${elenco.trip === String(t.id) ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select>
-      </div></div>
+      <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto'], ['scelta', 'Scegli\u2026']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
+      ${elenco.periodo === 'scelta' ? (() => { const c = elenco.scelta; return `<div class="row" style="margin-top:12px">
+        <div class="field w-sm"><label class="f">Scegli per</label><select id="s-tipo">${[['giorno', 'Giorno'], ['mese', 'Mese'], ['anno', 'Anno'], ['intervallo', 'Intervallo']].map(([v, l]) => `<option value="${v}" ${c.tipo === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        ${c.tipo === 'giorno' ? `<div class="field w-md"><label class="f">Giorno</label><input type="date" id="s-giorno" value="${c.giorno || today()}"></div>` : ''}
+        ${c.tipo === 'mese' ? `<div class="field w-md"><label class="f">Mese</label><select id="s-mese">${MESI.map((m, i) => `<option value="${i}" ${c.mese === i ? 'selected' : ''}>${m}</option>`).join('')}</select></div>` : ''}
+        ${c.tipo === 'mese' || c.tipo === 'anno' ? `<div class="field w-sm"><label class="f">Anno</label><select id="s-anno">${(anni.length ? anni : [new Date().getFullYear()]).map(y => `<option value="${y}" ${c.anno === y ? 'selected' : ''}>${y}</option>`).join('')}</select></div>` : ''}
+        ${c.tipo === 'intervallo' ? `<div class="field w-md"><label class="f">Dal</label><input type="date" id="s-dal" value="${c.from || ''}"></div>
+        <div class="field w-md"><label class="f">Al</label><input type="date" id="s-al" value="${c.to || ''}"></div>` : ''}
+        <div class="field" style="align-self:flex-end"><button class="btn primary" id="s-applica">Applica</button></div>
+      </div>`; })() : ''}
+      <div style="margin-top:12px"><label class="f">Viaggi</label>
+        <div class="chips">
+          <span class="chip ${elenco.trips.length ? '' : 'active'}" data-trip="">Tutti</span>
+          <span class="chip ${elenco.trips.includes('none') ? 'active' : ''}" data-trip="none">Senza viaggio</span>
+          ${trips.map(t => `<span class="chip ${elenco.trips.includes(String(t.id)) ? 'active' : ''}" data-trip="${t.id}">${esc(t.title)}</span>`).join('')}
+        </div>
+        <div class="small muted" style="margin-top:6px">${elenco.trips.length > 1 ? 'Puoi sceglierne pi\u00f9 di uno: l\u2019elenco somma i viaggi selezionati.' : 'Tocca pi\u00f9 viaggi per vederli insieme.'}</div>
+      </div>
     </div>
-    <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
+    <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : da && a && da === a ? fdate(da) : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
       <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
       <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''} ${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' : ''}</span></div></a>
-      <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || (elenco.periodo === 'tutto' && !elenco.trip ? '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>' : '<div class="empty">Nessun allenamento con questi filtri.</div>')}</div>`);
+      <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || (elenco.periodo === 'tutto' && !elenco.trips.length ? '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>' : '<div class="empty">Nessun allenamento con questi filtri.</div>')}</div>`);
   $('#sync').onclick = safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} nuovi tour`); render(); });
   $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
   $('#hjson').onchange = safe(async e => {
@@ -409,18 +432,24 @@ async function viewWorkouts(id) {
     const r = await api('/workouts/health-json', { method: 'POST', body: fd });
     toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti ad attivit\u00e0 esistenti`); render();
   });
-  $$('[data-per]').forEach(c => c.onclick = () => {
-    elenco.periodo = c.dataset.per;
-    if (elenco.periodo === 'libero' && !elenco.from && !elenco.to) [elenco.from, elenco.to] = intervallo('mese');
-    render();
-  });
-  if ($('#f-applica')) $('#f-applica').onclick = () => { elenco.from = $('#f-dal').value || null; elenco.to = $('#f-al').value || null; render(); };
-  $('#f-viaggio').onchange = e => {
-    elenco.trip = e.target.value;
-    // Il viaggio ha gia' un suo periodo: restringerlo anche per data nasconderebbe quasi tutto
-    if (elenco.trip && elenco.trip !== 'none') elenco.periodo = 'tutto';
+  $$('[data-per]').forEach(c => c.onclick = () => { elenco.periodo = c.dataset.per; render(); });
+  if ($('#s-tipo')) $('#s-tipo').onchange = e => { elenco.scelta.tipo = e.target.value; render(); };
+  if ($('#s-applica')) $('#s-applica').onclick = () => {
+    const c = elenco.scelta;
+    if ($('#s-giorno')) c.giorno = $('#s-giorno').value || today();
+    if ($('#s-mese')) c.mese = +$('#s-mese').value;
+    if ($('#s-anno')) c.anno = +$('#s-anno').value;
+    if ($('#s-dal')) c.from = $('#s-dal').value || null;
+    if ($('#s-al')) c.to = $('#s-al').value || null;
     render();
   };
+  $$('[data-trip]').forEach(c => c.onclick = () => {
+    const v = c.dataset.trip;
+    if (!v) elenco.trips = [];                                   // "Tutti" azzera la selezione
+    else if (elenco.trips.includes(v)) elenco.trips = elenco.trips.filter(x => x !== v);
+    else elenco.trips = [...elenco.trips, v];
+    render();
+  });
   $('#dup').onclick = safe(async () => {
     const { gruppi, totale_da_eliminare } = await api('/workouts/duplicates');
     if (!gruppi.length) return toast('Nessun doppione trovato');

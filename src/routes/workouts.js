@@ -132,9 +132,15 @@ router.get('/workouts', wrap(async (req, res) => {
   if (from) { params.push(from); conds.push(`started_at >= $${params.length}`); }
   if (to) { params.push(to); conds.push(`started_at < $${params.length}::date + 1`); }
   if (user_id) { params.push(+user_id); conds.push(`w.user_id = $${params.length}`); }
-  // 'none' = gli allenamenti non associati ad alcun viaggio
-  if (trip_id === 'none') conds.push('w.trip_id IS NULL');
-  else if (trip_id) { params.push(+trip_id); conds.push(`w.trip_id = $${params.length}`); }
+  // trip_id accetta piu' valori separati da virgola; 'none' sono i non associati
+  if (trip_id) {
+    const voci = String(trip_id).split(',').map(v => v.trim()).filter(Boolean);
+    const ids = voci.filter(v => v !== 'none').map(Number).filter(Number.isInteger);
+    const pezzi = [];
+    if (ids.length) { params.push(ids); pezzi.push(`w.trip_id = ANY($${params.length}::int[])`); }
+    if (voci.includes('none')) pezzi.push('w.trip_id IS NULL');
+    if (pezzi.length) conds.push('(' + pezzi.join(' OR ') + ')');
+  }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
   const rows = (await q(`SELECT w.id,w.user_id,w.trip_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,w.hr_max,w.speed_avg_kmh,w.meta,(w.track IS NOT NULL) AS has_track,u.name AS athlete,t.title AS trip_title
     FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id ${where} ORDER BY started_at DESC LIMIT 300`, params)).rows;
@@ -171,6 +177,12 @@ function stessoAllenamento(a, b) {
   if (da == null || db == null) return false;
   return Math.abs(da - db) <= 0.15 * Math.max(da, db);
 }
+
+// Anni in cui esiste almeno un allenamento, per il selettore del periodo
+router.get('/workouts/anni', wrap(async (req, res) => {
+  const rows = (await q(`SELECT DISTINCT extract(year FROM started_at AT TIME ZONE 'Europe/Rome')::int AS anno FROM workouts ORDER BY anno DESC`)).rows;
+  res.json(rows.map(r => r.anno));
+}));
 
 router.get('/workouts/duplicates', wrap(async (req, res) => {
   const rows = (await q(`SELECT w.id,w.user_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,
