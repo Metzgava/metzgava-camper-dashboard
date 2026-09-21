@@ -244,6 +244,14 @@ router.get('/workouts/anni', wrap(async (req, res) => {
 // La finestra e' di due minuti, non i quindici della ricerca manuale: qui nessuno
 // conferma, e un criterio largo cancellerebbe attivita' diverse ma ravvicinate.
 const FINESTRA_AUTO_MS = 2 * 60 * 1000;
+// A piedi la stessa uscita puo' essere "camminata" per una app ed "escursione" per
+// un'altra: per il confronto vanno considerate la stessa cosa
+const A_PIEDI = ['camminata', 'escursione'];
+function disciplineCompatibili(s1, s2) {
+  const f1 = famigliaSport(s1), f2 = famigliaSport(s2);
+  if (f1 === f2 || f1 === 'ignoto' || f2 === 'ignoto') return true;
+  return A_PIEDI.includes(f1) && A_PIEDI.includes(f2);
+}
 const CAMPI_DA_TRAVASARE = ['track', 'distance_m', 'duration_s', 'elevation_up_m', 'calories', 'hr_avg', 'hr_max', 'speed_avg_kmh', 'trip_id'];
 
 export async function rimuoviDoppioniAutomatici(userId = null) {
@@ -262,8 +270,10 @@ export async function rimuoviDoppioniAutomatici(userId = null) {
       if (new Date(rows[j].started_at) - new Date(rows[i].started_at) > FINESTRA_AUTO_MS) break;
       const a = rows[i], b = rows[j];
       if (a.user_id !== b.user_id) continue;
-      const fa = famigliaSport(a.sport), fb = famigliaSport(b.sport);
-      if (fa !== fb && fa !== 'ignoto' && fb !== 'ignoto') continue;
+      // Entro un minuto la coincidenza basta da sola: nessuno comincia due attivita'
+      // diverse cosi' a ridosso, e le app danno nomi diversi alla stessa uscita
+      const vicinissimi = Math.abs(new Date(b.started_at) - new Date(a.started_at)) <= 60 * 1000;
+      if (!vicinissimi && !disciplineCompatibili(a.sport, b.sport)) continue;
       gruppo.push(b);
     }
     if (gruppo.length < 2) continue;
