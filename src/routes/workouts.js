@@ -362,7 +362,14 @@ router.post('/komoot/sync', wrap(async (req, res) => {
 
 // Sync periodico per tutti gli utenti collegati (chiamato dal server ogni 6 ore)
 // ---------- Strava ----------
-const redirectStrava = req => `${req.protocol}://${req.get('host')}/api/strava/callback`;
+// Dietro il proxy di Railway l'intestazione Host puo' contenere il nome interno del
+// contenitore: l'indirizzo pubblico sta in x-forwarded-host, che va preferito.
+// Con un dominio sbagliato Strava rifiuta l'autorizzazione con redirect_uri invalid.
+const redirectStrava = req => {
+  const host = req.get('x-forwarded-host') || req.get('host');
+  const schema = req.get('x-forwarded-proto') || req.protocol || 'https';
+  return `${schema}://${host}/api/strava/callback`;
+};
 
 router.get('/strava', wrap(async (req, res) => {
   const r = (await q(`SELECT external_user_id, last_sync_at FROM integrations WHERE user_id=$1 AND provider='strava'`, [req.user.id])).rows[0];
@@ -374,7 +381,10 @@ router.get('/strava/connect', wrap(async (req, res) => {
   if (!strava.configurato()) return res.status(400).json({ error: 'Strava non e\u2019 configurato: mancano STRAVA_CLIENT_ID e STRAVA_CLIENT_SECRET' });
   const stato = crypto.randomBytes(16).toString('hex');
   req.session.stravaStato = stato;
-  res.redirect(strava.urlAutorizzazione(redirectStrava(req), stato));
+  const ritorno = redirectStrava(req);
+  // Il dominio di questo indirizzo deve coincidere con quello registrato su Strava
+  console.log(`strava: indirizzo di ritorno proposto = ${ritorno}`);
+  res.redirect(strava.urlAutorizzazione(ritorno, stato));
 }));
 
 router.get('/strava/callback', wrap(async (req, res) => {
