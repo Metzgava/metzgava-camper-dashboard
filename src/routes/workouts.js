@@ -128,15 +128,28 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
 // ---------- rotte autenticate ----------
 router.use(requireAuth);
 
-// Il tapis roulant: Salute lo esporta come corsa o camminata "al chiuso", e Health
-// Auto Export traduce i nomi nella lingua del telefono ("Interno Esegui" e' Indoor
-// Run). Riconosciamo le varianti italiane e inglesi, cosi' il filtro vale anche per
-// gli allenamenti che arriveranno in futuro.
-const CONDIZIONE_TAPIS = `(
+// Le discipline si riconoscono dal nome dell'attivita', non da un elenco fisso di
+// valori: le sorgenti li scrivono in modi diversi e nella lingua del telefono.
+// Salute manda "Interno Camminata" o "All'aperto Ciclismo", Komoot "hike",
+// "touringbicycle", "mtb_easy". I criteri coprono italiano e inglese, cosi'
+// valgono anche per gli allenamenti che arriveranno in futuro.
+const TAPIS = `(
   lower(w.sport) ~ '(interno|indoor|coperto).*(camminat|esegui|cors|walk|run)'
   OR lower(w.sport) ~ '(camminat|esegui|cors|walk|run).*(interno|indoor|coperto)'
-  OR lower(w.sport) LIKE '%tapis%' OR lower(w.sport) LIKE '%treadmill%'
+  OR lower(w.sport) ~ '(tapis|treadmill)'
 )`;
+const DISCIPLINE = {
+  tapis: TAPIS,
+  // all'aperto: le versioni al chiuso sono gia' contate come tapis roulant
+  camminata: `(lower(w.sport) ~ '(camminat|walk)' AND NOT ${TAPIS})`,
+  corsa: `(lower(w.sport) ~ '(cors|running|[^a-z]run|^run|esegui)' AND NOT ${TAPIS})`,
+  trekking: `lower(w.sport) ~ '(escursion|hike|hiking|trekking|alpinis|mountaineer)'`,
+  nuoto: `lower(w.sport) ~ '(nuot|swim)'`,
+  // comprende mtb, gravel, bici da corsa e da cicloturismo
+  ciclismo: `lower(w.sport) ~ '(ciclism|cycl|bicycle|bicicl|bike|bici|mtb|gravel|ebike|spinning|ride)'`,
+};
+DISCIPLINE.altro = `NOT (${Object.values(DISCIPLINE).join(' OR ')})`;
+const CONDIZIONE_TAPIS = TAPIS;
 
 router.get('/workouts', wrap(async (req, res) => {
   const { from, to, user_id, trip_id } = req.query;
@@ -152,6 +165,11 @@ router.get('/workouts', wrap(async (req, res) => {
   // tapis=1 mostra solo il tapis roulant, tapis=0 lo esclude
   if (req.query.tapis === '1') conds.push(CONDIZIONE_TAPIS);
   else if (req.query.tapis === '0') conds.push(`NOT ${CONDIZIONE_TAPIS}`);
+  // disciplina accetta piu' valori separati da virgola: l'elenco li somma
+  if (req.query.disciplina) {
+    const scelte = String(req.query.disciplina).split(',').map(v => v.trim()).filter(v => DISCIPLINE[v]);
+    if (scelte.length) conds.push('(' + scelte.map(v => DISCIPLINE[v]).join(' OR ') + ')');
+  }
   if (trip_id) {
     const voci = String(trip_id).split(',').map(v => v.trim()).filter(Boolean);
     const ids = voci.filter(v => v !== 'none').map(Number).filter(Number.isInteger);
@@ -196,6 +214,13 @@ function stessoAllenamento(a, b) {
   if (da == null || db == null) return false;
   return Math.abs(da - db) <= 0.15 * Math.max(da, db);
 }
+
+// Quante attivita' per disciplina: serve a non proporre filtri che non selezionano nulla
+router.get('/workouts/discipline', wrap(async (req, res) => {
+  const pezzi = Object.entries(DISCIPLINE).map(([k, c]) => `count(*) FILTER (WHERE ${c}) AS ${k}`);
+  const r = (await q(`SELECT ${pezzi.join(', ')} FROM workouts w`)).rows[0];
+  res.json(Object.fromEntries(Object.keys(DISCIPLINE).map(k => [k, Number(r[k])])));
+}));
 
 // Anni in cui esiste almeno un allenamento, per il selettore del periodo
 router.get('/workouts/anni', wrap(async (req, res) => {

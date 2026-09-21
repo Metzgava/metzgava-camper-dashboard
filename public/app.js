@@ -348,7 +348,11 @@ function poiModal(l) {
 // ---------- Allenamenti ----------
 // Filtri dell'elenco allenamenti: periodo e viaggio, ricordati fra una schermata e l'altra
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+const DISCIPLINE = [['tapis', '🏃 Tapis roulant'], ['camminata', '🚶 Camminata'], ['corsa', '🏃 Corsa'], ['trekking', '🥾 Trekking'],
+  ['nuoto', '🏊 Nuoto'], ['ciclismo', '🚴 Ciclismo'], ['altro', '🏅 Altro']];
 const elenco = {
+  discipline: [],               // elenco vuoto = tutte
+  tendinaDiscipline: false,
   tapis: '',                    // '' tutti, '1' solo tapis roulant, '0' escludilo
   periodo: 'mese',              // scorciatoia attiva, oppure 'scelta'
   trips: [],                    // elenco vuoto = tutti i viaggi
@@ -396,7 +400,8 @@ async function viewWorkouts(id) {
   if (a) qs.set('to', a);
   if (elenco.trips.length) qs.set('trip_id', elenco.trips.join(','));
   if (elenco.tapis) qs.set('tapis', elenco.tapis);
-  const [ws, trips, anni] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni')]);
+  if (elenco.discipline.length) qs.set('disciplina', elenco.discipline.join(','));
+  const [ws, trips, anni, quante] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni'), api('/workouts/discipline')]);
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
@@ -428,10 +433,19 @@ async function viewWorkouts(id) {
         </details>
         <div class="small muted" style="margin-top:6px">Puoi spuntarne pi\u00f9 di uno: l\u2019elenco somma i viaggi scelti.</div>
       </div>
-      <div style="margin-top:12px"><label class="f">Tapis roulant</label>
-        <div class="chips">${[['', 'Indifferente'], ['1', 'Solo tapis roulant'], ['0', 'Escludilo']].map(([v, l]) =>
-          `<span class="chip ${elenco.tapis === v ? 'active' : ''}" data-tapis="${v}">${l}</span>`).join('')}</div>
-        <div class="small muted" style="margin-top:6px">Corsa e camminata al chiuso registrate da Salute.</div>
+      <div style="margin-top:12px"><label class="f">Disciplina</label>
+        <details class="tendina" id="f-discipline" ${elenco.tendinaDiscipline ? 'open' : ''}>
+          <summary>${!elenco.discipline.length ? 'Tutte le discipline'
+            : elenco.discipline.length > 1 ? `${elenco.discipline.length} discipline`
+            : (DISCIPLINE.find(([k]) => k === elenco.discipline[0]) || [null, 'Una disciplina'])[1]}</summary>
+          <div class="tendina-corpo">
+            ${DISCIPLINE.filter(([k]) => quante[k] > 0).map(([k, l]) =>
+              `<label><input type="checkbox" data-disc="${k}" ${elenco.discipline.includes(k) ? 'checked' : ''}> ${l} <span class="muted">(${quante[k]})</span></label>`).join('')}
+            <button class="btn" id="d-senza-tapis" style="margin-top:6px">Tutte tranne il tapis roulant</button>
+            <button class="btn" id="d-azzera" ${elenco.discipline.length ? '' : 'disabled'}>Mostra tutte</button>
+          </div>
+        </details>
+        <div class="small muted" style="margin-top:6px">Puoi spuntarne pi\u00f9 di una. Il numero fra parentesi \u00e8 quante ne hai in archivio.</div>
       </div>
     </div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : da && a && da === a ? fdate(da) : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
@@ -459,7 +473,14 @@ async function viewWorkouts(id) {
     if ($('#s-al')) c.to = $('#s-al').value || null;
     render();
   };
-  $$('[data-tapis]').forEach(c => c.onclick = () => { elenco.tapis = c.dataset.tapis; render(); });
+  $('#f-discipline').ontoggle = e => { elenco.tendinaDiscipline = e.target.open; };
+  $$('[data-disc]').forEach(c => c.onchange = () => {
+    const v = c.dataset.disc;
+    elenco.discipline = c.checked ? [...elenco.discipline, v] : elenco.discipline.filter(x => x !== v);
+    render();
+  });
+  $('#d-senza-tapis').onclick = () => { elenco.discipline = DISCIPLINE.map(([k]) => k).filter(k => k !== 'tapis' && quante[k] > 0); render(); };
+  $('#d-azzera').onclick = () => { elenco.discipline = []; render(); };
   $('#f-viaggi').ontoggle = e => { elenco.tendinaAperta = e.target.open; };
   $$('[data-trip]').forEach(c => c.onchange = () => {
     const v = c.dataset.trip;
