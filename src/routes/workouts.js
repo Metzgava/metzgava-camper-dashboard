@@ -307,7 +307,11 @@ export async function syncKomootFor(userId, { full = false } = {}) {
 }
 router.post('/komoot/sync', wrap(async (req, res) => {
   try { res.json(await syncKomootFor(req.user.id, { full: req.body?.full === true })); }
-  catch (e) { res.status(502).json({ error: 'Sincronizzazione Komoot fallita: ' + e.message }); }
+  catch (e) {
+    // Senza questa riga la causa resta solo nel messaggio a schermo e i log non aiutano
+    console.warn(`Komoot sync a richiesta fallito, utente ${req.user.id}: ${e.message}`);
+    res.status(502).json({ error: 'Sincronizzazione Komoot fallita: ' + e.message });
+  }
 }));
 
 // Sync periodico per tutti gli utenti collegati (chiamato dal server ogni 6 ore)
@@ -377,7 +381,10 @@ export async function syncStravaFor(userId, { full = false } = {}) {
 
 router.post('/strava/sync', wrap(async (req, res) => {
   try { res.json(await syncStravaFor(req.user.id, { full: req.body?.full === true })); }
-  catch (e) { res.status(502).json({ error: 'Sincronizzazione Strava fallita: ' + e.message }); }
+  catch (e) {
+    console.warn(`Strava sync a richiesta fallito, utente ${req.user.id}: ${e.message}`);
+    res.status(502).json({ error: 'Sincronizzazione Strava fallita: ' + e.message });
+  }
 }));
 
 // Sincronizzazione periodica per tutti gli utenti collegati
