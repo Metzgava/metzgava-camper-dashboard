@@ -16,6 +16,11 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 const uploadJson = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 async function saveWorkout(userId, w, tripId = null) {
+  // Il nome dell'attivita' viene ricondotto alla forma unica; il titolo cambia solo
+  // se coincideva col tipo, cosi' un nome scelto a mano resta intatto
+  const sportNorm = normalizzaSport(w.sport);
+  const nomeNorm = (w.name && w.sport && String(w.name).trim() === String(w.sport).trim()) ? sportNorm : w.name;
+  w = { ...w, sport: sportNorm, name: nomeNorm };
   const r = await q(`INSERT INTO workouts(user_id,trip_id,source,external_id,sport,name,started_at,duration_s,distance_m,elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,meta)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
     ON CONFLICT (user_id,source,external_id) DO UPDATE SET
@@ -74,22 +79,32 @@ function healthTrack(route) {
   return pts.length ? pts : null;
 }
 
-// Health Auto Export traduce i nomi di Salute in modo prolisso o goffo. Qui li
-// normalizziamo all'arrivo, cosi' l'archivio e' coerente e non serve correggere
-// a video in ogni schermata. L'originale resta comunque nel campo meta.
-const RINOMINA = {
-  'escursionismo': 'Escursione',
-  "all'aperto camminata": 'Camminata',
-  "all'aperto ciclismo": 'Ciclismo',
-  'piscina nuoto': 'Nuoto in piscina',
-  'apri acqua nuoto': 'Nuoto in acque libere',
-  // "Interno Esegui" e' la resa letterale di Indoor Run. Il nome nuovo contiene
-  // "tapis", che e' fra le parole riconosciute, quindi il filtro continua a valere
-  'interno camminata': 'Camminata su tapis roulant',
-  'interno esegui': 'Corsa su tapis roulant',
-  'interno corsa': 'Corsa su tapis roulant',
-};
-const rinominaSport = s => RINOMINA[String(s || '').trim().toLowerCase()] || s;
+// Ogni sorgente chiama gli sport a modo suo: Salute traduce alla lettera ("Interno
+// Esegui" per Indoor Run), Komoot usa sigle ("touringbicycle", "mtb_easy"), Strava
+// l'inglese ("Ride"). Qui si riconduce tutto a un nome solo per disciplina, cosi'
+// elenco, filtri e grafici parlano la stessa lingua. Applicata nel salvataggio,
+// quindi vale per tutte le sorgenti; l'originale resta nel campo meta.
+const GIA_NORMALIZZATI = new Set(['bicicletta', 'escursione', 'camminata', 'corsa', 'nuoto',
+  'nuoto in piscina', 'nuoto in acque libere', 'camminata su tapis', 'corsa su tapis']);
+
+export function normalizzaSport(valore) {
+  const originale = String(valore || '').trim();
+  if (!originale) return valore;
+  const t = originale.toLowerCase();
+  if (GIA_NORMALIZZATI.has(t)) return originale;
+  // Al chiuso viene prima: "Interno Camminata" e' camminata, ma soprattutto e' tapis
+  const alChiuso = /interno|indoor|coperto|tapis|treadmill/.test(t);
+  if (alChiuso && /camminat|walk/.test(t)) return 'Camminata su tapis';
+  if (alChiuso && /cors|run|esegui/.test(t)) return 'Corsa su tapis';
+  if (/ciclism|cycl|bicycle|bicicl|bike|mtb|gravel|ebike|ride|spinning/.test(t)) return 'Bicicletta';
+  if (/escursion|hike|hiking|trekking|alpinis|mountaineer/.test(t)) return 'Escursione';
+  if (/piscina|pool/.test(t) && /nuot|swim/.test(t)) return 'Nuoto in piscina';
+  if (/acqua|acque|open water/.test(t) && /nuot|swim/.test(t)) return 'Nuoto in acque libere';
+  if (/nuot|swim/.test(t)) return 'Nuoto';
+  if (/camminat|walk/.test(t)) return 'Camminata';
+  if (/cors|run|jogging|esegui/.test(t)) return 'Corsa';
+  return originale;
+}
 
 // ---------- arrivo dei dati da iPhone ----------
 // Ricava gli allenamenti dal pacchetto: sia il formato di "Health Auto Export"
@@ -97,7 +112,7 @@ const rinominaSport = s => RINOMINA[String(s || '').trim().toLowerCase()] || s;
 function itemsDaPacchetto(body, origine) {
   if (Array.isArray(body.data?.workouts)) {
     return body.data.workouts.map(w => ({
-      source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: rinominaSport(w.name), name: rinominaSport(w.name),
+      source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: w.name, name: w.name,
       started_at: new Date(w.start), duration_s: healthDuration(w),
       distance_m: healthDistance(w.distance),
       calories: w.activeEnergy?.qty != null ? Math.round(num(w.activeEnergy.qty)) : (w.activeEnergyBurned?.qty != null ? Math.round(num(w.activeEnergyBurned.qty)) : null),
@@ -106,12 +121,12 @@ function itemsDaPacchetto(body, origine) {
       elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
       track: healthTrack(w.route),
       meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null,
-        nome_originale: w.name !== rinominaSport(w.name) ? w.name : undefined, raw_units: { distance: w.distance?.units } },
+        nome_originale: w.name !== normalizzaSport(w.name) ? w.name : undefined, raw_units: { distance: w.distance?.units } },
     }));
   }
   const list = Array.isArray(body) ? body : Array.isArray(body.workouts) ? body.workouts : [body];
   return list.filter(w => w && (w.start || w.started_at)).map(w => ({
-    source: 'health', external_id: w.id || w.uuid || null, sport: rinominaSport(w.type || w.sport || null), name: rinominaSport(w.name || w.type || 'Allenamento'),
+    source: 'health', external_id: w.id || w.uuid || null, sport: w.type || w.sport || null, name: w.name || w.type || 'Allenamento',
     started_at: new Date(w.start || w.started_at), duration_s: w.duration_s != null ? num(w.duration_s) : (w.duration_min != null ? Math.round(num(w.duration_min) * 60) : null),
     distance_m: w.distance_m != null ? num(w.distance_m) : (w.distance_km != null ? Math.round(num(w.distance_km) * 1000) : null),
     calories: w.calories != null ? Math.round(num(w.calories)) : null, hr_avg: w.hr_avg != null ? Math.round(num(w.hr_avg)) : null, hr_max: w.hr_max != null ? Math.round(num(w.hr_max)) : null,
@@ -271,6 +286,21 @@ function disciplineCompatibili(s1, s2) {
   return A_PIEDI.includes(f1) && A_PIEDI.includes(f2);
 }
 const CAMPI_DA_TRAVASARE = ['track', 'distance_m', 'duration_s', 'elevation_up_m', 'calories', 'hr_avg', 'hr_max', 'speed_avg_kmh', 'trip_id'];
+
+// Riporta alla forma unica anche i nomi gia' in archivio. Gira all'avvio e usa la
+// stessa funzione dei dati in arrivo, cosi' non esistono due tabelle da tenere allineate.
+export async function normalizzaNomiEsistenti() {
+  const rows = (await q('SELECT DISTINCT sport FROM workouts WHERE sport IS NOT NULL')).rows;
+  let cambiati = 0;
+  for (const { sport } of rows) {
+    const nuovo = normalizzaSport(sport);
+    if (nuovo === sport) continue;
+    const r = await q('UPDATE workouts SET sport=$2, name=CASE WHEN name=$1 THEN $2 ELSE name END WHERE sport=$1', [sport, nuovo]);
+    console.log(`nomi: "${sport}" -> "${nuovo}" (${r.rowCount})`);
+    cambiati += r.rowCount;
+  }
+  return cambiati;
+}
 
 export async function rimuoviDoppioniAutomatici(userId = null) {
   const dove = userId ? 'WHERE w.user_id=$1' : '';

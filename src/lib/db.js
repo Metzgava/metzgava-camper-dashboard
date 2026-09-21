@@ -161,22 +161,7 @@ export async function migrate() {
   -- vero quando il viaggio e' stato scelto a mano: l'aggancio automatico non lo tocca
   ALTER TABLE workouts ADD COLUMN IF NOT EXISTS trip_manual BOOLEAN NOT NULL DEFAULT false;
 
-  -- Nomi piu' scorrevoli per le attivita' gia' in archivio: Health Auto Export
-  -- traduce "Hiking" in "Escursionismo" e "Outdoor Walk" in "All'aperto Camminata"
-  UPDATE workouts SET sport='Escursione', name=CASE WHEN name='Escursionismo' THEN 'Escursione' ELSE name END
-    WHERE sport='Escursionismo';
-  UPDATE workouts SET sport='Camminata', name=CASE WHEN name='All''aperto Camminata' THEN 'Camminata' ELSE name END
-    WHERE sport='All''aperto Camminata';
-  UPDATE workouts SET sport='Ciclismo', name=CASE WHEN name='All''aperto Ciclismo' THEN 'Ciclismo' ELSE name END
-    WHERE sport='All''aperto Ciclismo';
-  UPDATE workouts SET sport='Nuoto in piscina', name=CASE WHEN name='Piscina Nuoto' THEN 'Nuoto in piscina' ELSE name END
-    WHERE sport='Piscina Nuoto';
-  UPDATE workouts SET sport='Nuoto in acque libere', name=CASE WHEN name='Apri Acqua Nuoto' THEN 'Nuoto in acque libere' ELSE name END
-    WHERE sport='Apri Acqua Nuoto';
-  UPDATE workouts SET sport='Camminata su tapis roulant', name=CASE WHEN name='Interno Camminata' THEN 'Camminata su tapis roulant' ELSE name END
-    WHERE sport='Interno Camminata';
-  UPDATE workouts SET sport='Corsa su tapis roulant', name=CASE WHEN name IN ('Interno Esegui','Interno Corsa') THEN 'Corsa su tapis roulant' ELSE name END
-    WHERE sport IN ('Interno Esegui','Interno Corsa');
+  -- I nomi delle attivita' li uniforma normalizzaNomiEsistenti() all'avvio del servizio
 
   CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
   CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
