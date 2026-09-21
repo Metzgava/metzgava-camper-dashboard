@@ -173,6 +173,10 @@ export async function migrate() {
     WHERE sport='Piscina Nuoto';
   UPDATE workouts SET sport='Nuoto in acque libere', name=CASE WHEN name='Apri Acqua Nuoto' THEN 'Nuoto in acque libere' ELSE name END
     WHERE sport='Apri Acqua Nuoto';
+  UPDATE workouts SET sport='Camminata su tapis roulant', name=CASE WHEN name='Interno Camminata' THEN 'Camminata su tapis roulant' ELSE name END
+    WHERE sport='Interno Camminata';
+  UPDATE workouts SET sport='Corsa su tapis roulant', name=CASE WHEN name IN ('Interno Esegui','Interno Corsa') THEN 'Corsa su tapis roulant' ELSE name END
+    WHERE sport IN ('Interno Esegui','Interno Corsa');
 
   CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
   CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);

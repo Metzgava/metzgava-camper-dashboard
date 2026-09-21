@@ -83,6 +83,11 @@ const RINOMINA = {
   "all'aperto ciclismo": 'Ciclismo',
   'piscina nuoto': 'Nuoto in piscina',
   'apri acqua nuoto': 'Nuoto in acque libere',
+  // "Interno Esegui" e' la resa letterale di Indoor Run. Il nome nuovo contiene
+  // "tapis", che e' fra le parole riconosciute, quindi il filtro continua a valere
+  'interno camminata': 'Camminata su tapis roulant',
+  'interno esegui': 'Corsa su tapis roulant',
+  'interno corsa': 'Corsa su tapis roulant',
 };
 const rinominaSport = s => RINOMINA[String(s || '').trim().toLowerCase()] || s;
 
