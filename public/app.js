@@ -347,13 +347,14 @@ function poiModal(l) {
 
 // ---------- Allenamenti ----------
 // Filtri dell'elenco allenamenti: periodo e viaggio, ricordati fra una schermata e l'altra
-const elenco = { periodo: 'mese', trip: '' };
+const elenco = { periodo: 'mese', trip: '', from: null, to: null };
 function intervallo(periodo) {
   const oggi = new Date();
   if (periodo === 'giorno') return [today(), today()];
   if (periodo === 'settimana') return [iso(oggi - 6 * 864e5), today()];
   if (periodo === 'mese') return [iso(new Date(oggi.getFullYear(), oggi.getMonth(), 1)), today()];
   if (periodo === 'anno') return [`${oggi.getFullYear()}-01-01`, today()];
+  if (periodo === 'libero') return [elenco.from, elenco.to];
   return [null, null];
 }
 
@@ -376,7 +377,8 @@ async function viewWorkouts(id) {
   if (id) return viewWorkout(id);
   const [da, a] = intervallo(elenco.periodo);
   const qs = new URLSearchParams();
-  if (da) { qs.set('from', da); qs.set('to', a); }
+  if (da) qs.set('from', da);
+  if (a) qs.set('to', a);
   if (elenco.trip) qs.set('trip_id', elenco.trip);
   const [ws, trips] = await Promise.all([api('/workouts?' + qs), api('/trips')]);
   const k = await api('/komoot');
@@ -384,12 +386,16 @@ async function viewWorkouts(id) {
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="card" style="margin-bottom:16px">
-      <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
-      <div class="row" style="margin-top:12px"><div class="field grow" style="min-width:200px"><label class="f">Viaggio</label>
+      <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto'], ['libero', 'Periodo\u2026']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
+      <div class="row" style="margin-top:12px">${elenco.periodo === 'libero' ? `
+        <div class="field w-md"><label class="f">Dal</label><input type="date" id="f-dal" value="${elenco.from || ''}"></div>
+        <div class="field w-md"><label class="f">Al</label><input type="date" id="f-al" value="${elenco.to || ''}"></div>
+        <div class="field" style="align-self:flex-end"><button class="btn primary" id="f-applica">Applica</button></div>` : ''}
+        <div class="field grow" style="min-width:200px"><label class="f">Viaggio</label>
         <select id="f-viaggio"><option value="">Tutti i viaggi</option><option value="none" ${elenco.trip === 'none' ? 'selected' : ''}>Senza viaggio</option>${trips.map(t => `<option value="${t.id}" ${elenco.trip === String(t.id) ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select>
       </div></div>
     </div>
-    <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${elenco.periodo === 'tutto' ? 'tutto l\u2019archivio' : 'dal ' + fdate(da)}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
+    <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
       <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
@@ -403,7 +409,12 @@ async function viewWorkouts(id) {
     const r = await api('/workouts/health-json', { method: 'POST', body: fd });
     toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti ad attivit\u00e0 esistenti`); render();
   });
-  $$('[data-per]').forEach(c => c.onclick = () => { elenco.periodo = c.dataset.per; render(); });
+  $$('[data-per]').forEach(c => c.onclick = () => {
+    elenco.periodo = c.dataset.per;
+    if (elenco.periodo === 'libero' && !elenco.from && !elenco.to) [elenco.from, elenco.to] = intervallo('mese');
+    render();
+  });
+  if ($('#f-applica')) $('#f-applica').onclick = () => { elenco.from = $('#f-dal').value || null; elenco.to = $('#f-al').value || null; render(); };
   $('#f-viaggio').onchange = e => {
     elenco.trip = e.target.value;
     // Il viaggio ha gia' un suo periodo: restringerlo anche per data nasconderebbe quasi tutto
