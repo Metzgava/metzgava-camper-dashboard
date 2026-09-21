@@ -270,14 +270,26 @@ router.put('/workouts/:id', wrap(async (req, res) => {
   const tornaAutomatico = b.trip_auto === true;
   const cambiaViaggio = tornaAutomatico || Object.prototype.hasOwnProperty.call(b, 'trip_id');
   const nome = typeof b.name === 'string' && b.name.trim() ? b.name.trim() : null;
+  // Un campo assente resta com'e'; un campo vuoto vale zero, non "non toccare"
+  const numero = v => (v === undefined || v === null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
+  const distanza = numero(b.distance_m), durata = numero(b.duration_s);
   let r = (await q(`UPDATE workouts SET
       trip_id=CASE WHEN $2 THEN $3::int ELSE trip_id END,
       trip_manual=CASE WHEN $11 THEN false WHEN $2 THEN true ELSE trip_manual END,
       name=coalesce($4,name), sport=coalesce($5,sport),
-      calories=coalesce($6,calories), hr_avg=coalesce($7,hr_avg), hr_max=coalesce($8,hr_max)
+      calories=coalesce($6,calories), hr_avg=coalesce($7,hr_avg), hr_max=coalesce($8,hr_max),
+      distance_m=coalesce($12,distance_m), duration_s=coalesce($13,duration_s), elevation_up_m=coalesce($14,elevation_up_m)
     WHERE id=$1 AND (user_id=$9 OR $10) RETURNING *`,
-    [req.params.id, cambiaViaggio, tornaAutomatico ? null : (b.trip_id || null), nome, b.sport, b.calories, b.hr_avg, b.hr_max, req.user.id, req.user.role === 'admin', tornaAutomatico])).rows[0];
+    [req.params.id, cambiaViaggio, tornaAutomatico ? null : (b.trip_id || null), nome, b.sport, b.calories, b.hr_avg, b.hr_max, req.user.id, req.user.role === 'admin', tornaAutomatico,
+      distanza, durata, numero(b.elevation_up_m)])).rows[0];
   if (!r) return res.status(404).json({ error: 'Allenamento non trovato, o non tuo' });
+  // La media va ricalcolata quando cambia distanza o durata, altrimenti resterebbe
+  // quella vecchia e contraddirebbe i valori mostrati accanto
+  if (distanza !== null || durata !== null) {
+    r = (await q(`UPDATE workouts SET speed_avg_kmh = CASE WHEN coalesce(duration_s,0) > 0 AND distance_m IS NOT NULL
+        THEN round(((distance_m/1000.0)/(duration_s/3600.0))::numeric, 2) ELSE NULL END
+      WHERE id=$1 RETURNING *`, [req.params.id])).rows[0];
+  }
   if (tornaAutomatico) {
     await agganciaAllenamenti();
     r = (await q('SELECT * FROM workouts WHERE id=$1', [req.params.id])).rows[0];

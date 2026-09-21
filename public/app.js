@@ -13,8 +13,26 @@ const today = () => iso(new Date());
 const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'] };
 const catLabel = c => CAT[c] ? `${CAT[c][0]} ${CAT[c][1]}` : c;
 const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 10) % 10 + 1})`;
-const SPORT = { hike: '🥾', hiking: '🥾', walking: '🚶', walk: '🚶', running: '🏃', jogging: '🏃', touringbicycle: '🚴', mtb: '🚵', racebike: '🚴', cycling: '🚴', bike: '🚴', ride: '🚴', swimming: '🏊', swim: '🏊', skitour: '🎿', mountaineering: '🧗' };
-const sportIco = s => { s = String(s || '').toLowerCase().replace(/[^a-z]/g, ''); for (const k in SPORT) if (s.includes(k)) return SPORT[k]; return '🏅'; };
+// Nessuna emoji rappresenta un tapis roulant: lo disegniamo (nastro, montante, console)
+const ICO_TAPIS = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="15" width="14" height="5" rx="2.5"/><path d="M16.5 17.2 19.6 7.4"/><path d="M17.6 7.4h4.2"/></svg>';
+// Salute manda i nomi nella lingua del telefono, Komoot in inglese: qui stanno entrambi
+const SPORT = { hike: '🥾', hiking: '🥾', escursion: '🥾', trekking: '🥾', alpinis: '🧗',
+  walking: '🚶', walk: '🚶', camminat: '🚶', passeggiat: '🚶',
+  running: '🏃', jogging: '🏃', cors: '🏃', esegui: '🏃', run: '🏃',
+  touringbicycle: '🚴', mtb: '🚵', racebike: '🚴', cycling: '🚴', bike: '🚴', ride: '🚴',
+  ciclism: '🚴', bicicl: '🚴', gravel: '🚵',
+  swimming: '🏊', swim: '🏊', nuoto: '🏊', nuot: '🏊',
+  skitour: '🎿', sci: '🎿', mountaineering: '🧗',
+  forza: '🏋️', strength: '🏋️', yoga: '🧘', riscaldamento: '🧘', raffreddamento: '🧘' };
+// Il tapis roulant va riconosciuto prima della camminata: "Interno Camminata" e' entrambe
+const RE_TAPIS = /(interno|indoor|coperto)[\s\S]*(camminat|esegui|cors|walk|run)|(camminat|esegui|cors|walk|run)[\s\S]*(interno|indoor|coperto)|tapis|treadmill/;
+const sportIco = s => {
+  const testo = String(s || '').toLowerCase();
+  if (RE_TAPIS.test(testo)) return ICO_TAPIS;
+  const secco = testo.replace(/[^a-z]/g, '');
+  for (const k in SPORT) if (secco.includes(k)) return SPORT[k];
+  return '🏅';
+};
 
 let user = null, settings = {};
 
@@ -377,6 +395,50 @@ function intervallo(periodo) {
   return [null, null];
 }
 
+// Media oraria: se la sorgente non l'ha fornita la ricaviamo da distanza e durata,
+// cosi' compare anche sugli allenamenti di Salute, che non la mandano mai
+const mediaKmh = w => w.speed_avg_kmh ? +w.speed_avg_kmh
+  : (w.distance_m && w.duration_s ? (w.distance_m / 1000) / (w.duration_s / 3600) : null);
+
+// Modifica dei dati di un allenamento, con la media che si aggiorna mentre scrivi
+function modificaWorkout(w, dopo) {
+  const campo = (id, etichetta, valore, passo, suffisso) =>
+    `<div class="field"><label class="f">${etichetta}</label><input type="number" step="${passo}" min="0" id="${id}" value="${valore ?? ''}" placeholder="${suffisso}"></div>`;
+  modal(`<h2>Dati dell\u2019allenamento</h2>
+    <div class="row" style="margin-top:12px">
+      ${campo('m-km', 'Distanza (km)', w.distance_m != null ? +(w.distance_m / 1000).toFixed(2) : '', '0.01', 'km')}
+      ${campo('m-min', 'Durata (minuti)', w.duration_s != null ? Math.round(w.duration_s / 60) : '', '1', 'min')}
+      ${campo('m-disl', 'Dislivello (m)', w.elevation_up_m, '1', 'm')}
+    </div>
+    <div class="row">
+      ${campo('m-kcal', 'Calorie', w.calories, '1', 'kcal')}
+      ${campo('m-hr', 'Battito medio', w.hr_avg, '1', 'bpm')}
+      ${campo('m-hrmax', 'Battito massimo', w.hr_max, '1', 'bpm')}
+    </div>
+    <div class="card" style="margin-top:12px;padding:12px"><div class="label">Media oraria</div><div class="value" id="m-media" style="font-size:22px">\u2014</div>
+      <div class="small muted">si ricalcola da distanza e durata</div></div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Annulla</button><button class="btn primary" id="m-salva">Salva</button></div>`,
+    (el, close) => {
+      const aggiornaMedia = () => {
+        const km = parseFloat($('#m-km', el).value), min = parseFloat($('#m-min', el).value);
+        $('#m-media', el).textContent = (km > 0 && min > 0) ? num(km / (min / 60)) + ' km/h' : '\u2014';
+      };
+      ['#m-km', '#m-min'].forEach(sel => $(sel, el).addEventListener('input', aggiornaMedia));
+      aggiornaMedia();
+      $('[data-x]', el).onclick = close;
+      $('#m-salva', el).onclick = safe(async () => {
+        const v = sel => { const t = $(sel, el).value.trim(); return t === '' ? null : Number(t); };
+        const km = v('#m-km'), min = v('#m-min');
+        await api('/workouts/' + w.id, { method: 'PUT', body: {
+          distance_m: km === null ? null : Math.round(km * 1000),
+          duration_s: min === null ? null : Math.round(min * 60),
+          elevation_up_m: v('#m-disl'), calories: v('#m-kcal'), hr_avg: v('#m-hr'), hr_max: v('#m-hrmax'),
+        } });
+        close(); toast('Dati aggiornati'); dopo?.();
+      });
+    });
+}
+
 // Rinomina un allenamento; usata sia dall'elenco sia dalla scheda di dettaglio
 function renameWorkout(id, nome, dopo) {
   modal(`<h2>Rinomina allenamento</h2><form id="f" class="stack" style="margin-top:12px"><input name="name" value="${esc(nome || '')}" maxlength="120" required autofocus><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
@@ -523,9 +585,9 @@ async function viewWorkout(id) {
   const w = await api('/workouts/' + id);
   const trips = await api('/trips');
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
-  $('#app').innerHTML = layout(`<a href="#/allenamenti" class="small">← Allenamenti</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
+  $('#app').innerHTML = layout(`<a href="#/allenamenti" class="small">← Allenamenti</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
-    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Velocità media', w.speed_avg_kmh ? num(w.speed_avg_kmh) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
+    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
       <select id="trip">
@@ -544,6 +606,7 @@ async function viewWorkout(id) {
     await api('/workouts/' + id, { method: 'PUT', body: v === 'auto' ? { trip_auto: true } : { trip_id: v || null } });
     toast(v === 'auto' ? 'Torna all\u2019abbinamento automatico' : 'Salvato'); render();
   });
+  $('#mod').onclick = () => modificaWorkout(w, render);
   $('#ren').onclick = () => renameWorkout(id, w.name || w.sport || '', render);
   $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = '#/allenamenti'; } });
 }
