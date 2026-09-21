@@ -13,7 +13,7 @@ const today = () => iso(new Date());
 const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'] };
 const catLabel = c => CAT[c] ? `${CAT[c][0]} ${CAT[c][1]}` : c;
 const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 10) % 10 + 1})`;
-const SPORT = { hike: '🥾', hiking: '🥾', walking: '🚶', walk: '🚶', running: '🏃', jogging: '🏃', touringbicycle: '🚴', mtb: '🚵', racebike: '🚴', cycling: '🚴', bike: '🚴', swimming: '🏊', skitour: '🎿', mountaineering: '🧗' };
+const SPORT = { hike: '🥾', hiking: '🥾', walking: '🚶', walk: '🚶', running: '🏃', jogging: '🏃', touringbicycle: '🚴', mtb: '🚵', racebike: '🚴', cycling: '🚴', bike: '🚴', ride: '🚴', swimming: '🏊', swim: '🏊', skitour: '🎿', mountaineering: '🧗' };
 const sportIco = s => { s = String(s || '').toLowerCase().replace(/[^a-z]/g, ''); for (const k in SPORT) if (s.includes(k)) return SPORT[k]; return '🏅'; };
 
 let user = null, settings = {};
@@ -659,6 +659,15 @@ async function viewSettings() {
   const v = settings.vehicle || {};
   const devices = await api('/auth/devices');
   const k = await api('/komoot');
+  const st = await api('/strava');
+  // Messaggio di ritorno dal giro su Strava, poi ripuliamo l'indirizzo
+  const esitoStrava = (location.hash.match(/[?&]strava=([^&]+)/) || [])[1];
+  if (esitoStrava) {
+    const messaggi = { collegato: ['Strava collegato', false], negato: ['Autorizzazione negata su Strava', true], 'stato-non-valido': ['Richiesta non valida, riprova', true], errore: ['Collegamento a Strava fallito', true] };
+    const [testo, err] = messaggi[decodeURIComponent(esitoStrava)] || ['Esito sconosciuto', true];
+    toast(testo, err);
+    history.replaceState(null, '', '#/impostazioni');
+  }
   const adm = user.role === 'admin' ? await api('/auth/users') : null;
   const endpoint = location.origin + '/api/ingest/health';
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Impostazioni</h1>
@@ -667,6 +676,14 @@ async function viewSettings() {
       <p class="small muted" style="margin:10px 0 0">Il prezzo si può cambiare per ogni viaggio e per ogni singola tappa. Le spese gasolio si ricalcolano finché non le modifichi a mano.</p></div>
     <div class="card"><h2>🗺️ Komoot</h2>${k.connected ? `<p>Collegato (utente ${esc(k.external_user_id)})${k.last_sync_at ? ' · ultima sincronizzazione ' + fdt(k.last_sync_at) : ''}. I tour registrati vengono scaricati ogni 6 ore e quando premi «Sincronizza».</p><div class="row"><button class="btn" id="ksync">Sincronizza ora</button><button class="btn" id="kfull">Importa tutto lo storico</button><button class="btn ghost danger" id="kdel">Scollega</button></div>`
       : `<p class="small muted">Komoot non ha un'API pubblica: la dashboard usa lo stesso accesso del sito. La password serve solo una volta per ottenere un token, che viene salvato cifrato; la password non viene mai memorizzata.</p><form id="kf" class="stack"><input name="email" type="email" placeholder="Email Komoot" required autocomplete="off"><input name="password" type="password" placeholder="Password Komoot" required autocomplete="off"><button class="btn primary">Collega Komoot</button></form>`}</div>
+
+    <div class="card" style="margin-top:14px"><h2>🟠 Strava</h2>${!st.configurato
+      ? `<p class="small muted">Per collegare Strava servono le credenziali dell\u2019applicazione. Crea un\u2019applicazione su <span class="code">strava.com/settings/api</span>, indica come dominio di richiamo <span class="code">${location.host}</span>, poi imposta su Railway le variabili <span class="code">STRAVA_CLIENT_ID</span> e <span class="code">STRAVA_CLIENT_SECRET</span>. Al riavvio il pulsante di collegamento comparir\u00e0 qui.</p>`
+      : st.connected
+        ? `<p>Collegato (atleta ${esc(st.external_user_id)})${st.last_sync_at ? ' · ultima sincronizzazione ' + fdt(st.last_sync_at) : ''}. Le attivit\u00e0 vengono scaricate ogni 6 ore e quando premi «Sincronizza».</p>
+           <div class="row"><button class="btn" id="ssync">Sincronizza ora</button><button class="btn" id="sfull">Importa tutto lo storico</button><button class="btn ghost danger" id="sdel">Scollega</button></div>`
+        : `<p class="small muted">Verrai portato su Strava per autorizzare la dashboard in sola lettura. Non viene memorizzata alcuna password: solo i token, cifrati, rinnovati da soli.</p>
+           <a class="btn primary" href="/api/strava/connect">Collega Strava</a>`}</div>
     </div>
     <div class="card" style="margin-top:14px"><div class="row between"><h2>📱 iPhone e Apple Watch</h2><button class="btn primary sm" id="adddev">＋ Aggiungi dispositivo</button></div>
       <p class="small muted">Ogni iPhone riceve un token personale con cui invia allenamenti (battito, calorie, distanza) a questa dashboard. I dati restano solo qui, sul tuo server. ${user.role === 'admin' ? 'I dispositivi degli altri utenti vanno approvati da te.' : 'Il dispositivo deve essere approvato dall\'amministratore.'}</p>
@@ -682,6 +699,9 @@ async function viewSettings() {
       ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).length ? `<div class="small" style="margin-top:10px">Inviti attivi: ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).map(i => `<span class="code">${i.code}</span>`).join(' ')}</div>` : ''}</div>` : ''}
     <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta e borghi da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
   $('#veh').onsubmit = safe(async e => { e.preventDefault(); settings.vehicle = await api('/settings/vehicle', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('Salvato'); });
+  $('#ssync')?.addEventListener('click', safe(async () => { toast('Sincronizzazione\u2026'); const r = await api('/strava/sync', { method: 'POST', body: {} }); toast(`Importate ${r.imported} attivit\u00e0`); render(); }));
+  $('#sfull')?.addEventListener('click', safe(async () => { toast('Importazione storico\u2026 pu\u00f2 richiedere un minuto'); const r = await api('/strava/sync', { method: 'POST', body: { full: true } }); toast(`Importate ${r.imported} attivit\u00e0`); render(); }));
+  $('#sdel')?.addEventListener('click', safe(async () => { if (await confirmDlg('Scollegare Strava? Gli allenamenti gi\u00e0 importati restano.')) { await api('/strava', { method: 'DELETE' }); toast('Strava scollegato'); render(); } }));
   $('#kf')?.addEventListener('submit', safe(async e => { e.preventDefault(); toast('Collegamento…'); const r = await api('/komoot/connect', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('Komoot collegato' + (r.displayName ? ' come ' + r.displayName : '')); render(); }));
   $('#ksync')?.addEventListener('click', safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} tour`); render(); }));
   $('#kfull')?.addEventListener('click', safe(async () => { toast('Importazione storico… può richiedere un minuto'); const r = await api('/komoot/sync', { method: 'POST', body: { full: true } }); toast(`Importati ${r.imported} tour`); render(); }));

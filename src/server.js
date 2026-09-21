@@ -6,7 +6,7 @@ import { migrate } from './lib/db.js';
 import { SECRET } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
-import { router as workouts, ingest, syncAllKomoot } from './routes/workouts.js';
+import { router as workouts, ingest, syncAllKomoot, syncAllStrava } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR } from './routes/photos.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,5 +68,9 @@ migrate().then(async () => {
   await agganciaAllenamenti().catch(e => console.warn('aggancio allenamenti fallito:', e.message));
   app.listen(port, () => console.log(`Camper dashboard su porta ${port}`));
   const every = Number(process.env.KOMOOT_SYNC_HOURS || 6);
-  if (every > 0) { setTimeout(syncAllKomoot, 60_000); setInterval(syncAllKomoot, every * 3600 * 1000); }
+  if (every > 0) {
+    const giro = () => { syncAllKomoot(); syncAllStrava(); };
+    setTimeout(giro, 60_000);
+    setInterval(giro, every * 3600 * 1000);
+  }
 }).catch(e => { console.error('Migrazione fallita', e); process.exit(1); });

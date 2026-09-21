@@ -4,6 +4,8 @@ import { q } from '../lib/db.js';
 import { wrap, encrypt, decrypt, num } from '../lib/util.js';
 import { parseGpx } from '../lib/gpx.js';
 import * as komoot from '../lib/komoot.js';
+import * as strava from '../lib/strava.js';
+import crypto from 'node:crypto';
 import { requireAuth, requireDevice } from './auth.js';
 import { agganciaAllenamenti } from './trips.js';
 
@@ -39,7 +41,7 @@ async function guessTrip(startedAt) {
 // Abbina un allenamento Salute (senza GPS) a uno Komoot/GPX vicino nel tempo, unendo battito/calorie
 async function mergeHealthIntoTrack(userId, w) {
   const start = new Date(w.started_at);
-  const r = await q(`SELECT * FROM workouts WHERE user_id=$1 AND source IN ('komoot','gpx') AND abs(extract(epoch FROM (started_at - $2::timestamptz))) < 900 ORDER BY abs(extract(epoch FROM (started_at - $2::timestamptz))) LIMIT 1`, [userId, start]);
+  const r = await q(`SELECT * FROM workouts WHERE user_id=$1 AND source IN ('komoot','gpx','strava') AND abs(extract(epoch FROM (started_at - $2::timestamptz))) < 900 ORDER BY abs(extract(epoch FROM (started_at - $2::timestamptz))) LIMIT 1`, [userId, start]);
   const match = r.rows[0];
   if (!match) return null;
   await q(`UPDATE workouts SET calories=coalesce($2,calories), hr_avg=coalesce($3,hr_avg), hr_max=coalesce($4,hr_max), meta=coalesce(meta,'{}')::jsonb || $5::jsonb WHERE id=$1`,
@@ -153,7 +155,7 @@ router.get('/workouts', wrap(async (req, res) => {
 
 // Komoot e Salute chiamano lo stesso sport in modi diversi: riconduciamoli a famiglie
 const FAMIGLIE = { escursione: ['hike', 'hiking'], camminata: ['walk', 'walking'], corsa: ['run', 'running', 'jogging'],
-  bici: ['bike', 'cycling', 'touringbicycle', 'mtb', 'racebike', 'ebike'], nuoto: ['swim', 'swimming'], sci: ['ski', 'skitour'] };
+  bici: ['bike', 'cycling', 'touringbicycle', 'mtb', 'racebike', 'ebike', 'ride'], nuoto: ['swim', 'swimming'], sci: ['ski', 'skitour'] };
 function famigliaSport(s) {
   const t = String(s || '').toLowerCase().replace(/[^a-z]/g, '');
   if (!t) return 'ignoto';
@@ -162,7 +164,7 @@ function famigliaSport(s) {
 }
 
 // Quanto e' completo un record: a parita' di uscita teniamo quello che dice di piu'
-const ricchezza = w => (w.has_track ? 4 : 0) + (w.source === 'komoot' || w.source === 'gpx' ? 2 : 0)
+const ricchezza = w => (w.has_track ? 4 : 0) + (['komoot', 'gpx', 'strava'].includes(w.source) ? 2 : 0)
   + (w.calories ? 1 : 0) + (w.hr_avg ? 1 : 0) + (w.elevation_up_m ? 1 : 0);
 
 // Due record sono lo stesso allenamento se stesso atleta, stessa famiglia di sport,
@@ -305,6 +307,82 @@ router.post('/komoot/sync', wrap(async (req, res) => {
 }));
 
 // Sync periodico per tutti gli utenti collegati (chiamato dal server ogni 6 ore)
+// ---------- Strava ----------
+const redirectStrava = req => `${req.protocol}://${req.get('host')}/api/strava/callback`;
+
+router.get('/strava', wrap(async (req, res) => {
+  const r = (await q(`SELECT external_user_id, last_sync_at FROM integrations WHERE user_id=$1 AND provider='strava'`, [req.user.id])).rows[0];
+  res.json({ connected: !!r, configurato: strava.configurato(), ...(r || {}) });
+}));
+
+// Porta l'utente su Strava; lo stato casuale evita che la risposta venga contraffatta
+router.get('/strava/connect', wrap(async (req, res) => {
+  if (!strava.configurato()) return res.status(400).json({ error: 'Strava non e\u2019 configurato: mancano STRAVA_CLIENT_ID e STRAVA_CLIENT_SECRET' });
+  const stato = crypto.randomBytes(16).toString('hex');
+  req.session.stravaStato = stato;
+  res.redirect(strava.urlAutorizzazione(redirectStrava(req), stato));
+}));
+
+router.get('/strava/callback', wrap(async (req, res) => {
+  const { code, state, error } = req.query;
+  const esito = m => res.redirect('/#/impostazioni?strava=' + encodeURIComponent(m));
+  if (error) return esito('negato');
+  if (!code || !state || state !== req.session.stravaStato) return esito('stato-non-valido');
+  req.session.stravaStato = null;
+  try {
+    const t = await strava.scambiaCodice(String(code));
+    await q(`INSERT INTO integrations(user_id,provider,external_user_id,secret_enc) VALUES($1,'strava',$2,$3)
+             ON CONFLICT (user_id,provider) DO UPDATE SET external_user_id=$2, secret_enc=$3`,
+      [req.user.id, String(t.atleta?.id || ''), encrypt(JSON.stringify(t))]);
+    syncStravaFor(req.user.id, { full: true }).catch(e => console.warn('primo scarico Strava fallito:', e.message));
+    return esito('collegato');
+  } catch (e) { console.warn('collegamento Strava fallito:', e.message); return esito('errore'); }
+}));
+
+router.delete('/strava', wrap(async (req, res) => {
+  await q(`DELETE FROM integrations WHERE user_id=$1 AND provider='strava'`, [req.user.id]);
+  res.json({ ok: true });
+}));
+
+// Strava concede 100 chiamate ogni quarto d'ora: le calorie stanno solo sul dettaglio,
+// quindi ne chiediamo al massimo 40 per giro e le restanti arrivano alla sincronizzazione dopo
+const MAX_DETTAGLI = 40;
+
+export async function syncStravaFor(userId, { full = false } = {}) {
+  const r = (await q(`SELECT * FROM integrations WHERE user_id=$1 AND provider='strava'`, [userId])).rows[0];
+  if (!r) return { skipped: true };
+  const { tok, rinnovato } = await strava.tokenValido(JSON.parse(decrypt(r.secret_enc)));
+  if (rinnovato) await q('UPDATE integrations SET secret_enc=$2 WHERE id=$1', [r.id, encrypt(JSON.stringify(tok))]);
+  const dopo = full ? null : (r.last_sync_at ? new Date(new Date(r.last_sync_at).getTime() - 2 * 86400000) : null);
+  const attivita = await strava.listaAttivita(tok.access_token, { dopo });
+  let n = 0, dettagliChiesti = 0;
+  for (const a of attivita) {
+    const gia = (await q(`SELECT id FROM workouts WHERE user_id=$1 AND source='strava' AND external_id=$2`, [userId, String(a.id)])).rows[0];
+    if (gia && !full) continue;
+    let dettaglio = null;
+    if (dettagliChiesti < MAX_DETTAGLI) {
+      dettagliChiesti++;
+      try { dettaglio = await strava.dettaglioAttivita(tok.access_token, a.id); } catch { /* restano i dati di riepilogo */ }
+    }
+    await saveWorkout(userId, strava.attivitaToWorkout(a, dettaglio));
+    n++;
+  }
+  await q('UPDATE integrations SET last_sync_at=now() WHERE id=$1', [r.id]);
+  return { imported: n, checked: attivita.length };
+}
+
+router.post('/strava/sync', wrap(async (req, res) => {
+  try { res.json(await syncStravaFor(req.user.id, { full: req.body?.full === true })); }
+  catch (e) { res.status(502).json({ error: 'Sincronizzazione Strava fallita: ' + e.message }); }
+}));
+
+// Sincronizzazione periodica per tutti gli utenti collegati
+export async function syncAllStrava() {
+  for (const r of (await q(`SELECT user_id FROM integrations WHERE provider='strava'`)).rows) {
+    try { await syncStravaFor(r.user_id); } catch (e) { console.warn('Strava sync utente', r.user_id, e.message); }
+  }
+}
+
 export async function syncAllKomoot() {
   for (const r of (await q(`SELECT user_id FROM integrations WHERE provider='komoot'`)).rows) {
     try { await syncKomootFor(r.user_id); } catch (e) { console.warn('Komoot sync utente', r.user_id, e.message); }
