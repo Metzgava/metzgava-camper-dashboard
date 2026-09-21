@@ -399,6 +399,10 @@ function intervallo(periodo) {
 // cosi' compare anche sugli allenamenti di Salute, che non la mandano mai
 const mediaKmh = w => w.speed_avg_kmh ? +w.speed_avg_kmh
   : (w.distance_m && w.duration_s ? (w.distance_m / 1000) / (w.duration_s / 3600) : null);
+// Metri di salita all'ora: ha senso solo dove c'e' dislivello, cioe' in bici e a piedi
+// in montagna. Sul piano vale zero e il riquadro non compare.
+const dislivelloOrario = w => (w.elevation_up_m > 0 && w.duration_s > 0)
+  ? w.elevation_up_m / (w.duration_s / 3600) : null;
 
 // Modifica dei dati di un allenamento, con la media che si aggiorna mentre scrivi
 function modificaWorkout(w, dopo) {
@@ -415,15 +419,18 @@ function modificaWorkout(w, dopo) {
       ${campo('m-hr', 'Battito medio', w.hr_avg, '1', 'bpm')}
       ${campo('m-hrmax', 'Battito massimo', w.hr_max, '1', 'bpm')}
     </div>
-    <div class="card" style="margin-top:12px;padding:12px"><div class="label">Media oraria</div><div class="value" id="m-media" style="font-size:22px">\u2014</div>
-      <div class="small muted">si ricalcola da distanza e durata</div></div>
+    <div class="tiles" style="margin-top:12px">
+      <div class="tile"><div class="label">Media oraria</div><div class="value" id="m-media" style="font-size:22px">\u2014</div><div class="sub">da distanza e durata</div></div>
+      <div class="tile"><div class="label">Dislivello orario</div><div class="value" id="m-vam" style="font-size:22px">\u2014</div><div class="sub">da dislivello e durata</div></div>
+    </div>
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Annulla</button><button class="btn primary" id="m-salva">Salva</button></div>`,
     (el, close) => {
       const aggiornaMedia = () => {
-        const km = parseFloat($('#m-km', el).value), min = parseFloat($('#m-min', el).value);
+        const km = parseFloat($('#m-km', el).value), min = parseFloat($('#m-min', el).value), disl = parseFloat($('#m-disl', el).value);
         $('#m-media', el).textContent = (km > 0 && min > 0) ? num(km / (min / 60)) + ' km/h' : '\u2014';
+        $('#m-vam', el).textContent = (disl > 0 && min > 0) ? num(disl / (min / 60), 0) + ' m/h' : '\u2014';
       };
-      ['#m-km', '#m-min'].forEach(sel => $(sel, el).addEventListener('input', aggiornaMedia));
+      ['#m-km', '#m-min', '#m-disl'].forEach(sel => $(sel, el).addEventListener('input', aggiornaMedia));
       aggiornaMedia();
       $('[data-x]', el).onclick = close;
       $('#m-salva', el).onclick = safe(async () => {
@@ -587,7 +594,7 @@ async function viewWorkout(id) {
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
   $('#app').innerHTML = layout(`<a href="#/allenamenti" class="small">← Allenamenti</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
-    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
+    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
       <select id="trip">
