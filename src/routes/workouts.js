@@ -122,6 +122,7 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
   // Traccia l'esito: un invio accettato ma vuoto altrimenti non lascerebbe alcun segno.
   // Registriamo solo la forma del pacchetto e i conteggi, mai i dati sanitari.
   console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged} dispositivo=${req.device.name}`);
+  if (r.saved) await rimuoviDoppioniAutomatici(req.user.id).catch(e => console.warn('pulizia doppioni fallita:', e.message));
   res.json({ ok: true, ...r, device: req.device.name });
 }));
 
@@ -189,8 +190,16 @@ router.get('/workouts', wrap(async (req, res) => {
 // una traccia propria l'allenamento non si fonde con quello esistente.
 
 // Komoot e Salute chiamano lo stesso sport in modi diversi: riconduciamoli a famiglie
-const FAMIGLIE = { escursione: ['hike', 'hiking'], camminata: ['walk', 'walking'], corsa: ['run', 'running', 'jogging'],
-  bici: ['bike', 'cycling', 'touringbicycle', 'mtb', 'racebike', 'ebike', 'ride'], nuoto: ['swim', 'swimming'], sci: ['ski', 'skitour'] };
+// I nomi arrivano in inglese da Komoot e Strava, in italiano da Salute: servono entrambi,
+// altrimenti "Escursionismo" e "hike" risultano discipline diverse e i doppioni sfuggono
+const FAMIGLIE = {
+  escursione: ['hike', 'hiking', 'escursion', 'trekking', 'alpinis', 'mountaineer'],
+  camminata: ['walk', 'walking', 'camminat', 'passeggiat'],
+  corsa: ['run', 'running', 'jogging', 'cors', 'esegui'],
+  bici: ['bike', 'cycling', 'touringbicycle', 'mtb', 'racebike', 'ebike', 'ride', 'ciclism', 'bicicl', 'gravel'],
+  nuoto: ['swim', 'swimming', 'nuot'],
+  sci: ['ski', 'skitour', 'sci'],
+};
 function famigliaSport(s) {
   const t = String(s || '').toLowerCase().replace(/[^a-z]/g, '');
   if (!t) return 'ignoto';
@@ -227,6 +236,63 @@ router.get('/workouts/anni', wrap(async (req, res) => {
   const rows = (await q(`SELECT DISTINCT extract(year FROM started_at AT TIME ZONE 'Europe/Rome')::int AS anno FROM workouts ORDER BY anno DESC`)).rows;
   res.json(rows.map(r => r.anno));
 }));
+
+// Rimozione automatica dei doppioni con lo stesso orario di partenza.
+// Regola voluta: fra due registrazioni della stessa uscita resta quella di Salute.
+// Prima di eliminare l'altra le si travasa tutto cio' che al superstite manca -
+// soprattutto la traccia GPS, che Salute spesso non ha - cosi' non si perde niente.
+// La finestra e' di due minuti, non i quindici della ricerca manuale: qui nessuno
+// conferma, e un criterio largo cancellerebbe attivita' diverse ma ravvicinate.
+const FINESTRA_AUTO_MS = 2 * 60 * 1000;
+const CAMPI_DA_TRAVASARE = ['track', 'distance_m', 'duration_s', 'elevation_up_m', 'calories', 'hr_avg', 'hr_max', 'speed_avg_kmh', 'trip_id'];
+
+export async function rimuoviDoppioniAutomatici(userId = null) {
+  const dove = userId ? 'WHERE w.user_id=$1' : '';
+  const rows = (await q(`SELECT w.id, w.user_id, w.source, w.sport, w.started_at, w.distance_m, w.duration_s,
+      w.elevation_up_m, w.calories, w.hr_avg, w.hr_max, w.speed_avg_kmh, w.trip_id, w.track, (w.track IS NOT NULL) AS has_track
+    FROM workouts w ${dove} ORDER BY w.started_at`, userId ? [userId] : [])).rows;
+
+  const visti = new Set();
+  let eliminati = 0, travasati = 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (visti.has(rows[i].id)) continue;
+    const gruppo = [rows[i]];
+    for (let j = i + 1; j < rows.length; j++) {
+      if (visti.has(rows[j].id)) continue;
+      if (new Date(rows[j].started_at) - new Date(rows[i].started_at) > FINESTRA_AUTO_MS) break;
+      const a = rows[i], b = rows[j];
+      if (a.user_id !== b.user_id) continue;
+      const fa = famigliaSport(a.sport), fb = famigliaSport(b.sport);
+      if (fa !== fb && fa !== 'ignoto' && fb !== 'ignoto') continue;
+      gruppo.push(b);
+    }
+    if (gruppo.length < 2) continue;
+    gruppo.forEach(g => visti.add(g.id));
+
+    // Salute ha la precedenza; a parita' vince il record piu' completo, poi il piu' vecchio
+    const ordinati = [...gruppo].sort((a, b) =>
+      (b.source === 'health') - (a.source === 'health') || ricchezza(b) - ricchezza(a) || a.id - b.id);
+    const tenuto = ordinati[0], scartati = ordinati.slice(1);
+
+    const mancanti = {};
+    for (const campo of CAMPI_DA_TRAVASARE) {
+      if (tenuto[campo] != null) continue;
+      const donatore = scartati.find(x => x[campo] != null);
+      if (donatore) mancanti[campo] = donatore[campo];
+    }
+    const chiavi = Object.keys(mancanti);
+    if (chiavi.length) {
+      const set = chiavi.map((k, n) => `${k}=$${n + 2}`).join(', ');
+      await q(`UPDATE workouts SET ${set} WHERE id=$1`,
+        [tenuto.id, ...chiavi.map(k => (k === 'track' ? JSON.stringify(mancanti[k]) : mancanti[k]))]);
+      travasati++;
+    }
+    await q('DELETE FROM workouts WHERE id = ANY($1::int[])', [scartati.map(x => x.id)]);
+    eliminati += scartati.length;
+  }
+  if (eliminati) console.log(`doppioni automatici: eliminati ${eliminati}, dati recuperati in ${travasati} record`);
+  return { eliminati, travasati };
+}
 
 router.get('/workouts/duplicates', wrap(async (req, res) => {
   const rows = (await q(`SELECT w.id,w.user_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,
@@ -361,6 +427,7 @@ export async function syncKomootFor(userId, { full = false } = {}) {
     await saveWorkout(userId, await komoot.tourToWorkout(r.external_user_id, token, t)); n++;
   }
   await q('UPDATE integrations SET last_sync_at=now() WHERE id=$1', [r.id]);
+  if (n) await rimuoviDoppioniAutomatici(userId).catch(e => console.warn('pulizia doppioni fallita:', e.message));
   return { imported: n, checked: tours.length };
 }
 router.post('/komoot/sync', wrap(async (req, res) => {
@@ -444,6 +511,7 @@ export async function syncStravaFor(userId, { full = false } = {}) {
     n++;
   }
   await q('UPDATE integrations SET last_sync_at=now() WHERE id=$1', [r.id]);
+  if (n) await rimuoviDoppioniAutomatici(userId).catch(e => console.warn('pulizia doppioni fallita:', e.message));
   return { imported: n, checked: attivita.length };
 }
 

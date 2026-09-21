@@ -6,7 +6,7 @@ import { migrate } from './lib/db.js';
 import { SECRET } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
-import { router as workouts, ingest, syncAllKomoot, syncAllStrava } from './routes/workouts.js';
+import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR } from './routes/photos.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,6 +66,8 @@ migrate().then(async () => {
   // Recupera gli allenamenti gia' in archivio rimasti senza viaggio, per esempio
   // perche' il viaggio e' stato creato dopo averli importati
   await agganciaAllenamenti().catch(e => console.warn('aggancio allenamenti fallito:', e.message));
+  // Ripulisce anche i doppioni gia' in archivio, non solo quelli che arriveranno
+  await rimuoviDoppioniAutomatici().catch(e => console.warn('pulizia doppioni fallita:', e.message));
   app.listen(port, () => console.log(`Camper dashboard su porta ${port}`));
   const every = Number(process.env.KOMOOT_SYNC_HOURS || 6);
   if (every > 0) {
