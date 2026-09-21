@@ -80,6 +80,9 @@ function healthTrack(route) {
 const RINOMINA = {
   'escursionismo': 'Escursione',
   "all'aperto camminata": 'Camminata',
+  "all'aperto ciclismo": 'Ciclismo',
+  'piscina nuoto': 'Nuoto in piscina',
+  'apri acqua nuoto': 'Nuoto in acque libere',
 };
 const rinominaSport = s => RINOMINA[String(s || '').trim().toLowerCase()] || s;
 
