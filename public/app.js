@@ -346,6 +346,17 @@ function poiModal(l) {
 }
 
 // ---------- Allenamenti ----------
+// Filtri dell'elenco allenamenti: periodo e viaggio, ricordati fra una schermata e l'altra
+const elenco = { periodo: 'mese', trip: '' };
+function intervallo(periodo) {
+  const oggi = new Date();
+  if (periodo === 'giorno') return [today(), today()];
+  if (periodo === 'settimana') return [iso(oggi - 6 * 864e5), today()];
+  if (periodo === 'mese') return [iso(new Date(oggi.getFullYear(), oggi.getMonth(), 1)), today()];
+  if (periodo === 'anno') return [`${oggi.getFullYear()}-01-01`, today()];
+  return [null, null];
+}
+
 // Rinomina un allenamento; usata sia dall'elenco sia dalla scheda di dettaglio
 function renameWorkout(id, nome, dopo) {
   modal(`<h2>Rinomina allenamento</h2><form id="f" class="stack" style="margin-top:12px"><input name="name" value="${esc(nome || '')}" maxlength="120" required autofocus><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
@@ -363,17 +374,27 @@ function renameWorkout(id, nome, dopo) {
 
 async function viewWorkouts(id) {
   if (id) return viewWorkout(id);
-  const ws = await api('/workouts');
+  const [da, a] = intervallo(elenco.periodo);
+  const qs = new URLSearchParams();
+  if (da) { qs.set('from', da); qs.set('to', a); }
+  if (elenco.trip) qs.set('trip_id', elenco.trip);
+  const [ws, trips] = await Promise.all([api('/workouts?' + qs), api('/trips')]);
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
-    <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
+      <div class="row" style="margin-top:12px"><div class="field grow" style="min-width:200px"><label class="f">Viaggio</label>
+        <select id="f-viaggio"><option value="">Tutti i viaggi</option><option value="none" ${elenco.trip === 'none' ? 'selected' : ''}>Senza viaggio</option>${trips.map(t => `<option value="${t.id}" ${elenco.trip === String(t.id) ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select>
+      </div></div>
+    </div>
+    <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${elenco.periodo === 'tutto' ? 'tutto l\u2019archivio' : 'dal ' + fdate(da)}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
       <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
       <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''} ${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' : ''}</span></div></a>
-      <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>'}</div>`);
+      <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || (elenco.periodo === 'tutto' && !elenco.trip ? '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>' : '<div class="empty">Nessun allenamento con questi filtri.</div>')}</div>`);
   $('#sync').onclick = safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} nuovi tour`); render(); });
   $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
   $('#hjson').onchange = safe(async e => {
@@ -382,6 +403,13 @@ async function viewWorkouts(id) {
     const r = await api('/workouts/health-json', { method: 'POST', body: fd });
     toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti ad attivit\u00e0 esistenti`); render();
   });
+  $$('[data-per]').forEach(c => c.onclick = () => { elenco.periodo = c.dataset.per; render(); });
+  $('#f-viaggio').onchange = e => {
+    elenco.trip = e.target.value;
+    // Il viaggio ha gia' un suo periodo: restringerlo anche per data nasconderebbe quasi tutto
+    if (elenco.trip && elenco.trip !== 'none') elenco.periodo = 'tutto';
+    render();
+  };
   $('#dup').onclick = safe(async () => {
     const { gruppi, totale_da_eliminare } = await api('/workouts/duplicates');
     if (!gruppi.length) return toast('Nessun doppione trovato');
