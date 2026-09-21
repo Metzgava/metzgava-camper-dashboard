@@ -474,8 +474,17 @@ router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req,
   catch { return res.status(400).json({ error: 'Il file non e\u2019 un JSON valido' }); }
   const items = itemsDaPacchetto(body, `file ${req.file.originalname}`);
   if (!items.length) return res.status(400).json({ error: `Nessun allenamento nel file (forma: ${formaPacchetto(body)}). Esporta il tipo di dato "Allenamenti", non le metriche.` });
-  const r = await archivia(req.user.id, items);
-  console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} utente=${req.user.id}`);
+  // Il file si carica dalla pagina di un atleta e finisce nel suo archivio:
+  // chi amministra puo' quindi caricare lo storico anche per gli altri
+  let destinatario = req.user.id;
+  if (req.body?.user_id && +req.body.user_id !== req.user.id) {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo amministratore' });
+    const u = (await q('SELECT id FROM users WHERE id=$1', [req.body.user_id])).rows[0];
+    if (!u) return res.status(404).json({ error: 'Utente non trovato' });
+    destinatario = u.id;
+  }
+  const r = await archivia(destinatario, items);
+  console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} utente=${destinatario}`);
   res.json({ ok: true, letti: items.length, ...r });
 }));
 

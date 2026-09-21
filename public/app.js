@@ -558,6 +558,7 @@ async function viewWorkouts(idAtleta) {
   $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
   $('#hjson').onchange = safe(async e => {
     const fd = new FormData(); fd.append('file', e.target.files[0]);
+    fd.append('user_id', String(idAtleta));
     toast('Importazione in corso\u2026');
     const r = await api('/workouts/health-json', { method: 'POST', body: fd });
     toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti ad attivit\u00e0 esistenti`); render();
