@@ -161,6 +161,13 @@ export async function migrate() {
   -- vero quando il viaggio e' stato scelto a mano: l'aggancio automatico non lo tocca
   ALTER TABLE workouts ADD COLUMN IF NOT EXISTS trip_manual BOOLEAN NOT NULL DEFAULT false;
 
+  -- Nomi piu' scorrevoli per le attivita' gia' in archivio: Health Auto Export
+  -- traduce "Hiking" in "Escursionismo" e "Outdoor Walk" in "All'aperto Camminata"
+  UPDATE workouts SET sport='Escursione', name=CASE WHEN name='Escursionismo' THEN 'Escursione' ELSE name END
+    WHERE sport='Escursionismo';
+  UPDATE workouts SET sport='Camminata', name=CASE WHEN name='All''aperto Camminata' THEN 'Camminata' ELSE name END
+    WHERE sport='All''aperto Camminata';
+
   CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
   CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
   CREATE INDEX IF NOT EXISTS idx_legs_trip ON legs(trip_id, position);

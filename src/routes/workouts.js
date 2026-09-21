@@ -74,13 +74,22 @@ function healthTrack(route) {
   return pts.length ? pts : null;
 }
 
+// Health Auto Export traduce i nomi di Salute in modo prolisso o goffo. Qui li
+// normalizziamo all'arrivo, cosi' l'archivio e' coerente e non serve correggere
+// a video in ogni schermata. L'originale resta comunque nel campo meta.
+const RINOMINA = {
+  'escursionismo': 'Escursione',
+  "all'aperto camminata": 'Camminata',
+};
+const rinominaSport = s => RINOMINA[String(s || '').trim().toLowerCase()] || s;
+
 // ---------- arrivo dei dati da iPhone ----------
 // Ricava gli allenamenti dal pacchetto: sia il formato di "Health Auto Export"
 // (data.workouts[]) sia quello semplice dei Comandi Rapidi
 function itemsDaPacchetto(body, origine) {
   if (Array.isArray(body.data?.workouts)) {
     return body.data.workouts.map(w => ({
-      source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: w.name, name: w.name,
+      source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: rinominaSport(w.name), name: rinominaSport(w.name),
       started_at: new Date(w.start), duration_s: healthDuration(w),
       distance_m: healthDistance(w.distance),
       calories: w.activeEnergy?.qty != null ? Math.round(num(w.activeEnergy.qty)) : (w.activeEnergyBurned?.qty != null ? Math.round(num(w.activeEnergyBurned.qty)) : null),
@@ -88,12 +97,13 @@ function itemsDaPacchetto(body, origine) {
       hr_max: w.maxHeartRate?.qty != null ? Math.round(num(w.maxHeartRate.qty)) : (w.heartRate?.max?.qty != null ? Math.round(num(w.heartRate.max.qty)) : null),
       elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
       track: healthTrack(w.route),
-      meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null, raw_units: { distance: w.distance?.units } },
+      meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null,
+        nome_originale: w.name !== rinominaSport(w.name) ? w.name : undefined, raw_units: { distance: w.distance?.units } },
     }));
   }
   const list = Array.isArray(body) ? body : Array.isArray(body.workouts) ? body.workouts : [body];
   return list.filter(w => w && (w.start || w.started_at)).map(w => ({
-    source: 'health', external_id: w.id || w.uuid || null, sport: w.type || w.sport || null, name: w.name || w.type || 'Allenamento',
+    source: 'health', external_id: w.id || w.uuid || null, sport: rinominaSport(w.type || w.sport || null), name: rinominaSport(w.name || w.type || 'Allenamento'),
     started_at: new Date(w.start || w.started_at), duration_s: w.duration_s != null ? num(w.duration_s) : (w.duration_min != null ? Math.round(num(w.duration_min) * 60) : null),
     distance_m: w.distance_m != null ? num(w.distance_m) : (w.distance_km != null ? Math.round(num(w.distance_km) * 1000) : null),
     calories: w.calories != null ? Math.round(num(w.calories)) : null, hr_avg: w.hr_avg != null ? Math.round(num(w.hr_avg)) : null, hr_max: w.hr_max != null ? Math.round(num(w.hr_max)) : null,
