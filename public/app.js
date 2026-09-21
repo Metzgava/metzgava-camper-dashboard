@@ -971,6 +971,14 @@ async function render() {
     window.scrollTo(0, 0);
   } catch (e) { $('#app').innerHTML = `<div class="loading">⚠️ ${esc(e.message)}<br><button class="btn" onclick="location.reload()">Ricarica</button></div>`; }
 }
+// Una tendina e' un <details>: da sola si chiude solo ricliccando il suo pulsante.
+// Qui la chiudiamo anche al clic fuori e con Esc, come ci si aspetta da un menu.
+// Il gestore sta sul documento, quindi sopravvive ai ridisegni della pagina; la
+// chiusura fa scattare l'evento toggle, che riporta a posto lo stato ricordato.
+const chiudiTendine = tranne => $$('details.tendina[open]').forEach(d => { if (d !== tranne && !d.contains(tranne)) d.open = false; });
+document.addEventListener('click', e => { chiudiTendine(e.target); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') chiudiTendine(null); });
+
 document.addEventListener('click', e => { const a = e.target.closest('[data-logout]'); if (a) { e.preventDefault(); api('/auth/logout', { method: 'POST' }).then(() => { user = null; location.hash = '#/'; render(); }); } });
 window.addEventListener('hashchange', render);
 render();
