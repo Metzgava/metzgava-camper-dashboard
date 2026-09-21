@@ -121,6 +121,17 @@ tr:last-child td { border-bottom: 0; } td.num, th.num { text-align: right; font-
 .bar i { display: block; width: 100%; border-radius: 6px 6px 2px 2px; background: var(--accent); min-height: 2px; transition: height .3s; }
 /* Colore diverso per le distanze di allenamento, da non confondere con i km in camper */
 .bar i.sport { background: var(--accent-2); }
+
+/* Barre orizzontali: con nomi lunghi come "Camminata su tapis roulant" l'etichetta
+   sotto una barra verticale sarebbe illeggibile */
+.barre-oriz { display: flex; flex-direction: column; gap: 11px; margin-top: 12px; }
+.barra-oriz { display: flex; flex-direction: column; gap: 4px; }
+.barra-oriz .riga { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; }
+.barra-oriz .etichetta { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barra-oriz .etichetta svg { vertical-align: -3px; width: 15px; height: 15px; }
+.barra-oriz .traccia { background: var(--surface-2); border-radius: 999px; height: 10px; overflow: hidden; }
+.barra-oriz .traccia i { display: block; height: 100%; background: var(--accent-2); border-radius: 999px; transition: width .3s; }
+.barra-oriz .valore { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bar b { font-size: 10px; color: var(--muted); font-weight: 500; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 13px; } .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .donut { display: flex; align-items: center; gap: 18px; } .donut .ring { width: 130px; height: 130px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; }

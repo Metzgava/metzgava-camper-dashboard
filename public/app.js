@@ -692,7 +692,9 @@ async function viewDashboard() {
       </div>
       <div class="grid cols-2">
         <div class="card"><h2>Km di allenamento per sport</h2><div class="small muted">i km in camper sono nella tabella accanto</div>
-          <div class="bars">${sportOrd.map(([k, v]) => `<div class="bar" title="${esc(k)}: ${num(v)} km"><i style="height:${v / maxKm * 100}%"></i><b>${esc(k)}</b></div>`).join('') || '<div class="empty grow">Nessun dato con questi filtri</div>'}</div></div>
+          <div class="barre-oriz">${sportOrd.map(([k, v]) => `<div class="barra-oriz">
+            <div class="riga"><span class="etichetta">${sportIco(k)} ${esc(k)}</span><b class="valore">${num(v)} km</b></div>
+            <span class="traccia"><i style="width:${Math.max(2, v / maxKm * 100)}%"></i></span></div>`).join('') || '<div class="empty">Nessun dato con questi filtri</div>'}</div></div>
         <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Per viaggio</h2></div>
           <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th class="num">Km camper</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
           <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
