@@ -81,6 +81,30 @@ router.get('/users', requireAuth, requireAdmin, wrap(async (req, res) => {
   const invites = (await q('SELECT i.*, u.name AS used_by_name FROM invites i LEFT JOIN users u ON u.id=i.used_by ORDER BY i.id DESC LIMIT 20')).rows;
   res.json({ users, invites });
 }));
+// Cambio della propria password: serve quella attuale, altrimenti chiunque trovasse
+// una sessione aperta potrebbe prendersi l'account
+router.post('/password', requireAuth, wrap(async (req, res) => {
+  const { attuale, nuova } = req.body || {};
+  if (!nuova || String(nuova).length < 8) return res.status(400).json({ error: 'La nuova password deve avere almeno 8 caratteri' });
+  const u = (await q('SELECT * FROM users WHERE id=$1', [req.user.id])).rows[0];
+  if (!u || !(await bcrypt.compare(String(attuale || ''), u.password_hash))) return res.status(401).json({ error: 'Password attuale errata' });
+  await q('UPDATE users SET password_hash=$2 WHERE id=$1', [u.id, await bcrypt.hash(String(nuova), 10)]);
+  console.log(`password cambiata dall'utente ${u.id}`);
+  res.json({ ok: true });
+}));
+
+// Reimpostazione da parte dell'amministratore: l'app genera una password
+// provvisoria e la mostra una volta sola, cosi' non ne viene scelta una debole e
+// non serve digitarla due volte. Chi la riceve puo' poi cambiarla da solo.
+router.post('/users/:id/password', requireAuth, requireAdmin, wrap(async (req, res) => {
+  const u = (await q('SELECT id,name FROM users WHERE id=$1', [req.params.id])).rows[0];
+  if (!u) return res.status(404).json({ error: 'Utente non trovato' });
+  const provvisoria = randomToken().replace(/[^A-Za-z0-9]/g, '').slice(0, 14);
+  await q('UPDATE users SET password_hash=$2 WHERE id=$1', [u.id, await bcrypt.hash(provvisoria, 10)]);
+  console.log(`password reimpostata per l'utente ${u.id} dall'amministratore ${req.user.id}`);
+  res.json({ ok: true, name: u.name, password: provvisoria });
+}));
+
 router.post('/invites', requireAuth, requireAdmin, wrap(async (req, res) => {
   const code = randomCode();
   const row = (await q(`INSERT INTO invites(code,created_by,expires_at) VALUES($1,$2,now()+interval '7 days') RETURNING *`, [code, req.user.id])).rows[0];

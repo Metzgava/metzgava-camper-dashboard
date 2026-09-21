@@ -926,9 +926,17 @@ async function viewSettings() {
         <div><b>Opzione A – Health Auto Export</b> (app App Store, la più completa): crea un'automazione «REST API», metodo POST, URL <span class="code">${endpoint}</span>, header <span class="code">Authorization: Bearer &lt;token&gt;</span>, tipo di dati «Workouts», formato JSON, e imposta la frequenza (es. ogni ora). Includi «Route» se vuoi anche il GPS.</div>
         <div><b>Opzione B – Comandi Rapidi</b> (gratis): un comando «Trova allenamenti» (ultimi 7 giorni) → per ogni allenamento «Ottieni contenuti di URL» POST a <span class="code">${endpoint}</span> con header Authorization e corpo JSON: <span class="code">{"start": "…", "type": "…", "duration_min": …, "distance_km": …, "calories": …, "hr_avg": …}</span>. Aggiungilo a un'automazione «Fine allenamento».</div>
         <div>Gli allenamenti senza GPS che iniziano entro 15 minuti da un tour Komoot vengono uniti a quel tour: così il percorso Komoot acquista battito e calorie.</div></div></details></div>
+    <div class="card" style="margin-top:14px"><h2>🔑 La mia password</h2>
+      <form id="pwd" class="row" style="margin-top:12px">
+        <div class="field w-md"><label class="f">Password attuale</label><input type="password" name="attuale" required autocomplete="current-password"></div>
+        <div class="field w-md"><label class="f">Nuova password</label><input type="password" name="nuova" minlength="8" required autocomplete="new-password"></div>
+        <div class="field" style="align-self:flex-end"><button class="btn primary">Cambia</button></div>
+      </form>
+      <div class="small muted" style="margin-top:8px">Almeno 8 caratteri. Viene chiesta anche quella attuale: cos\u00ec una sessione lasciata aperta non basta per prenderti l\u2019account.</div>
+    </div>
     ${adm ? `<div class="card" style="margin-top:14px"><div class="row between"><h2>👥 Utenti</h2><button class="btn primary sm" id="inv">＋ Codice invito</button></div>
       <p class="small muted">Chi si registra con un codice invito entra in attesa finché non lo autorizzi. Ogni utente vede i viaggi condivisi e i propri allenamenti.</p>
-      <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th></th></tr></thead><tbody>${adm.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="small">${esc(u.email)}</td><td>${u.role}</td><td>${u.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="num">${u.id !== user.id ? `<button class="btn sm" data-uappr="${u.id}" data-v="${!u.approved}">${u.approved ? 'Sospendi' : 'Autorizza'}</button><button class="btn sm ghost danger" data-udel="${u.id}">Elimina</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th></th></tr></thead><tbody>${adm.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="small">${esc(u.email)}</td><td>${u.role}</td><td>${u.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="num">${u.id !== user.id ? `<button class="btn sm" data-uappr="${u.id}" data-v="${!u.approved}">${u.approved ? 'Sospendi' : 'Autorizza'}</button><button class="btn sm" data-upwd="${u.id}" data-uname="${esc(u.name)}">Reimposta password</button><button class="btn sm ghost danger" data-udel="${u.id}">Elimina</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
       ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).length ? `<div class="small" style="margin-top:10px">Inviti attivi: ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).map(i => `<span class="code">${i.code}</span>`).join(' ')}</div>` : ''}</div>` : ''}
     <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta e borghi da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
   $('#veh').onsubmit = safe(async e => { e.preventDefault(); settings.vehicle = await api('/settings/vehicle', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('Salvato'); });
@@ -944,8 +952,24 @@ async function viewSettings() {
     modal(`<h2>Token per «${esc(r.name)}»</h2><p class="small">Copialo ora: non sarà più visibile.${r.approved ? '' : ' Deve ancora essere autorizzato dall\'amministratore.'}</p><div class="code">${r.token}</div><p class="small muted" style="margin-top:8px">Endpoint: <span class="code">${esc(r.endpoint)}</span></p><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="cp">Copia</button><button class="btn primary" data-x>Fatto</button></div>`,
       (el2, close2) => { $('#cp', el2).onclick = () => { navigator.clipboard?.writeText(r.token); toast('Copiato'); }; $('[data-x]', el2).onclick = () => { close2(); render(); }; });
   }));
+  $('#pwd')?.addEventListener('submit', safe(async e => {
+    e.preventDefault();
+    await api('/auth/password', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+    e.target.reset();
+    toast('Password cambiata');
+  }));
   document.body.onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.upwd) {
+      if (!await confirmDlg(`Reimpostare la password di ${b.dataset.uname}? Quella attuale smetter\u00e0 di funzionare.`)) return;
+      const r = await api(`/auth/users/${b.dataset.upwd}/password`, { method: 'POST', body: {} });
+      modal(`<h2>Password provvisoria per \u00ab${esc(r.name)}\u00bb</h2>
+        <p class="small">Copiala ora: non sar\u00e0 pi\u00f9 visibile. Consegnagliela di persona, e falla cambiare da \u00abLa mia password\u00bb al primo accesso.</p>
+        <div class="code" style="font-size:20px;text-align:center">${esc(r.password)}</div>
+        <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="cp2">Copia</button><button class="btn primary" data-x>Fatto</button></div>`,
+        (el, close) => { $('#cp2', el).onclick = () => { navigator.clipboard?.writeText(r.password); toast('Copiata'); }; $('[data-x]', el).onclick = close; });
+      return;
+    }
     if (b.dataset.appr) { await api(`/auth/devices/${b.dataset.appr}/approve`, { method: 'POST', body: {} }); render(); }
     if (b.dataset.deldev && await confirmDlg('Revocare il dispositivo?')) { await api('/auth/devices/' + b.dataset.deldev, { method: 'DELETE' }); render(); }
     if (b.dataset.uappr) { await api(`/auth/users/${b.dataset.uappr}/approve`, { method: 'POST', body: { approved: b.dataset.v === 'true' } }); render(); }
