@@ -130,6 +130,10 @@ router.use(requireAuth);
 
 router.get('/workouts', wrap(async (req, res) => {
   const { from, to, user_id, trip_id } = req.query;
+  // Quante attivita' restituire: il vecchio tetto fisso di 300 tagliava fuori gli
+  // archivi piu' lunghi anche senza filtri. Resta comunque un limite, per non
+  // spedire l'intero storico a ogni apertura della pagina.
+  const tetto = Math.min(Math.max(1, Number(req.query.limit) || 1000), 5000);
   const conds = [], params = [];
   if (from) { params.push(from); conds.push(`started_at >= $${params.length}`); }
   if (to) { params.push(to); conds.push(`started_at < $${params.length}::date + 1`); }
@@ -145,7 +149,7 @@ router.get('/workouts', wrap(async (req, res) => {
   }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
   const rows = (await q(`SELECT w.id,w.user_id,w.trip_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,w.hr_max,w.speed_avg_kmh,w.meta,(w.track IS NOT NULL) AS has_track,u.name AS athlete,t.title AS trip_title
-    FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id ${where} ORDER BY started_at DESC LIMIT 300`, params)).rows;
+    FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id ${where} ORDER BY started_at DESC LIMIT $${params.length + 1}`, [...params, tetto])).rows;
   res.json(rows);
 }));
 // ---------- doppioni ----------
