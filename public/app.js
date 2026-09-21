@@ -404,6 +404,11 @@ const mediaKmh = w => w.speed_avg_kmh ? +w.speed_avg_kmh
 const dislivelloOrario = w => (w.elevation_up_m > 0 && w.duration_s > 0)
   ? w.elevation_up_m / (w.duration_s / 3600) : null;
 
+// Colonna destra della riga d'elenco: distanza, durata e le due medie, visibili
+// senza dover aprire la scheda
+const numeriRiga = w => `<b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}${mediaKmh(w) ? ' · ' + num(mediaKmh(w)) + ' km/h' : ''}<br>
+  <span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm ' : ''}${w.calories ? '🔥 ' + w.calories + ' ' : ''}${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' + (dislivelloOrario(w) ? ' · ' + num(dislivelloOrario(w), 0) + ' m/h' : '') : ''}</span>`;
+
 // Modifica dei dati di un allenamento, con la media che si aggiorna mentre scrivi
 function modificaWorkout(w, dopo) {
   const campo = (id, etichetta, valore, passo, suffisso) =>
@@ -521,7 +526,7 @@ async function viewWorkouts(id) {
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
       <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
-      <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''} ${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' : ''}</span></div></a>
+      <div class="right small nowrap">${numeriRiga(w)}</div></a>
       <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || (elenco.periodo === 'tutto' && !elenco.trips.length ? '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>' : '<div class="empty">Nessun allenamento con questi filtri.</div>')}</div>`);
   $('#sync').onclick = safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} nuovi tour`); render(); });
   $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
@@ -702,7 +707,7 @@ async function viewDashboard() {
       <div class="card pad-0" style="margin-top:14px"><div class="row between" style="padding:14px 16px 6px"><h2>Allenamenti (${f.length})</h2>${f.length > MAX ? `<span class="small muted">mostrati i primi ${MAX}</span>` : ''}</div>
         <div class="list">${f.slice(0, MAX).map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
           <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
-          <div class="right small nowrap"><b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}<br><span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm' : ''} ${w.calories ? '🔥 ' + w.calories : ''}</span></div></a></div>`).join('') || '<div class="empty">Nessun allenamento corrisponde ai filtri.</div>'}</div></div>`;
+          <div class="right small nowrap">${numeriRiga(w)}</div></a></div>`).join('') || '<div class="empty">Nessun allenamento corrisponde ai filtri.</div>'}</div></div>`;
   };
 
   const lega = (sel, chiave, evento = 'change') => { const el = $(sel); el.addEventListener(evento, () => { dash[chiave] = el.value; disegna(); }); };
