@@ -349,6 +349,7 @@ function poiModal(l) {
 // Filtri dell'elenco allenamenti: periodo e viaggio, ricordati fra una schermata e l'altra
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 const elenco = {
+  tapis: '',                    // '' tutti, '1' solo tapis roulant, '0' escludilo
   periodo: 'mese',              // scorciatoia attiva, oppure 'scelta'
   trips: [],                    // elenco vuoto = tutti i viaggi
   scelta: { tipo: 'giorno', giorno: today(), mese: new Date().getMonth(), anno: new Date().getFullYear(), from: null, to: null },
@@ -394,6 +395,7 @@ async function viewWorkouts(id) {
   if (da) qs.set('from', da);
   if (a) qs.set('to', a);
   if (elenco.trips.length) qs.set('trip_id', elenco.trips.join(','));
+  if (elenco.tapis) qs.set('tapis', elenco.tapis);
   const [ws, trips, anni] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni')]);
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
@@ -426,6 +428,11 @@ async function viewWorkouts(id) {
         </details>
         <div class="small muted" style="margin-top:6px">Puoi spuntarne pi\u00f9 di uno: l\u2019elenco somma i viaggi scelti.</div>
       </div>
+      <div style="margin-top:12px"><label class="f">Tapis roulant</label>
+        <div class="chips">${[['', 'Indifferente'], ['1', 'Solo tapis roulant'], ['0', 'Escludilo']].map(([v, l]) =>
+          `<span class="chip ${elenco.tapis === v ? 'active' : ''}" data-tapis="${v}">${l}</span>`).join('')}</div>
+        <div class="small muted" style="margin-top:6px">Corsa e camminata al chiuso registrate da Salute.</div>
+      </div>
     </div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : da && a && da === a ? fdate(da) : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
@@ -452,6 +459,7 @@ async function viewWorkouts(id) {
     if ($('#s-al')) c.to = $('#s-al').value || null;
     render();
   };
+  $$('[data-tapis]').forEach(c => c.onclick = () => { elenco.tapis = c.dataset.tapis; render(); });
   $('#f-viaggi').ontoggle = e => { elenco.tendinaAperta = e.target.open; };
   $$('[data-trip]').forEach(c => c.onchange = () => {
     const v = c.dataset.trip;

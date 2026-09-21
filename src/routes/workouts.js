@@ -128,6 +128,16 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
 // ---------- rotte autenticate ----------
 router.use(requireAuth);
 
+// Il tapis roulant: Salute lo esporta come corsa o camminata "al chiuso", e Health
+// Auto Export traduce i nomi nella lingua del telefono ("Interno Esegui" e' Indoor
+// Run). Riconosciamo le varianti italiane e inglesi, cosi' il filtro vale anche per
+// gli allenamenti che arriveranno in futuro.
+const CONDIZIONE_TAPIS = `(
+  lower(w.sport) ~ '(interno|indoor|coperto).*(camminat|esegui|cors|walk|run)'
+  OR lower(w.sport) ~ '(camminat|esegui|cors|walk|run).*(interno|indoor|coperto)'
+  OR lower(w.sport) LIKE '%tapis%' OR lower(w.sport) LIKE '%treadmill%'
+)`;
+
 router.get('/workouts', wrap(async (req, res) => {
   const { from, to, user_id, trip_id } = req.query;
   // Quante attivita' restituire: il vecchio tetto fisso di 300 tagliava fuori gli
@@ -139,6 +149,9 @@ router.get('/workouts', wrap(async (req, res) => {
   if (to) { params.push(to); conds.push(`started_at < $${params.length}::date + 1`); }
   if (user_id) { params.push(+user_id); conds.push(`w.user_id = $${params.length}`); }
   // trip_id accetta piu' valori separati da virgola; 'none' sono i non associati
+  // tapis=1 mostra solo il tapis roulant, tapis=0 lo esclude
+  if (req.query.tapis === '1') conds.push(CONDIZIONE_TAPIS);
+  else if (req.query.tapis === '0') conds.push(`NOT ${CONDIZIONE_TAPIS}`);
   if (trip_id) {
     const voci = String(trip_id).split(',').map(v => v.trim()).filter(Boolean);
     const ids = voci.filter(v => v !== 'none').map(Number).filter(Number.isInteger);
