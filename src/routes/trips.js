@@ -83,7 +83,7 @@ router.get('/trips', wrap(async (req, res) => {
       (SELECT coalesce(sum(amount),0)::float FROM expenses WHERE trip_id=t.id) AS total,
       (SELECT count(*)::int FROM legs WHERE trip_id=t.id) AS n_legs,
       (SELECT count(*)::int FROM photos WHERE trip_id=t.id) AS n_photos,
-      (SELECT count(*)::int FROM workouts WHERE trip_id=t.id) AS n_workouts
+      (SELECT count(*)::int FROM workouts WHERE trip_id=t.id AND meta->'copiato_da' IS NULL) AS n_workouts
     FROM trips t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
   res.json(trips);
 }));
@@ -101,7 +101,10 @@ router.get('/trips/:id', wrap(async (req, res) => {
   const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
   const expenses = (await q('SELECT * FROM expenses WHERE trip_id=$1 ORDER BY date DESC, id DESC', [trip.id])).rows;
   const photos = (await q('SELECT id,leg_id,filename,caption,taken_at,lat,lon,user_id FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
-  const workouts = (await q('SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id WHERE w.trip_id=$1 ORDER BY started_at DESC', [trip.id])).rows;
+  // Le copie fatte su un altro atleta rappresentano la stessa uscita gia' elencata:
+  // contarle o mostrarle qui raddoppierebbe attivita' e chilometri del viaggio
+  const workouts = (await q(`SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id
+    WHERE w.trip_id=$1 AND w.meta->'copiato_da' IS NULL ORDER BY started_at DESC`, [trip.id])).rows;
   res.json({ trip, legs, expenses, photos, workouts, totals: await tripTotals(trip.id) });
 }));
 router.put('/trips/:id', wrap(async (req, res) => {
@@ -313,8 +316,14 @@ router.get('/summary', wrap(async (req, res) => {
     FROM expenses WHERE date BETWEEN $1 AND $2${tripCond} GROUP BY 1,2 ORDER BY 1`, params)).rows;
   const km = (await q(`SELECT to_char(date_trunc('${group}', coalesce(date, created_at::date)), 'YYYY-MM-DD') AS period, sum(distance_km)::float AS km, count(*)::int AS legs
     FROM legs WHERE coalesce(date, created_at::date) BETWEEN $1 AND $2${tripCond} GROUP BY 1 ORDER BY 1`, params)).rows;
+  // Gli allenamenti si possono restringere a un atleta: con piu' atleti in casa, e
+  // con le copie di uno stesso giro su entrambi, sommarli gonfierebbe i totali
+  const atleta = req.query.user_id ? +req.query.user_id : null;
+  const paramsWo = [...params];
+  let condWo = tripId ? ' AND trip_id=$3' : '';
+  if (atleta) { paramsWo.push(atleta); condWo += ` AND user_id=$${paramsWo.length}`; }
   const wo = (await q(`SELECT to_char(date_trunc('${group}', started_at), 'YYYY-MM-DD') AS period, count(*)::int AS n, sum(distance_m)::float/1000 AS km, sum(duration_s)::int AS seconds, sum(calories)::int AS calories, avg(hr_avg)::int AS hr_avg
-    FROM workouts WHERE started_at BETWEEN $1 AND $2::date + 1${tripId ? ' AND trip_id=$3' : ''} GROUP BY 1 ORDER BY 1`, params)).rows;
+    FROM workouts WHERE started_at BETWEEN $1 AND $2::date + 1${condWo} GROUP BY 1 ORDER BY 1`, paramsWo)).rows;
   const byCat = (await q(`SELECT category, sum(amount)::float AS total FROM expenses WHERE date BETWEEN $1 AND $2${tripCond} GROUP BY 1 ORDER BY 2 DESC`, params)).rows;
   const totals = {
     spent: +byCat.reduce((a, b) => a + b.total, 0).toFixed(2),

@@ -34,7 +34,7 @@ const sportIco = s => {
   return '🏅';
 };
 
-let user = null, settings = {};
+let user = null, settings = {}, atleti = [];
 
 // ---------- API ----------
 async function api(path, opts = {}) {
@@ -99,11 +99,19 @@ function geoInput(input, onPick) {
 }
 
 // ---------- Layout ----------
-const NAV = [['#/', '🚐', 'Viaggi'], ['#/allenamenti', '👟', 'Allenamenti'], ['#/cruscotto', '🎛️', 'Cruscotto'], ['#/riepiloghi', '📊', 'Riepiloghi'], ['#/impostazioni', '⚙️', 'Impostazioni']];
+// Il menu ha una voce di allenamenti per atleta: con due persone in casa servono
+// due elenchi distinti, e le copie di uno stesso giro non devono mescolarsi
+const nav = () => [
+  ['#/', '🚐', 'Viaggi'],
+  ...atleti.map(a => [`#/allenamenti/${a.id}`, '👟', `Allenamenti ${a.name}`]),
+  ['#/cruscotto', '🎛️', 'Cruscotto'],
+  ['#/riepiloghi', '📊', 'Riepiloghi'],
+  ['#/impostazioni', '⚙️', 'Impostazioni'],
+];
 function layout(content) {
   const h = location.hash || '#/';
   const active = x => (x === '#/' ? (h === '#/' || h.startsWith('#/trip')) : h.startsWith(x)) ? 'active' : '';
-  const links = NAV.map(([href, ico, l]) => `<a href="${href}" class="${active(href)}"><span class="ico">${ico}</span>${l}</a>`).join('');
+  const links = nav().map(([href, ico, l]) => `<a href="${href}" class="${active(href)}"><span class="ico">${ico}</span>${l}</a>`).join('');
   return `<aside class="sidebar"><div class="brand"><img src="icon.svg" alt="">Camper</div><nav class="nav">${links}</nav><div class="user">${esc(user.name)}<br><a href="#" data-logout>Esci</a></div></aside>
   <main>${content}</main><nav class="tabbar">${links}</nav>`;
 }
@@ -203,7 +211,7 @@ async function viewTrip(id) {
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card"><div class="row between"><h2>Foto</h2><label class="btn sm">📷 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div>
         <div class="photos${photos.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${photos.map(p => `<figure><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">✕</button></figure>`).join('') || '<div class="muted small">Nessuna foto. Le foto con GPS vengono posizionate sulla mappa.</div>'}</div></div>
-      <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
+      <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
     </div>`);
 
   // Mappa
@@ -404,6 +412,9 @@ function intervallo(periodo) {
   return [null, null];
 }
 
+// Dal dettaglio si torna all'elenco dell'atleta a cui l'allenamento appartiene
+const tornaAllenamenti = w => `#/allenamenti/${w.user_id || (user && user.id) || ''}`;
+
 // Media oraria: se la sorgente non l'ha fornita la ricaviamo da distanza e durata,
 // cosi' compare anche sugli allenamenti di Salute, che non la mandano mai
 const mediaKmh = w => w.speed_avg_kmh ? +w.speed_avg_kmh
@@ -475,20 +486,22 @@ function renameWorkout(id, nome, dopo) {
     });
 }
 
-async function viewWorkouts(id) {
-  if (id) return viewWorkout(id);
+async function viewWorkouts(idAtleta) {
+  const atleta = atleti.find(a => a.id === idAtleta) || { id: idAtleta, name: '' };
+  const altri = atleti.filter(a => a.id !== idAtleta);
   const [da, a] = intervallo(elenco.periodo);
   const qs = new URLSearchParams();
   if (da) qs.set('from', da);
   if (a) qs.set('to', a);
+  qs.set('user_id', String(idAtleta));
   if (elenco.trips.length) qs.set('trip_id', elenco.trips.join(','));
   if (elenco.tapis) qs.set('tapis', elenco.tapis);
   if (elenco.discipline.length) qs.set('disciplina', elenco.discipline.join(','));
-  const [ws, trips, anni, quante] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni'), api('/workouts/discipline')]);
+  const [ws, trips, anni, quante] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni?user_id=' + idAtleta), api('/workouts/discipline?user_id=' + idAtleta)]);
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
-    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
+    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti ${esc(atleta.name)}</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="card" style="margin-bottom:16px">
       <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto'], ['scelta', 'Scegli\u2026']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
       ${elenco.periodo === 'scelta' ? (() => { const c = elenco.scelta; return `<div class="row" style="margin-top:12px">
@@ -533,7 +546,11 @@ async function viewWorkouts(id) {
     </div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : da && a && da === a ? fdate(da) : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
-    <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
+    ${altri.length ? `<div class="card" id="barra-scelta" hidden style="margin-bottom:12px">
+      <div class="row between"><div><b id="quanti-scelti">0</b> selezionati</div>
+      <div class="row">${altri.map(a => `<button class="btn primary" data-copia="${a.id}">Copia in Allenamenti ${esc(a.name)}</button>`).join('')}
+      <button class="btn" id="scelta-annulla">Annulla</button></div></div></div>` : ''}
+    <div class="card pad-0 list">${ws.map(w => `<div class="item">${altri.length ? `<input type="checkbox" class="scelta" value="${w.id}" title="Seleziona">` : ''}<a class="item-main" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
       <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
       <div class="right small nowrap">${numeriRiga(w)}</div></a>
       <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || (elenco.periodo === 'tutto' && !elenco.trips.length ? '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>' : '<div class="empty">Nessun allenamento con questi filtri.</div>')}</div>`);
@@ -595,6 +612,24 @@ async function viewWorkouts(id) {
         });
       });
   });
+  const scelti = () => $$('.scelta').filter(c => c.checked).map(c => +c.value);
+  const aggiornaBarra = () => {
+    const n = scelti().length, barra = $('#barra-scelta');
+    if (!barra) return;
+    barra.hidden = n === 0;
+    $('#quanti-scelti').textContent = n;
+  };
+  $$('.scelta').forEach(c => c.onchange = aggiornaBarra);
+  if ($('#scelta-annulla')) $('#scelta-annulla').onclick = () => { $$('.scelta').forEach(c => { c.checked = false; }); aggiornaBarra(); };
+  $$('[data-copia]').forEach(b => b.onclick = safe(async () => {
+    const ids = scelti();
+    if (!ids.length) return;
+    const nome = b.textContent.replace('Copia in Allenamenti ', '');
+    if (!await confirmDlg(`Copiare ${ids.length === 1 ? 'questo allenamento' : ids.length + ' allenamenti'} negli allenamenti di ${nome}?`)) return;
+    const r = await api('/workouts/copy', { method: 'POST', body: { ids, to_user_id: +b.dataset.copia } });
+    toast(`${r.copiati} copiat${r.copiati === 1 ? 'o' : 'i'} per ${r.atleta}` + (r.gia_presenti ? `, ${r.gia_presenti} gi\u00e0 presenti` : ''));
+    render();
+  }));
   $$('[data-ren]').forEach(b => b.onclick = () => renameWorkout(b.dataset.ren, b.dataset.name, render));
   $$('[data-del]').forEach(b => b.onclick = safe(async () => {
     if (!await confirmDlg('Eliminare l\'allenamento?')) return;
@@ -606,7 +641,7 @@ async function viewWorkout(id) {
   const w = await api('/workouts/' + id);
   const trips = await api('/trips');
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
-  $('#app').innerHTML = layout(`<a href="#/allenamenti" class="small">← Allenamenti</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
+  $('#app').innerHTML = layout(`<a href="${tornaAllenamenti(w)}" class="small">← Allenamenti ${esc(w.athlete || '')}</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
     <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
@@ -629,7 +664,7 @@ async function viewWorkout(id) {
   });
   $('#mod').onclick = () => modificaWorkout(w, render);
   $('#ren').onclick = () => renameWorkout(id, w.name || w.sport || '', render);
-  $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = '#/allenamenti'; } });
+  $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = tornaAllenamenti(w); } });
 }
 
 // ---------- Cruscotto ----------
@@ -654,6 +689,9 @@ function tendinaMulti(id, etichetta, voci, scelti, vuoto) {
 
 async function viewDashboard() {
   const [ws, trips] = await Promise.all([api('/workouts'), api('/trips')]);
+  // Con piu' atleti, e con le copie di uno stesso giro su entrambi, partire da
+  // "tutti" raddoppierebbe i totali. Si parte da chi e' collegato.
+  if (!dash.avviato) { dash.avviato = true; if (atleti.length > 1) dash.atleti = [user.name]; }
   // Le voci di ogni menu vengono dai dati, col numero di attivita' accanto
   const conteggio = (chiave, trasforma = v => v) => {
     const m = new Map();
@@ -736,6 +774,8 @@ async function viewDashboard() {
 
     const MAX = 60;
     $('#out').innerHTML = `
+      ${atleti.length > 1 && dash.atleti.length !== 1 ? `<div class="card small" style="margin:14px 0 0;border-left:3px solid var(--warn)">
+        \u26a0\ufe0f Stai guardando ${dash.atleti.length ? 'pi\u00f9 atleti insieme' : 'tutti gli atleti insieme'}: un giro copiato su entrambi viene contato due volte.</div>` : ''}
       <div class="tiles" style="margin:14px 0">
         <div class="tile accent"><div class="label">Attività</div><div class="value">${t.n}</div><div class="sub">su ${ws.length} totali</div></div>
         <div class="tile"><div class="label">Km allenamento</div><div class="value">${num(t.km)} km</div></div>
@@ -755,7 +795,7 @@ async function viewDashboard() {
           <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
       </div>
       <div class="card pad-0" style="margin-top:14px"><div class="row between" style="padding:14px 16px 6px"><h2>Allenamenti (${f.length})</h2>${f.length > MAX ? `<span class="small muted">mostrati i primi ${MAX}</span>` : ''}</div>
-        <div class="list">${f.slice(0, MAX).map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
+        <div class="list">${f.slice(0, MAX).map(w => `<div class="item"><a class="item-main" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
           <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
           <div class="right small nowrap">${numeriRiga(w)}</div></a></div>`).join('') || '<div class="empty">Nessun allenamento corrisponde ai filtri.</div>'}</div></div>`;
   };
@@ -792,6 +832,7 @@ async function viewDashboard() {
   });
   $('#reset').onclick = () => {
     ['trips', 'stati', 'atleti', 'sport', 'fonti', 'anni', 'mesi'].forEach(k => { dash[k] = []; });
+    if (atleti.length > 1) dash.atleti = [user.name];   // azzerare non deve rimettere insieme gli atleti
     dash.from = ''; dash.to = ''; dash.q = ''; dash.aperte = {};
     render();
   };
@@ -799,12 +840,15 @@ async function viewDashboard() {
 }
 
 // ---------- Riepiloghi ----------
-const state = { period: 'month', from: null, to: null, group: 'month' };
+const state = { period: 'month', from: null, to: null, group: 'month', atleta: null, avviato: false };
 async function viewSummary() {
   const now = new Date();
   const presets = { week: [iso(now - 6 * 864e5), today(), 'day'], month: [iso(new Date(now.getFullYear(), now.getMonth(), 1)), today(), 'day'], year: [`${now.getFullYear()}-01-01`, today(), 'month'], all: ['2000-01-01', today(), 'year'], custom: null };
   if (state.period !== 'custom') [state.from, state.to, state.group] = presets[state.period];
-  const s = await api(`/summary?from=${state.from}&to=${state.to}&group=${state.group}`);
+  // Come nel Cruscotto: di partenza gli allenamenti sono quelli di chi e' collegato,
+  // per non sommare le copie dello stesso giro presenti su piu' atleti
+  if (!state.avviato) { state.avviato = true; if (atleti.length > 1) state.atleta = user.id; }
+  const s = await api(`/summary?from=${state.from}&to=${state.to}&group=${state.group}${state.atleta ? '&user_id=' + state.atleta : ''}`);
   const periods = [...new Set([...s.periods.map(p => p.period), ...s.km.map(p => p.period), ...s.workouts.map(p => p.period)])].sort();
   const fmtP = p => state.group === 'year' ? p.slice(0, 4) : state.group === 'month' ? new Date(p).toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) : new Date(p).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
   const spentBy = Object.fromEntries(periods.map(p => [p, s.periods.filter(x => x.period === p).reduce((a, b) => a + b.total, 0)]));
@@ -819,6 +863,8 @@ async function viewSummary() {
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Riepiloghi</h1>
     <div class="card"><div class="chips">${[['week', '7 giorni'], ['month', 'Questo mese'], ['year', 'Quest\'anno'], ['all', 'Tutto'], ['custom', 'Periodo…']].map(([k, l]) => `<span class="chip ${state.period === k ? 'active' : ''}" data-p="${k}">${l}</span>`).join('')}</div>
       <div class="row" style="margin-top:12px"><div class="field w-md"><label class="f">Dal</label><input type="date" id="from" value="${state.from}"></div><div class="field w-md"><label class="f">Al</label><input type="date" id="to" value="${state.to}"></div>
+      ${atleti.length > 1 ? `<div class="field w-sm"><label class="f">Allenamenti di</label><select id="f-atleta">
+        <option value="">Tutti insieme</option>${atleti.map(a => `<option value="${a.id}" ${state.atleta === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>` : ''}
       <div class="field w-sm"><label class="f">Raggruppa</label><select id="group">${[['day', 'Giorno'], ['week', 'Settimana'], ['month', 'Mese'], ['year', 'Anno']].map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div><div class="field" style="align-self:flex-end"><button class="btn primary" id="go">Applica</button></div></div></div>
     <div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Speso</div><div class="value">${eur(s.totals.spent)}</div><div class="sub">${s.totals.trips} viaggi</div></div><div class="tile"><div class="label">Km in camper</div><div class="value">${num(s.totals.km, 0)}</div><div class="sub">${s.totals.legs} tappe · ${s.totals.km ? eur(s.totals.spent / s.totals.km) + '/km' : ''}</div></div><div class="tile"><div class="label">Allenamenti</div><div class="value">${s.totals.workouts}</div><div class="sub">${num(s.totals.workout_km)} km</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(s.totals.calories, 0)}</div></div></div>
     <div class="grid cols-2">
@@ -833,11 +879,12 @@ async function viewSummary() {
       <div class="card"><h2>Km di allenamento</h2><div class="small muted">a piedi, in bici e le altre attività</div>
         <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${num(woBy[p]?.km || 0)} km di attività"><i class="sport" style="height:${(woBy[p]?.km || 0) / maxKmSport * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
     </div>
-    <div class="small muted" style="margin:6px 2px 0">I due grafici hanno scale indipendenti: le altezze non sono confrontabili fra loro.</div>
+    <div class="small muted" style="margin:6px 2px 0">I due grafici hanno scale indipendenti: le altezze non sono confrontabili fra loro.${atleti.length > 1 ? ` Gli allenamenti mostrati sono ${state.atleta ? 'di ' + esc((atleti.find(a => a.id === state.atleta) || {}).name || '') : 'di tutti gli atleti insieme'}; spese e chilometri in camper riguardano il viaggio e restano comuni.` : ''}</div>
     <div class="card pad-0" style="margin-top:14px"><div class="table-wrap"><table><thead><tr><th>Periodo</th><th class="num">Spese</th><th class="num">Km camper</th><th class="num">Allenamenti</th><th class="num">Km allenamento</th><th class="num">Calorie</th><th class="num">❤️ medio</th></tr></thead>
       <tbody>${periods.map(p => `<tr><td>${fmtP(p)}</td><td class="num"><b>${eur(spentBy[p])}</b></td><td class="num">${num(kmBy[p] || 0, 0)}</td><td class="num">${woBy[p]?.n || 0}</td><td class="num">${num(woBy[p]?.km || 0)}</td><td class="num">${num(woBy[p]?.calories || 0, 0)}</td><td class="num">${woBy[p]?.hr_avg || '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nessun dato</td></tr>'}</tbody></table></div></div>`);
   $$('.chip').forEach(c => c.onclick = () => { state.period = c.dataset.p; render(); });
   $('#go').onclick = () => { state.period = 'custom'; state.from = $('#from').value; state.to = $('#to').value; state.group = $('#group').value; render(); };
+  if ($('#f-atleta')) $('#f-atleta').onchange = e => { state.atleta = e.target.value ? +e.target.value : null; render(); };
 }
 
 // ---------- Impostazioni ----------
@@ -911,11 +958,12 @@ async function viewSettings() {
 async function render() {
   document.body.onclick = null;
   try {
-    if (!user) { const me = await api('/auth/me'); if (me.user?.approved) { user = me.user; settings = await api('/settings'); } else return viewAuth(me.setup); }
+    if (!user) { const me = await api('/auth/me'); if (me.user?.approved) { user = me.user; [settings, atleti] = await Promise.all([api('/settings'), api('/athletes')]); } else return viewAuth(me.setup); }
     const h = location.hash || '#/';
-    const m = h.match(/^#\/(trip|allenamenti)\/?(\d+)?/);
+    const m = h.match(/^#\/(trip|allenamenti|allenamento)\/?(\d+)?/);
     if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
-    else if (m?.[1] === 'allenamenti') await viewWorkouts(m[2]);
+    else if (m?.[1] === 'allenamento' && m[2]) await viewWorkout(m[2]);
+    else if (m?.[1] === 'allenamenti') await viewWorkouts(m[2] ? +m[2] : user.id);
     else if (h.startsWith('#/cruscotto')) await viewDashboard();
     else if (h.startsWith('#/riepiloghi')) await viewSummary();
     else if (h.startsWith('#/impostazioni')) await viewSettings();

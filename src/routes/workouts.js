@@ -259,14 +259,55 @@ function stessoAllenamento(a, b) {
 
 // Quante attivita' per disciplina: serve a non proporre filtri che non selezionano nulla
 router.get('/workouts/discipline', wrap(async (req, res) => {
+  const atleta = req.query.user_id ? +req.query.user_id : null;
   const pezzi = Object.entries(DISCIPLINE).map(([k, c]) => `count(*) FILTER (WHERE ${c}) AS ${k}`);
-  const r = (await q(`SELECT ${pezzi.join(', ')} FROM workouts w`)).rows[0];
+  const r = (await q(`SELECT ${pezzi.join(', ')} FROM workouts w ${atleta ? 'WHERE w.user_id=$1' : ''}`, atleta ? [atleta] : [])).rows[0];
   res.json(Object.fromEntries(Object.keys(DISCIPLINE).map(k => [k, Number(r[k])])));
+}));
+
+// Gli atleti dell'installazione: servono al menu, che ha una voce per ciascuno,
+// e alla copia degli allenamenti da una persona all'altra. Solo nomi, nessun dato
+// riservato, quindi basta essere autenticati.
+router.get('/athletes', wrap(async (req, res) => {
+  const rows = (await q(`SELECT id, name FROM users WHERE approved ORDER BY id`)).rows;
+  res.json(rows);
+}));
+
+// Copia uno o piu' allenamenti su un altro atleta. La copia e' indipendente:
+// correggere poi l'originale non la tocca. Conserva traccia, orari, dislivello e
+// il viaggio, e ricorda da chi proviene.
+router.post('/workouts/copy', wrap(async (req, res) => {
+  const ids = (req.body?.ids || []).map(Number).filter(Number.isInteger);
+  const dest = Number(req.body?.to_user_id);
+  if (!ids.length) return res.status(400).json({ error: 'Nessun allenamento indicato' });
+  if (!Number.isInteger(dest)) return res.status(400).json({ error: 'Atleta di destinazione mancante' });
+  const atleta = (await q('SELECT id, name FROM users WHERE id=$1 AND approved', [dest])).rows[0];
+  if (!atleta) return res.status(404).json({ error: 'Atleta di destinazione non trovato' });
+
+  const originali = (await q('SELECT * FROM workouts WHERE id = ANY($1::int[])', [ids])).rows;
+  let copiati = 0, gia = 0;
+  for (const o of originali) {
+    if (o.user_id === dest) continue;                       // e' gia' suo
+    // L'identificativo della copia e' distinto da quello della sorgente, cosi' un
+    // domani un import di Cate non si sovrascrive con questa copia
+    const r = await q(`INSERT INTO workouts(user_id,trip_id,trip_manual,source,external_id,sport,name,started_at,duration_s,distance_m,
+        elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,meta)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      ON CONFLICT (user_id,source,external_id) DO NOTHING RETURNING id`,
+      [dest, o.trip_id, o.trip_manual, o.source, `copia-${o.id}`, o.sport, o.name, o.started_at, o.duration_s, o.distance_m,
+        o.elevation_up_m, o.calories, o.hr_avg, o.hr_max, o.speed_avg_kmh, o.track ? JSON.stringify(o.track) : null,
+        JSON.stringify({ ...(o.meta || {}), copiato_da: { id: o.id, atleta: req.user.name } })]);
+    if (r.rows[0]) copiati++; else gia++;
+  }
+  console.log(`copia allenamenti: ${copiati} verso ${atleta.name}, ${gia} gia' presenti`);
+  res.json({ ok: true, copiati, gia_presenti: gia, atleta: atleta.name });
 }));
 
 // Anni in cui esiste almeno un allenamento, per il selettore del periodo
 router.get('/workouts/anni', wrap(async (req, res) => {
-  const rows = (await q(`SELECT DISTINCT extract(year FROM started_at AT TIME ZONE 'Europe/Rome')::int AS anno FROM workouts ORDER BY anno DESC`)).rows;
+  const atleta = req.query.user_id ? +req.query.user_id : null;
+  const rows = (await q(`SELECT DISTINCT extract(year FROM started_at AT TIME ZONE 'Europe/Rome')::int AS anno FROM workouts
+    ${atleta ? 'WHERE user_id=$1' : ''} ORDER BY anno DESC`, atleta ? [atleta] : [])).rows;
   res.json(rows.map(r => r.anno));
 }));
 
