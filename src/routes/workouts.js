@@ -290,10 +290,18 @@ router.post('/komoot/connect', wrap(async (req, res) => {
 }));
 router.delete('/komoot', wrap(async (req, res) => { await q(`DELETE FROM integrations WHERE user_id=$1 AND provider='komoot'`, [req.user.id]); res.json({ ok: true }); }));
 
+// Il token e' cifrato con una chiave derivata da SESSION_SECRET: se l'app viene
+// spostata su un'installazione con un segreto diverso, il token non e' piu'
+// leggibile e l'unica via e' rifare il collegamento.
+function leggiSegreto(r, servizio) {
+  try { return decrypt(r.secret_enc); }
+  catch { throw new Error(`collegamento ${servizio} non piu' leggibile su questa installazione: scollega e ricollega ${servizio}`); }
+}
+
 export async function syncKomootFor(userId, { full = false } = {}) {
   const r = (await q(`SELECT * FROM integrations WHERE user_id=$1 AND provider='komoot'`, [userId])).rows[0];
   if (!r) return { skipped: true };
-  const token = decrypt(r.secret_enc);
+  const token = leggiSegreto(r, 'Komoot');
   const since = full ? null : (r.last_sync_at ? new Date(new Date(r.last_sync_at).getTime() - 86400000 * 2) : null);
   const tours = await komoot.listTours(r.external_user_id, token, { limit: full ? 200 : 30, since });
   let n = 0;
@@ -359,7 +367,7 @@ const MAX_DETTAGLI = 40;
 export async function syncStravaFor(userId, { full = false } = {}) {
   const r = (await q(`SELECT * FROM integrations WHERE user_id=$1 AND provider='strava'`, [userId])).rows[0];
   if (!r) return { skipped: true };
-  const { tok, rinnovato } = await strava.tokenValido(JSON.parse(decrypt(r.secret_enc)));
+  const { tok, rinnovato } = await strava.tokenValido(JSON.parse(leggiSegreto(r, 'Strava')));
   if (rinnovato) await q('UPDATE integrations SET secret_enc=$2 WHERE id=$1', [r.id, encrypt(JSON.stringify(tok))]);
   const dopo = full ? null : (r.last_sync_at ? new Date(new Date(r.last_sync_at).getTime() - 2 * 86400000) : null);
   const attivita = await strava.listaAttivita(tok.access_token, { dopo });
