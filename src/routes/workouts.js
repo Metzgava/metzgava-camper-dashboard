@@ -137,6 +137,68 @@ router.get('/workouts', wrap(async (req, res) => {
     FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id ${where} ORDER BY started_at DESC LIMIT 300`, params)).rows;
   res.json(rows);
 }));
+// ---------- doppioni ----------
+// Stessa uscita registrata due volte, di solito una da Komoot o da un GPX e una
+// da Salute: capita quando su iPhone e' acceso l'invio del percorso, perche' con
+// una traccia propria l'allenamento non si fonde con quello esistente.
+
+// Komoot e Salute chiamano lo stesso sport in modi diversi: riconduciamoli a famiglie
+const FAMIGLIE = { escursione: ['hike', 'hiking'], camminata: ['walk', 'walking'], corsa: ['run', 'running', 'jogging'],
+  bici: ['bike', 'cycling', 'touringbicycle', 'mtb', 'racebike', 'ebike'], nuoto: ['swim', 'swimming'], sci: ['ski', 'skitour'] };
+function famigliaSport(s) {
+  const t = String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (!t) return 'ignoto';
+  for (const [fam, voci] of Object.entries(FAMIGLIE)) if (voci.some(v => t.includes(v))) return fam;
+  return 'altro:' + t;
+}
+
+// Quanto e' completo un record: a parita' di uscita teniamo quello che dice di piu'
+const ricchezza = w => (w.has_track ? 4 : 0) + (w.source === 'komoot' || w.source === 'gpx' ? 2 : 0)
+  + (w.calories ? 1 : 0) + (w.hr_avg ? 1 : 0) + (w.elevation_up_m ? 1 : 0);
+
+// Due record sono lo stesso allenamento se stesso atleta, stessa famiglia di sport,
+// inizio a meno di 15 minuti e distanze compatibili (o entrambe assenti)
+function stessoAllenamento(a, b) {
+  if (a.user_id !== b.user_id) return false;
+  if (Math.abs(new Date(a.started_at) - new Date(b.started_at)) > 15 * 60 * 1000) return false;
+  const fa = famigliaSport(a.sport), fb = famigliaSport(b.sport);
+  if (fa !== fb && fa !== 'ignoto' && fb !== 'ignoto') return false;
+  const da = a.distance_m, db = b.distance_m;
+  if (da == null && db == null) return true;
+  if (da == null || db == null) return false;
+  return Math.abs(da - db) <= 0.15 * Math.max(da, db);
+}
+
+router.get('/workouts/duplicates', wrap(async (req, res) => {
+  const rows = (await q(`SELECT w.id,w.user_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,
+      (w.track IS NOT NULL) AS has_track, u.name AS athlete, t.title AS trip_title
+    FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id ORDER BY w.started_at`)).rows;
+  const visti = new Set(), gruppi = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (visti.has(rows[i].id)) continue;
+    const gruppo = [rows[i]];
+    for (let j = i + 1; j < rows.length; j++) {
+      if (visti.has(rows[j].id)) continue;
+      if (new Date(rows[j].started_at) - new Date(rows[i].started_at) > 15 * 60 * 1000) break;
+      if (gruppo.some(g => stessoAllenamento(g, rows[j]))) gruppo.push(rows[j]);
+    }
+    if (gruppo.length < 2) continue;
+    gruppo.forEach(g => visti.add(g.id));
+    const ordinati = [...gruppo].sort((a, b) => ricchezza(b) - ricchezza(a) || a.id - b.id);
+    gruppi.push({ tieni: ordinati[0], elimina: ordinati.slice(1) });
+  }
+  res.json({ gruppi, totale_da_eliminare: gruppi.reduce((a, g) => a + g.elimina.length, 0) });
+}));
+
+// Elimina solo gli id indicati, e solo se sono davvero doppioni di qualcosa che resta
+router.post('/workouts/duplicates/remove', wrap(async (req, res) => {
+  const ids = (req.body?.ids || []).map(Number).filter(Number.isInteger);
+  if (!ids.length) return res.status(400).json({ error: 'Nessun allenamento indicato' });
+  const r = await q('DELETE FROM workouts WHERE id = ANY($1::int[]) AND (user_id=$2 OR $3)', [ids, req.user.id, req.user.role === 'admin']);
+  console.log(`doppioni: eliminati ${r.rowCount} allenamenti su ${ids.length} richiesti, utente=${req.user.id}`);
+  res.json({ ok: true, eliminati: r.rowCount });
+}));
+
 router.get('/workouts/:id', wrap(async (req, res) => {
   const r = (await q('SELECT w.*, u.name AS athlete, t.title AS trip_title FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id WHERE w.id=$1', [req.params.id])).rows[0];
   r ? res.json(r) : res.status(404).json({ error: 'Non trovato' });

@@ -367,7 +367,7 @@ async function viewWorkouts(id) {
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
-    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
+    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     <div class="card pad-0 list">${ws.map(w => `<div class="item"><a class="item-main" href="#/allenamenti/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
@@ -381,6 +381,30 @@ async function viewWorkouts(id) {
     toast('Importazione in corso\u2026');
     const r = await api('/workouts/health-json', { method: 'POST', body: fd });
     toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti ad attivit\u00e0 esistenti`); render();
+  });
+  $('#dup').onclick = safe(async () => {
+    const { gruppi, totale_da_eliminare } = await api('/workouts/duplicates');
+    if (!gruppi.length) return toast('Nessun doppione trovato');
+    const riga = w => `<div class="small">${sportIco(w.sport)} <b>${esc(w.name || w.sport || 'Allenamento')}</b> · ${fdt(w.started_at)} · ${esc(w.athlete)}
+      · <span class="badge">${w.source}</span> · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.has_track ? ' · 🗺️ traccia' : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}</div>`;
+    modal(`<h2>${gruppi.length} possibil${gruppi.length === 1 ? 'e doppione' : 'i doppioni'}</h2>
+      <p class="small muted">Di ogni gruppo tengo il record pi\u00f9 completo e propongo di eliminare gli altri. Togli la spunta a quelli che vuoi conservare.</p>
+      <div class="stack" style="margin-top:12px;max-height:50vh;overflow:auto">${gruppi.map((g, i) => `<div class="card" style="padding:12px">
+        <div class="small muted" style="margin-bottom:6px">Gruppo ${i + 1} — tengo questo:</div>${riga(g.tieni)}
+        <div class="small muted" style="margin:8px 0 6px">da eliminare:</div>
+        ${g.elimina.map(w => `<label class="row" style="gap:8px;align-items:flex-start"><input type="checkbox" class="dupchk" value="${w.id}" checked>${riga(w)}</label>`).join('')}
+      </div>`).join('')}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Annulla</button><button class="btn danger" id="godup">Elimina i selezionati (${totale_da_eliminare})</button></div>`,
+      (el, close) => {
+        $('[data-x]', el).onclick = close;
+        $('#godup', el).onclick = safe(async () => {
+          const ids = $$('.dupchk', el).filter(c => c.checked).map(c => +c.value);
+          if (!ids.length) return toast('Nessun allenamento selezionato', true);
+          if (!await confirmDlg(ids.length === 1 ? 'Eliminare questo allenamento? L\u2019operazione non si annulla.' : `Eliminare ${ids.length} allenamenti? L\u2019operazione non si annulla.`)) return;
+          const r = await api('/workouts/duplicates/remove', { method: 'POST', body: { ids } });
+          close(); toast(r.eliminati === 1 ? 'Eliminato 1 allenamento' : `Eliminati ${r.eliminati} allenamenti`); render();
+        });
+      });
   });
   $$('[data-ren]').forEach(b => b.onclick = () => renameWorkout(b.dataset.ren, b.dataset.name, render));
   $$('[data-del]').forEach(b => b.onclick = safe(async () => {
