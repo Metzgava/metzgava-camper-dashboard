@@ -26,7 +26,13 @@ export const requireDevice = wrap(async (req, res, next) => {
   if (!token) return res.status(401).json({ error: 'Token dispositivo mancante', hint: 'invia Authorization: Bearer <token> oppure ?token=<token> nell\'URL' });
   const { rows } = await q(`SELECT d.id AS device_id, d.approved, d.name AS device_name, u.id, u.email, u.name, u.role
                             FROM devices d JOIN users u ON u.id=d.user_id WHERE d.token_hash=$1`, [sha256(token)]);
-  if (!rows[0]) { console.warn('ingest: token dispositivo non riconosciuto'); return res.status(401).json({ error: 'Token non valido' }); }
+  if (!rows[0]) {
+    // Nel registro finiscono solo le prime e le ultime cifre, le stesse che la
+    // pagina Impostazioni mostra accanto al dispositivo: bastano per capire se
+    // il telefono sta mandando un token diverso da quello generato
+    console.warn(`ingest: token dispositivo non riconosciuto (${token.slice(0, 6)}\u2026${token.slice(-4)}, ${token.length} caratteri)`);
+    return res.status(401).json({ error: 'Token non valido' });
+  }
   if (!rows[0].approved) return res.status(403).json({ error: 'Dispositivo non ancora autorizzato' });
   await q('UPDATE devices SET last_seen_at=now() WHERE id=$1', [rows[0].device_id]);
   req.user = rows[0]; req.device = { id: rows[0].device_id, name: rows[0].device_name };
@@ -129,11 +135,23 @@ router.get('/devices', requireAuth, wrap(async (req, res) => {
 // Crea un dispositivo: il token viene mostrato UNA sola volta. L'admin lo approva (auto-approvato se è l'admin stesso).
 router.post('/devices', requireAuth, wrap(async (req, res) => {
   const name = String(req.body?.name || 'iPhone').trim().slice(0, 60);
+  // Gli allenamenti finiscono nella sezione del proprietario del dispositivo:
+  // l'amministratore puo' quindi generare il token per conto di un altro
+  // atleta, senza che questi debba entrare nella dashboard per farlo da se'
+  let proprietario = req.user.id;
+  if (req.body?.user_id && req.user.role === 'admin') {
+    const u = (await q('SELECT id FROM users WHERE id=$1', [req.body.user_id])).rows[0];
+    if (!u) return res.status(404).json({ error: 'Utente non trovato' });
+    proprietario = u.id;
+  }
   const token = 'cd_' + randomToken(32);
   const approved = req.user.role === 'admin';
-  const row = (await q('INSERT INTO devices(user_id,name,token_hash,token_hint,approved) VALUES($1,$2,$3,$4,$5) RETURNING id,name,approved',
-    [req.user.id, name, sha256(token), token.slice(0, 6) + '…' + token.slice(-4), approved])).rows[0];
-  res.json({ ...row, token, endpoint: `${req.protocol}://${req.get('host')}/api/ingest/health` });
+  const riga = (await q(`INSERT INTO devices(user_id,name,token_hash,token_hint,approved) VALUES($1,$2,$3,$4,$5)
+                         RETURNING id,name,approved,(SELECT name FROM users WHERE id=$1) AS owner`,
+    [proprietario, name, sha256(token), token.slice(0, 6) + '\u2026' + token.slice(-4), approved])).rows[0];
+  const host = req.get('x-forwarded-host') || req.get('host');
+  const schema = req.get('x-forwarded-proto') || req.protocol;
+  res.json({ ...riga, token, endpoint: `${schema}://${host}/api/ingest/health` });
 }));
 router.post('/devices/:id/approve', requireAuth, requireAdmin, wrap(async (req, res) => {
   await q('UPDATE devices SET approved=$2 WHERE id=$1', [req.params.id, req.body?.approved !== false]); res.json({ ok: true });

@@ -947,11 +947,19 @@ async function viewSettings() {
   $('#ksync')?.addEventListener('click', safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} tour`); render(); }));
   $('#kfull')?.addEventListener('click', safe(async () => { toast('Importazione storico… può richiedere un minuto'); const r = await api('/komoot/sync', { method: 'POST', body: { full: true } }); toast(`Importati ${r.imported} tour`); render(); }));
   $('#kdel')?.addEventListener('click', safe(async () => { if (await confirmDlg('Scollegare Komoot?')) { await api('/komoot', { method: 'DELETE' }); render(); } }));
-  $('#adddev').onclick = () => modal(`<h2>Nuovo dispositivo</h2><form id="f" class="stack" style="margin-top:12px"><input name="name" placeholder="Es. iPhone di Andrea" required><button class="btn primary">Genera token</button></form>`, (el, close) => $('#f', el).onsubmit = safe(async e => {
+  $('#adddev').onclick = () => {
+    // Il dispositivo appartiene a un atleta: i suoi invii finiscono in quella
+    // sezione. Chi amministra puo' quindi preparare il token anche per gli altri
+    const altri = (adm?.users || []).filter(u => u.approved);
+    const scelta = altri.length > 1
+      ? `<label class="small muted">Allenamenti di<select name="user_id">${altri.map(u => `<option value="${u.id}"${u.id === user.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>`
+      : '';
+    modal(`<h2>Nuovo dispositivo</h2><form id="f" class="stack" style="margin-top:12px"><input name="name" placeholder="Es. iPhone di Andrea" required>${scelta}<button class="btn primary">Genera token</button></form>`, (el, close) => $('#f', el).onsubmit = safe(async e => {
     e.preventDefault(); const r = await api('/auth/devices', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); close();
-    modal(`<h2>Token per «${esc(r.name)}»</h2><p class="small">Copialo ora: non sarà più visibile.${r.approved ? '' : ' Deve ancora essere autorizzato dall\'amministratore.'}</p><div class="code">${r.token}</div><p class="small muted" style="margin-top:8px">Endpoint: <span class="code">${esc(r.endpoint)}</span></p><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="cp">Copia</button><button class="btn primary" data-x>Fatto</button></div>`,
+    modal(`<h2>Token per «${esc(r.name)}»</h2><p class="small">Allenamenti di <b>${esc(r.owner)}</b>. Copialo ora: non sarà più visibile.${r.approved ? '' : ' Deve ancora essere autorizzato dall\'amministratore.'}</p><div class="code">${r.token}</div><p class="small muted" style="margin-top:8px">Endpoint: <span class="code">${esc(r.endpoint)}</span></p><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="cp">Copia</button><button class="btn primary" data-x>Fatto</button></div>`,
       (el2, close2) => { $('#cp', el2).onclick = () => { navigator.clipboard?.writeText(r.token); toast('Copiato'); }; $('[data-x]', el2).onclick = () => { close2(); render(); }; });
   }));
+  };
   $('#pwd')?.addEventListener('submit', safe(async e => {
     e.preventDefault();
     await api('/auth/password', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
