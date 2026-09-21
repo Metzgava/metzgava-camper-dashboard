@@ -352,6 +352,7 @@ const elenco = {
   periodo: 'mese',              // scorciatoia attiva, oppure 'scelta'
   trips: [],                    // elenco vuoto = tutti i viaggi
   scelta: { tipo: 'giorno', giorno: today(), mese: new Date().getMonth(), anno: new Date().getFullYear(), from: null, to: null },
+  tendinaAperta: false,
 };
 const ultimoGiorno = (anno, mese) => iso(new Date(anno, mese + 1, 0));
 
@@ -410,12 +411,20 @@ async function viewWorkouts(id) {
         <div class="field" style="align-self:flex-end"><button class="btn primary" id="s-applica">Applica</button></div>
       </div>`; })() : ''}
       <div style="margin-top:12px"><label class="f">Viaggi</label>
-        <div class="chips">
-          <span class="chip ${elenco.trips.length ? '' : 'active'}" data-trip="">Tutti</span>
-          <span class="chip ${elenco.trips.includes('none') ? 'active' : ''}" data-trip="none">Senza viaggio</span>
-          ${trips.map(t => `<span class="chip ${elenco.trips.includes(String(t.id)) ? 'active' : ''}" data-trip="${t.id}">${esc(t.title)}</span>`).join('')}
-        </div>
-        <div class="small muted" style="margin-top:6px">${elenco.trips.length > 1 ? 'Puoi sceglierne pi\u00f9 di uno: l\u2019elenco somma i viaggi selezionati.' : 'Tocca pi\u00f9 viaggi per vederli insieme.'}</div>
+        <details class="tendina" id="f-viaggi" ${elenco.tendinaAperta ? 'open' : ''}>
+          <summary>${(() => {
+            if (!elenco.trips.length) return 'Tutti i viaggi';
+            if (elenco.trips.length > 1) return `${elenco.trips.length} viaggi selezionati`;
+            const v = elenco.trips[0];
+            return v === 'none' ? 'Senza viaggio' : esc(trips.find(t => String(t.id) === v)?.title || 'Un viaggio');
+          })()}</summary>
+          <div class="tendina-corpo">
+            <label><input type="checkbox" data-trip="none" ${elenco.trips.includes('none') ? 'checked' : ''}> Senza viaggio</label>
+            ${trips.map(t => `<label><input type="checkbox" data-trip="${t.id}" ${elenco.trips.includes(String(t.id)) ? 'checked' : ''}> ${esc(t.title)}</label>`).join('')}
+            <button class="btn" id="v-azzera" style="margin-top:6px" ${elenco.trips.length ? '' : 'disabled'}>Mostra tutti i viaggi</button>
+          </div>
+        </details>
+        <div class="small muted" style="margin-top:6px">Puoi spuntarne pi\u00f9 di uno: l\u2019elenco somma i viaggi scelti.</div>
       </div>
     </div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : da && a && da === a ? fdate(da) : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
@@ -443,13 +452,13 @@ async function viewWorkouts(id) {
     if ($('#s-al')) c.to = $('#s-al').value || null;
     render();
   };
-  $$('[data-trip]').forEach(c => c.onclick = () => {
+  $('#f-viaggi').ontoggle = e => { elenco.tendinaAperta = e.target.open; };
+  $$('[data-trip]').forEach(c => c.onchange = () => {
     const v = c.dataset.trip;
-    if (!v) elenco.trips = [];                                   // "Tutti" azzera la selezione
-    else if (elenco.trips.includes(v)) elenco.trips = elenco.trips.filter(x => x !== v);
-    else elenco.trips = [...elenco.trips, v];
+    elenco.trips = c.checked ? [...elenco.trips, v] : elenco.trips.filter(x => x !== v);
     render();
   });
+  $('#v-azzera').onclick = () => { elenco.trips = []; render(); };
   $('#dup').onclick = safe(async () => {
     const { gruppi, totale_da_eliminare } = await api('/workouts/duplicates');
     if (!gruppi.length) return toast('Nessun doppione trovato');

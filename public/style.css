@@ -101,6 +101,19 @@ tr:last-child td { border-bottom: 0; } td.num, th.num { text-align: right; font-
 .suggest { position: absolute; left: 0; right: 0; top: 100%; background: var(--surface); border-radius: 12px; box-shadow: var(--shadow); z-index: 20; max-height: 220px; overflow: auto; border: 1px solid var(--line); }
 .suggest div { padding: 9px 12px; cursor: pointer; font-size: 14px; } .suggest div:hover { background: var(--surface-2); }
 .rel { position: relative; }
+/* Menu a tendina con scelta multipla: un <details> che apre le caselle di spunta */
+.tendina { position: relative; display: inline-block; max-width: 100%; }
+.tendina > summary { list-style: none; cursor: pointer; padding: 9px 14px; border-radius: 10px; background: var(--surface-2); font-size: 14px; font-weight: 600; user-select: none; }
+.tendina > summary::-webkit-details-marker { display: none; }
+.tendina > summary::after { content: ' \25be'; color: var(--muted); }
+.tendina[open] > summary { background: var(--accent-soft); color: var(--accent); }
+.tendina-corpo { position: absolute; left: 0; z-index: 30; margin-top: 6px; min-width: 240px; max-width: calc(100vw - 48px); max-height: 300px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.tendina-corpo label { display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: 8px; font-size: 14px; cursor: pointer; text-align: left; }
+/* la regola generale allarga gli input al 100%: le caselle di spunta devono restare piccole */
+.tendina-corpo input[type=checkbox] { width: 18px; height: 18px; flex: 0 0 auto; padding: 0; accent-color: var(--accent); }
+.tendina-corpo label:hover { background: var(--surface-2); }
+
 .chips { display: flex; gap: 6px; flex-wrap: wrap; } .chip { padding: 6px 12px; border-radius: 999px; background: var(--surface-2); font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
 .chip.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .bars { display: flex; align-items: flex-end; gap: 4px; height: 150px; padding-top: 10px; }
