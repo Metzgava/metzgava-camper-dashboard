@@ -107,6 +107,7 @@ tr:last-child td { border-bottom: 0; } td.num, th.num { text-align: right; font-
 .tendina > summary::-webkit-details-marker { display: none; }
 .tendina > summary::after { content: ' \25be'; color: var(--muted); }
 .tendina[open] > summary { background: var(--accent-soft); color: var(--accent); }
+.tendina-corpo.a-destra { left: auto; right: 0; }
 .tendina-corpo { position: absolute; left: 0; z-index: 30; margin-top: 6px; min-width: 240px; max-width: calc(100vw - 48px); max-height: 300px; overflow: auto;
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
 .tendina-corpo label { display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: 8px; font-size: 14px; cursor: pointer; text-align: left; }

@@ -56,6 +56,15 @@ function modal(html, onMount) {
   onMount?.(bg, () => bg.remove());
   return bg;
 }
+// Il pannello di una tendina si apre verso destra; se cosi' uscirebbe dallo schermo
+// lo si ancora al bordo destro del pulsante. Serve soprattutto sui telefoni.
+function sistemaTendina(dettaglio) {
+  const corpo = $('.tendina-corpo', dettaglio);
+  if (!corpo) return;
+  corpo.classList.remove('a-destra');
+  if (corpo.getBoundingClientRect().right > document.documentElement.clientWidth - 8) corpo.classList.add('a-destra');
+}
+
 const confirmDlg = msg => new Promise(res => modal(`<h2>${esc(msg)}</h2><div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" data-x>Annulla</button><button class="btn danger" data-ok>Conferma</button></div>`,
   (el, close) => { $('[data-x]', el).onclick = () => { close(); res(false); }; $('[data-ok]', el).onclick = () => { close(); res(true); }; }));
 
@@ -547,7 +556,7 @@ async function viewWorkouts(id) {
     if ($('#s-al')) c.to = $('#s-al').value || null;
     render();
   };
-  $('#f-discipline').ontoggle = e => { elenco.tendinaDiscipline = e.target.open; };
+  $('#f-discipline').ontoggle = e => { elenco.tendinaDiscipline = e.target.open; if (e.target.open) sistemaTendina(e.target); };
   $$('[data-disc]').forEach(c => c.onchange = () => {
     const v = c.dataset.disc;
     elenco.discipline = c.checked ? [...elenco.discipline, v] : elenco.discipline.filter(x => x !== v);
@@ -555,7 +564,7 @@ async function viewWorkouts(id) {
   });
   $('#d-senza-tapis').onclick = () => { elenco.discipline = DISCIPLINE.map(([k]) => k).filter(k => k !== 'tapis' && quante[k] > 0); render(); };
   $('#d-azzera').onclick = () => { elenco.discipline = []; render(); };
-  $('#f-viaggi').ontoggle = e => { elenco.tendinaAperta = e.target.open; };
+  $('#f-viaggi').ontoggle = e => { elenco.tendinaAperta = e.target.open; if (e.target.open) sistemaTendina(e.target); };
   $$('[data-trip]').forEach(c => c.onchange = () => {
     const v = c.dataset.trip;
     elenco.trips = c.checked ? [...elenco.trips, v] : elenco.trips.filter(x => x !== v);
@@ -624,25 +633,61 @@ async function viewWorkout(id) {
 }
 
 // ---------- Cruscotto ----------
-const dash = { trip: '', stato: '', athlete: '', sport: '', source: '', from: '', to: '', q: '' };
+// Ogni filtro e' un elenco: vuoto significa "nessun vincolo", piu' valori si sommano
+const dash = { trips: [], stati: [], atleti: [], sport: [], fonti: [], anni: [], mesi: [], from: '', to: '', q: '', aperte: {} };
+const MESI_BREVI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+
+// Menu a tendina con scelta multipla, riusato da tutti i filtri del Cruscotto
+function tendinaMulti(id, etichetta, voci, scelti, vuoto) {
+  const testo = !scelti.length ? vuoto
+    : scelti.length > 1 ? `${scelti.length} selezionate`
+    : (voci.find(v => v.valore === scelti[0]) || { nome: scelti[0] }).nome;
+  return `<div class="field w-md"><label class="f">${etichetta}</label>
+    <details class="tendina" data-tendina="${id}" ${dash.aperte[id] ? 'open' : ''}>
+      <summary>${esc(String(testo))}</summary>
+      <div class="tendina-corpo">
+        ${voci.map(v => `<label><input type="checkbox" data-filtro="${id}" value="${esc(v.valore)}" ${scelti.includes(v.valore) ? 'checked' : ''}> ${esc(v.nome)}${v.quanti != null ? ` <span class="muted">(${v.quanti})</span>` : ''}</label>`).join('')}
+        <button class="btn" data-azzera="${id}" ${scelti.length ? '' : 'disabled'}>Tutte</button>
+      </div>
+    </details></div>`;
+}
 
 async function viewDashboard() {
   const [ws, trips] = await Promise.all([api('/workouts'), api('/trips')]);
-  const atleti = [...new Set(ws.map(w => w.athlete).filter(Boolean))].sort();
-  const sports = [...new Set(ws.map(w => w.sport).filter(Boolean))].sort();
-  const fonti = [...new Set(ws.map(w => w.source).filter(Boolean))].sort();
-  const opz = (arr, sel) => arr.map(v => `<option value="${esc(v)}" ${sel === v ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  // Le voci di ogni menu vengono dai dati, col numero di attivita' accanto
+  const conteggio = (chiave, trasforma = v => v) => {
+    const m = new Map();
+    ws.forEach(w => { const v = trasforma(w[chiave] ?? w); if (v != null && v !== '') m.set(v, (m.get(v) || 0) + 1); });
+    return m;
+  };
+  const daMappa = (m, nome = v => String(v)) => [...m.entries()].sort((a, b) => b[1] - a[1])
+    .map(([valore, quanti]) => ({ valore: String(valore), nome: nome(valore), quanti }));
 
-  // Filtra gli allenamenti secondo lo stato corrente dei controlli
+  const annoDi = w => String(new Date(w.started_at).getFullYear());
+  const meseDi = w => String(new Date(w.started_at).getMonth());
+
+  const vociAtleti = daMappa(conteggio('athlete'));
+  const vociSport = daMappa(conteggio('sport'));
+  const vociFonti = daMappa(conteggio('source'));
+  const vociAnni = [...conteggio(null, annoDi).entries()].sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([valore, quanti]) => ({ valore, nome: valore, quanti }));
+  const vociMesi = [...conteggio(null, meseDi).entries()].sort((a, b) => +a[0] - +b[0])
+    .map(([valore, quanti]) => ({ valore, nome: MESI_BREVI[+valore], quanti }));
+  const vociViaggi = [{ valore: 'none', nome: 'Senza viaggio' }, ...trips.map(t => ({ valore: String(t.id), nome: t.title }))];
+  const vociStati = [{ valore: 'open', nome: 'Aperti' }, { valore: 'closed', nome: 'Chiusi' }];
+
+  // Filtra gli allenamenti: un elenco vuoto non vincola, piu' valori si sommano
   const filtra = () => {
     const q = dash.q.trim().toLowerCase();
-    const idsStato = new Set(trips.filter(t => !dash.stato || t.status === dash.stato).map(t => t.id));
+    const idsStato = new Set(trips.filter(t => dash.stati.includes(t.status)).map(t => t.id));
     return ws.filter(w => {
-      if (dash.trip === 'none' ? w.trip_id : dash.trip && String(w.trip_id) !== dash.trip) return false;
-      if (dash.stato && !(w.trip_id && idsStato.has(w.trip_id))) return false;
-      if (dash.athlete && w.athlete !== dash.athlete) return false;
-      if (dash.sport && w.sport !== dash.sport) return false;
-      if (dash.source && w.source !== dash.source) return false;
+      if (dash.trips.length && !dash.trips.includes(w.trip_id ? String(w.trip_id) : 'none')) return false;
+      if (dash.stati.length && !(w.trip_id && idsStato.has(w.trip_id))) return false;
+      if (dash.atleti.length && !dash.atleti.includes(w.athlete)) return false;
+      if (dash.sport.length && !dash.sport.includes(w.sport)) return false;
+      if (dash.fonti.length && !dash.fonti.includes(w.source)) return false;
+      if (dash.anni.length && !dash.anni.includes(annoDi(w))) return false;
+      if (dash.mesi.length && !dash.mesi.includes(meseDi(w))) return false;
       const d = iso(w.started_at);
       if (dash.from && d < dash.from) return false;
       if (dash.to && d > dash.to) return false;
@@ -654,15 +699,20 @@ async function viewDashboard() {
   $('#app').innerHTML = layout(`<div class="row between" style="margin-bottom:12px"><h1>Cruscotto</h1><button class="btn" id="reset">Azzera filtri</button></div>
     <div class="card">
       <div class="row">
-        <div class="field w-md"><label class="f">Viaggio</label><select id="f-trip"><option value="">Tutti i viaggi</option><option value="none" ${dash.trip === 'none' ? 'selected' : ''}>Senza viaggio</option>${trips.map(t => `<option value="${t.id}" ${dash.trip === String(t.id) ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select></div>
-        <div class="field w-sm"><label class="f">Stato</label><select id="f-stato"><option value="">Tutti</option><option value="open" ${dash.stato === 'open' ? 'selected' : ''}>Aperti</option><option value="closed" ${dash.stato === 'closed' ? 'selected' : ''}>Chiusi</option></select></div>
-        <div class="field w-sm"><label class="f">Atleta</label><select id="f-ath"><option value="">Tutti</option>${opz(atleti, dash.athlete)}</select></div>
-        <div class="field w-sm"><label class="f">Sport</label><select id="f-sport"><option value="">Tutti</option>${opz(sports, dash.sport)}</select></div>
+        ${tendinaMulti('trips', 'Viaggio', vociViaggi, dash.trips, 'Tutti i viaggi')}
+        ${tendinaMulti('stati', 'Stato', vociStati, dash.stati, 'Tutti')}
+        ${tendinaMulti('atleti', 'Atleta', vociAtleti, dash.atleti, 'Tutti')}
+        ${tendinaMulti('sport', 'Sport', vociSport, dash.sport, 'Tutti')}
+        ${tendinaMulti('anni', 'Anno', vociAnni, dash.anni, 'Tutti')}
+        ${tendinaMulti('mesi', 'Mese', vociMesi, dash.mesi, 'Tutti')}
+        ${tendinaMulti('fonti', 'Fonte', vociFonti, dash.fonti, 'Tutte')}
+      </div>
+      <div class="row" style="margin-top:4px">
         <div class="field w-md"><label class="f">Dal</label><input type="date" id="f-from" value="${dash.from}"></div>
         <div class="field w-md"><label class="f">Al</label><input type="date" id="f-to" value="${dash.to}"></div>
         <div class="field grow" style="min-width:180px"><label class="f">Cerca</label><input id="f-q" placeholder="Nome allenamento, sport o viaggio" value="${esc(dash.q)}"></div>
       </div>
-      <div class="chips" style="margin-top:12px"><span class="chip ${dash.source ? '' : 'active'}" data-src="">Tutte le fonti</span>${fonti.map(f => `<span class="chip ${dash.source === f ? 'active' : ''}" data-src="${esc(f)}">${esc(f)}</span>`).join('')}</div>
+      <div class="small muted" style="margin-top:8px">In ogni menu puoi spuntare piu' voci: i valori scelti si sommano.</div>
     </div>
     <div id="out"></div>`);
 
@@ -711,10 +761,40 @@ async function viewDashboard() {
   };
 
   const lega = (sel, chiave, evento = 'change') => { const el = $(sel); el.addEventListener(evento, () => { dash[chiave] = el.value; disegna(); }); };
-  lega('#f-trip', 'trip'); lega('#f-stato', 'stato'); lega('#f-ath', 'athlete'); lega('#f-sport', 'sport');
   lega('#f-from', 'from'); lega('#f-to', 'to'); lega('#f-q', 'q', 'input');
-  $$('[data-src]').forEach(c => c.onclick = () => { dash.source = c.dataset.src; $$('[data-src]').forEach(x => x.classList.toggle('active', x === c)); disegna(); });
-  $('#reset').onclick = () => { Object.keys(dash).forEach(k => dash[k] = ''); render(); };
+
+  // Le tendine si aggiornano sul posto invece di ridisegnare tutta la pagina: cosi'
+  // restano aperte e la ricerca testuale non perde il cursore
+  const vociPer = { trips: vociViaggi, stati: vociStati, atleti: vociAtleti, sport: vociSport, anni: vociAnni, mesi: vociMesi, fonti: vociFonti };
+  const vuotoPer = { trips: 'Tutti i viaggi', stati: 'Tutti', atleti: 'Tutti', sport: 'Tutti', anni: 'Tutti', mesi: 'Tutti', fonti: 'Tutte' };
+  const aggiornaTendina = id => {
+    const scelti = dash[id], voci = vociPer[id];
+    const testo = !scelti.length ? vuotoPer[id]
+      : scelti.length > 1 ? `${scelti.length} selezionate`
+      : (voci.find(v => v.valore === scelti[0]) || { nome: scelti[0] }).nome;
+    $(`[data-tendina="${id}"] summary`).textContent = testo;
+    $(`[data-azzera="${id}"]`).disabled = !scelti.length;
+  };
+  $$('[data-tendina]').forEach(d => d.ontoggle = () => {
+    dash.aperte[d.dataset.tendina] = d.open;
+    if (d.open) sistemaTendina(d);
+  });
+  $$('[data-filtro]').forEach(c => c.onchange = () => {
+    const id = c.dataset.filtro;
+    dash[id] = c.checked ? [...dash[id], c.value] : dash[id].filter(x => x !== c.value);
+    aggiornaTendina(id); disegna();
+  });
+  $$('[data-azzera]').forEach(b => b.onclick = () => {
+    const id = b.dataset.azzera;
+    dash[id] = [];
+    $$(`[data-filtro="${id}"]`).forEach(x => { x.checked = false; });
+    aggiornaTendina(id); disegna();
+  });
+  $('#reset').onclick = () => {
+    ['trips', 'stati', 'atleti', 'sport', 'fonti', 'anni', 'mesi'].forEach(k => { dash[k] = []; });
+    dash.from = ''; dash.to = ''; dash.q = ''; dash.aperte = {};
+    render();
+  };
   disegna();
 }
 
