@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
-import { route, geocode, poisAlongRoute } from '../lib/geo.js';
+import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName } from '../lib/carlock.js';
 import { requireAuth } from './auth.js';
 
@@ -57,6 +57,24 @@ router.post('/route/preview', wrap(async (req, res) => {
   const { from, to } = req.body; res.json(await route(from, to));
 }));
 
+// Le varianti di percorso fra partenza, soste intermedie e arrivo, con il costo
+// del gasolio gia' stimato: e' il numero su cui si decide quale strada fare.
+router.post('/route/opzioni', wrap(async (req, res) => {
+  const punti = (req.body?.punti || []).filter(p => p && Number.isFinite(+p.lat) && Number.isFinite(+p.lon))
+    .map(p => ({ name: String(p.name || '').slice(0, 200), lat: +p.lat, lon: +p.lon }));
+  if (punti.length < 2) return res.status(400).json({ error: 'Servono almeno partenza e arrivo' });
+  if (punti.length > 12) return res.status(400).json({ error: 'Troppe tappe: al massimo dodici punti' });
+  const s = await getSettings();
+  const kmL = num(req.body?.km_per_liter, s.vehicle?.km_per_liter || 10) || 10;
+  const prezzo = num(req.body?.fuel_price, s.vehicle?.fuel_price || 1.75);
+  const varianti = (await percorsiConTappe(punti)).map(v => ({
+    ...v,
+    litri: +(v.distance_km / kmL).toFixed(1),
+    gasolio: +(v.distance_km / kmL * prezzo).toFixed(2),
+  }));
+  res.json({ varianti, km_per_liter: kmL, fuel_price: prezzo, pedaggi_evitabili: sannoEvitareIPedaggi() });
+}));
+
 // ---- viaggi ----
 // Un allenamento appartiene al viaggio nelle cui date ricade. Il confronto usa
 // l'ora italiana: un'attivita' di tarda sera non deve finire nel giorno dopo.
@@ -92,8 +110,22 @@ router.post('/trips', wrap(async (req, res) => {
   const b = req.body || {};
   const row = (await q('INSERT INTO trips(user_id,title,start_date,end_date,fuel_price,km_per_liter,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',
     [req.user.id, String(b.title || 'Nuovo viaggio').trim(), b.start_date || null, b.end_date || null, b.fuel_price ? num(b.fuel_price) : null, num(b.km_per_liter, s.vehicle?.km_per_liter || 10) || 10, b.notes || null])).rows[0];
+  // Se il viaggio nasce da un percorso gia' scelto, le tappe si creano subito:
+  // le tratte arrivano calcolate da /route/opzioni e non si ricalcola nulla
+  const tratte = Array.isArray(b.percorso?.tratte) ? b.percorso.tratte : [];
+  let pos = 0;
+  for (const t of tratte) {
+    if (!t?.from?.lat || !t?.to?.lat) continue;
+    const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,distance_km,duration_min,geometry)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, geometry`,
+      [row.id, ++pos, t.date || null, t.from.name || 'Partenza', t.from.lat, t.from.lon, t.to.name || 'Arrivo', t.to.lat, t.to.lon,
+        num(t.distance_km), Math.round(num(t.duration_min)), JSON.stringify(t.geometry || null)])).rows[0];
+    await syncFuelExpense(leg.id);
+    if (leg.geometry) poisAlongRoute(leg.geometry).then(x => q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, x])).catch(() => {});
+  }
+  if (tratte.length) console.log(`viaggio ${row.id}: create ${pos} tappe dal percorso «${b.percorso?.nome || '?'}»`);
   await agganciaAllenamenti();
-  res.json(row);
+  res.json({ ...row, tappe_create: pos });
 }));
 router.get('/trips/:id', wrap(async (req, res) => {
   const trip = (await q('SELECT t.*, u.name AS owner FROM trips t JOIN users u ON u.id=t.user_id WHERE t.id=$1', [req.params.id])).rows[0];
@@ -226,6 +258,10 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
   if (isNew && !req.query.preview) return res.status(400).json({ error: 'Crea prima il viaggio' });
   const minKm = num(req.body.min_km, 3), gapMin = num(req.body.merge_gap_min, 30), onlyDates = req.body.only_trip_dates !== 'false';
+  // Con «sostituisci» le tappe previste lasciano il posto a quelle davvero
+  // percorse: si tolgono solo quelle pianificate, riconoscibili perche' non
+  // hanno un identificativo CarLock, e con loro il gasolio che era stimato
+  const sostituisci = !isNew && !req.query.preview && (req.body.sostituisci === 'true' || req.body.sostituisci === true);
   let rows;
   try { rows = readCarlockFile(req.file.buffer, req.file.originalname); } catch (e) { return res.status(400).json({ error: 'File non leggibile: ' + e.message }); }
   if (!rows.length) return res.status(400).json({ error: 'Nessun tragitto trovato nel file (colonne attese: Data, Orario di inizio, Orario di fine, Posizione di inizio, Posizione di fine, Distanza, Durata)' });
@@ -241,6 +277,18 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   const summary = { total, out_of_range: outOfRange, short, duplicates: dupes, to_import: legsToAdd.length, km: +legsToAdd.reduce((a, b) => a + b.km, 0).toFixed(1),
     first_date: legsToAdd[0]?.date || null, last_date: legsToAdd[legsToAdd.length - 1]?.date || null };
   if (req.query.preview) return res.json({ ...summary, legs: legsToAdd.map(l => ({ date: l.date, start: l.start, end: l.end, from: shortName(l.from), to: shortName(l.to), km: l.km, duration_min: l.duration_min, merged: l.merged || 1 })) });
+
+  if (sostituisci) {
+    // Prima il gasolio stimato di quelle tappe, poi le tappe: al contrario la
+    // spesa resterebbe orfana e il totale conterebbe due volte lo stesso viaggio
+    const previste = (await q('SELECT id FROM legs WHERE trip_id=$1 AND external_id IS NULL', [trip.id])).rows.map(r => r.id);
+    if (previste.length) {
+      const spese = await q(`DELETE FROM expenses WHERE trip_id=$1 AND leg_id = ANY($2::int[]) AND category='gasolio' AND auto=true AND NOT edited`,
+        [trip.id, previste]);
+      await q('DELETE FROM legs WHERE id = ANY($1::int[])', [previste]);
+      console.log(`viaggio ${trip.id}: tolte ${previste.length} tappe previste e ${spese.rowCount} stime di gasolio, al loro posto il percorso reale`);
+    }
+  }
 
   // geocoding con cache per indirizzo
   const cache = new Map();

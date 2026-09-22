@@ -91,7 +91,16 @@ function parseCsvLine(line) {
   return out.map(s => s.trim());
 }
 
-const num = s => { const m = String(s || '').replace(/\./g, '').replace(',', '.').match(/-?\d+(\.\d+)?/); return m ? +m[0] : 0; };
+// CarLock scrive i numeri all'italiana — 1.482,5 — ma esportato in altre lingue
+// usa il punto come decimale. Togliere i punti a occhi chiusi trasformava 148.2
+// in 1482: il punto e' un separatore di migliaia solo se raggruppa tre cifre.
+const num = s => {
+  let t = String(s ?? '').trim().replace(/[^\d.,-]/g, '');
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');        // 1.482,5
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');    // 1.482
+  const m = t.match(/-?\d+(\.\d+)?/);
+  return m ? +m[0] : 0;
+};
 const durMin = s => { const h = +(String(s).match(/(\d+)\s*h/) || [0, 0])[1], m = +(String(s).match(/(\d+)\s*min/) || [0, 0])[1]; return h * 60 + m; };
 function parseDate(s) {
   const m = String(s).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);

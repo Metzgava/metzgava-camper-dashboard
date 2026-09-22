@@ -169,14 +169,81 @@ async function viewTrips() {
 
 function tripForm(t = null) {
   const v = settings.vehicle || {};
+  // Il percorso si disegna solo alla nascita del viaggio: dopo, le tappe si
+  // modificano una per una, che e' piu' preciso che rifare tutto
+  const punti = { partenza: null, arrivo: null, tappe: [] };
+  let varianti = [], scelta = null, mappa = null;
+  const sezionePercorso = t ? '' : `
+    <div class="card" style="padding:12px;margin-top:4px">
+      <div class="row between"><b class="small">\ud83d\uddfa\ufe0f Percorso</b><span class="small muted">facoltativo</span></div>
+      <div style="margin-top:8px"><label class="f">Si parte da</label><input id="p-da" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
+      <div id="p-tappe" style="margin-top:8px"></div>
+      <button type="button" class="btn sm" id="p-piu" style="margin-top:8px">\uff0b Tappa intermedia</button>
+      <div style="margin-top:8px"><label class="f">Si arriva a</label><input id="p-a" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
+      <button type="button" class="btn primary sm" id="p-calcola" style="margin-top:10px">Calcola il percorso</button>
+      <div id="p-esiti" style="margin-top:10px"></div>
+      <div id="p-mappa" class="map sm" style="display:none;margin-top:10px"></div>
+    </div>`;
   modal(`<h2>${t ? 'Modifica viaggio' : 'Nuovo viaggio'}</h2><form id="f" class="stack" style="margin-top:14px">
     <div><label class="f">Titolo</label><input name="title" required value="${esc(t?.title || '')}" placeholder="Es. Giro della Puglia"></div>
     <div class="form-grid"><div><label class="f">Inizio</label><input type="date" name="start_date" value="${t?.start_date ? iso(t.start_date) : today()}"></div><div><label class="f">Fine</label><input type="date" name="end_date" value="${t?.end_date ? iso(t.end_date) : ''}"></div></div>
-    <div class="form-grid"><div><label class="f">Prezzo gasolio €/l</label><input type="number" step="0.001" name="fuel_price" value="${t?.fuel_price ?? v.fuel_price ?? 1.75}"></div><div><label class="f">Consumo km/l</label><input type="number" step="0.1" name="km_per_liter" value="${t?.km_per_liter ?? v.km_per_liter ?? 10}"></div></div>
+    <div class="form-grid"><div><label class="f">Prezzo gasolio \u20ac/l</label><input type="number" step="0.001" name="fuel_price" value="${t?.fuel_price ?? v.fuel_price ?? 1.75}"></div><div><label class="f">Consumo km/l</label><input type="number" step="0.1" name="km_per_liter" value="${t?.km_per_liter ?? v.km_per_liter ?? 10}"></div></div>
+    ${sezionePercorso}
     <div><label class="f">Note</label><textarea name="notes" rows="2">${esc(t?.notes || '')}</textarea></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${t ? 'Salva' : 'Crea'}</button></div></form>`,
-    (el, close) => { $('[data-x]', el).onclick = close; $('#f', el).onsubmit = safe(async e => { e.preventDefault(); const body = Object.fromEntries(new FormData(e.target));
-      const r = t ? await api('/trips/' + t.id, { method: 'PUT', body }) : await api('/trips', { method: 'POST', body }); close(); location.hash = '#/trip/' + r.id; if (t) render(); }); });
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      if (!t) {
+        geoInput($('#p-da', el), r => punti.partenza = r);
+        geoInput($('#p-a', el), r => punti.arrivo = r);
+        const disegnaTappe = () => {
+          $('#p-tappe', el).innerHTML = punti.tappe.map((p, i) => `<div class="row" style="gap:6px;margin-top:8px;align-items:flex-end">
+            <div class="grow"><label class="f">Passando per</label><input class="p-tappa" data-i="${i}" value="${esc(p?.name || '')}" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
+            <button type="button" class="btn ghost danger icon" data-rm="${i}" title="Togli">\ud83d\uddd1</button></div>`).join('');
+          $$('.p-tappa', el).forEach(inp => geoInput(inp, r => { punti.tappe[+inp.dataset.i] = r; }));
+          $$('[data-rm]', el).forEach(b => b.onclick = () => { punti.tappe.splice(+b.dataset.rm, 1); disegnaTappe(); });
+        };
+        $('#p-piu', el).onclick = () => { punti.tappe.push(null); disegnaTappe(); };
+
+        const mostraScelta = () => {
+          $$('[data-variante]', el).forEach(c => c.classList.toggle('scelto', c.dataset.variante === scelta?.chiave));
+          const tracce = (scelta?.tratte || []).flatMap(x => x.geometry || []);
+          const m = $('#p-mappa', el);
+          if (!tracce.length) { m.style.display = 'none'; return; }
+          m.style.display = 'block';
+          if (!mappa) mappa = makeMap(m, { simple: true });
+          else mappa.eachLayer(l => l instanceof L.Polyline && mappa.removeLayer(l));
+          mappa.invalidateSize();
+          mappa.fitBounds(L.polyline(tracce, { color: '#0f766e', weight: 4 }).addTo(mappa).getBounds(), { padding: [10, 10] });
+        };
+
+        $('#p-calcola', el).onclick = safe(async () => {
+          const lista = [punti.partenza, ...punti.tappe, punti.arrivo].filter(p => p?.lat);
+          if (lista.length < 2) return toast('Scegli partenza e arrivo dai suggerimenti', true);
+          $('#p-esiti', el).innerHTML = '<span class="small muted">Calcolo\u2026</span>';
+          const fd = new FormData($('#f', el));
+          const r = await api('/route/opzioni', { method: 'POST', body: { punti: lista, km_per_liter: fd.get('km_per_liter'), fuel_price: fd.get('fuel_price') } });
+          varianti = r.varianti; scelta = varianti[0] || null;
+          $('#p-esiti', el).innerHTML = varianti.map(x => `<div class="variante" data-variante="${x.chiave}">
+              <div class="row between"><b>${esc(x.nome)}</b><b>${num(x.distance_km)} km</b></div>
+              <div class="small muted">${dur(x.duration_min * 60)} di guida \u00b7 ${num(x.litri)} l \u00b7 <b>${eur(x.gasolio)}</b> di gasolio${x.stimato ? ' \u00b7 \u26a0\ufe0f distanza stimata' : ''}</div>
+            </div>`).join('')
+            + (r.pedaggi_evitabili ? '' : '<p class="small muted" style="margin-top:8px">La variante senza pedaggi richiede una chiave OpenRouteService: senza, resta il solo percorso pi\u00f9 rapido.</p>');
+          $$('[data-variante]', el).forEach(c => c.onclick = () => { scelta = varianti.find(x => x.chiave === c.dataset.variante); mostraScelta(); });
+          mostraScelta();
+        });
+      }
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(e.target));
+        if (!t && scelta) body.percorso = scelta;
+        const r = t ? await api('/trips/' + t.id, { method: 'PUT', body }) : await api('/trips', { method: 'POST', body });
+        close();
+        if (r.tappe_create) toast(`Viaggio creato con ${r.tappe_create} tappe`);
+        location.hash = '#/trip/' + r.id;
+        if (t) render();
+      });
+    });
 }
 
 async function viewTrip(id) {
@@ -202,7 +269,7 @@ async function viewTrip(id) {
     </div>
     <div class="card pad-0"><div id="map" class="map tall"></div></div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : '<div class="row"><button class="btn sm" id="carlock">📡 Importa CarLock</button><button class="btn primary sm" id="addleg">＋ Tappa</button></div>'}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : `<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2>${closed ? '' : '<button class="btn primary sm" id="addex">＋ Spesa</button>'}</div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
@@ -248,7 +315,8 @@ async function viewTrip(id) {
   }));
   $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
   $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
-  $('#carlock')?.addEventListener('click', () => carlockImport(trip));
+  $('#carlock')?.addEventListener('click', () => carlockImport({ ...trip, legs }));
+  $('#sostituisci')?.addEventListener('click', () => carlockImport({ ...trip, legs }, [], true));
   $('#addex')?.addEventListener('click', () => expenseForm(trip, legs));
   $('#legs').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -310,13 +378,18 @@ function legForm(trip, legs, leg = null) {
     });
 }
 
-function carlockImport(trip, openTrips = []) {
-  modal(`<h2>📡 Importa da CarLock</h2>
+function carlockImport(trip, openTrips = [], sostituisciDefault = false) {
+  // Le tappe previste sono quelle senza identificativo CarLock: se ce ne sono,
+  // si puo' scegliere di lasciargli il posto invece di affiancarle
+  const previste = (trip?.legs || []).filter(l => !l.external_id).length;
+  modal(`<h2>\ud83d\udce1 ${sostituisciDefault ? 'Sostituisci con il percorso reale' : 'Importa da CarLock'}</h2>
     <p class="small muted">Su <b>my.carlock.co</b> → Trips → scegli le date → icona <b>CSV</b> (va bene anche l'XLS). Ogni tragitto diventa una tappa con i km reali percorsi; il gasolio viene calcolato su quelli.</p>
     <form id="f" class="stack">
       <input type="file" name="file" accept=".csv,.xls,.xlsx,text/csv" required>
       ${trip ? '' : `<div><label class="f">In quale viaggio</label><select id="dest"><option value="new">➕ Nuovo viaggio (date prese dal file)</option>${openTrips.map(t => `<option value="${t.id}">${esc(t.title)} (${fdate(t.start_date)}${t.end_date ? ' → ' + fdate(t.end_date) : ''})</option>`).join('')}</select></div>`}
       <div class="form-grid"><div><label class="f">Ignora tratte sotto (km)</label><input type="number" step="0.5" name="min_km" value="3"></div><div><label class="f">Unisci soste più brevi di (min)</label><input type="number" name="merge_gap_min" value="30"></div></div>
+      ${previste ? `<label class="row small" style="align-items:flex-start;gap:8px;flex-wrap:nowrap"><input type="checkbox" id="sost" ${sostituisciDefault ? 'checked' : ''} style="flex:0 0 auto;margin-top:2px">
+        <span class="grow">Sostituisci le <b>${previste} tappe previste</b> con quelle davvero percorse<br><span class="muted">Le tappe pianificate e il gasolio stimato spariscono; restano le spese che hai scritto tu.</span></span></label>` : ''}
       <label class="row small" id="datesRow" ${trip ? '' : 'style="display:none"'}><input type="checkbox" name="only_trip_dates" checked style="width:auto"> Solo le date del viaggio${trip ? ` (${trip.start_date ? fdate(trip.start_date) : '…'} → ${trip.end_date ? fdate(trip.end_date) : 'oggi'})` : ''}</label>
       <div class="row"><label class="row small" style="flex:0 0 auto"><input type="checkbox" id="splitChk" ${trip ? '' : 'checked'} style="width:auto"> Dividi in viaggi separati (casa → casa)</label><div class="grow"><input name="split_home" value="Susegana" placeholder="Nome di casa (es. Susegana)"></div></div>
       <div id="prev"></div>
@@ -325,7 +398,7 @@ function carlockImport(trip, openTrips = []) {
     $('[data-x]', el).onclick = close;
     const dest = () => trip ? String(trip.id) : $('#dest', el).value;
     $('#dest', el)?.addEventListener('change', () => { $('#datesRow', el).style.display = dest() === 'new' ? 'none' : ''; $('#go', el).disabled = true; });
-    const fd = () => { const f = new FormData($('#f', el)); f.set('only_trip_dates', dest() !== 'new' && $('[name=only_trip_dates]', el).checked ? 'true' : 'false'); if (!$('#splitChk', el).checked) f.delete('split_home'); return f; };
+    const fd = () => { const f = new FormData($('#f', el)); f.set('only_trip_dates', dest() !== 'new' && $('[name=only_trip_dates]', el).checked ? 'true' : 'false'); if (!$('#splitChk', el).checked) f.delete('split_home'); if ($('#sost', el)?.checked) f.set('sostituisci', 'true'); return f; };
     let last = null;
     // per "nuovo viaggio" l'anteprima usa un viaggio aperto qualsiasi solo per leggere il file (nessun filtro date)
     const previewTrip = () => dest() === 'new' ? 'new' : dest();

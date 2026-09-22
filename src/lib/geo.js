@@ -57,6 +57,81 @@ export async function route(from, to) {
   }
 }
 
+// ---------- varianti di percorso ----------
+// OSRM sa dare solo la strada piu' veloce. Per avere anche quella che evita i
+// pedaggi serve OpenRouteService: gratuito, stessi dati OpenStreetMap, ma vuole
+// una chiave. Senza chiave tutto continua a funzionare con la sola variante
+// rapida, e chi guarda lo vede scritto invece di credere a un dato che non c'e'.
+const ORS = process.env.ORS_URL || 'https://api.openrouteservice.org';
+const CHIAVE_ORS = process.env.ORS_API_KEY || '';
+export const sannoEvitareIPedaggi = () => !!CHIAVE_ORS;
+
+async function percorsoOrs(from, to, evitare = []) {
+  const corpo = {
+    coordinates: [[from.lon, from.lat], [to.lon, to.lat]],
+    units: 'km',
+    ...(evitare.length ? { options: { avoid_features: evitare } } : {}),
+  };
+  const data = await fetchJson(`${ORS}/v2/directions/driving-car/geojson`, {
+    method: 'POST',
+    headers: { Authorization: CHIAVE_ORS, 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo),
+  }, 25000);
+  const f = data.features?.[0];
+  if (!f) throw new Error('nessun percorso');
+  const s = f.properties.summary || {};
+  if (!s.distance) throw new Error('percorso senza distanza');
+  return {
+    distance_km: +s.distance.toFixed(1),
+    duration_min: Math.round(s.duration / 60 * 1.15),   // il camper va piu' piano
+    geometry: samplePoints(f.geometry.coordinates.map(([lon, lat]) => [+lat.toFixed(5), +lon.toFixed(5)]), 600),
+    source: 'openrouteservice',
+  };
+}
+
+// Le varianti di un singolo tratto. Quella senza pedaggi compare solo se esiste
+// davvero ed e' diversa dalla rapida: proporre due volte la stessa strada
+// sarebbe una scelta finta.
+export async function variantiTratto(from, to) {
+  const fuori = [];
+  const rapido = CHIAVE_ORS
+    ? await percorsoOrs(from, to).catch(() => route(from, to))
+    : await route(from, to);
+  fuori.push({ chiave: 'rapido', nome: 'Il piu\u2019 rapido', ...rapido });
+  if (CHIAVE_ORS) {
+    try {
+      const senza = await percorsoOrs(from, to, ['tollways']);
+      const differisce = Math.abs(senza.distance_km - rapido.distance_km) > 0.5
+        || Math.abs(senza.duration_min - rapido.duration_min) > 3;
+      if (differisce) fuori.push({ chiave: 'senza_pedaggi', nome: 'Senza pedaggi', evita_pedaggi: true, ...senza });
+    } catch { /* la variante senza pedaggi non c'e': resta solo la rapida */ }
+  }
+  return fuori;
+}
+
+// Il percorso completo di un viaggio: partenza, soste intermedie, arrivo. Ogni
+// variante porta con se' le tratte gia' pronte da salvare come tappe.
+export async function percorsiConTappe(punti) {
+  const tratte = [];
+  for (let i = 0; i + 1 < punti.length; i++) tratte.push(await variantiTratto(punti[i], punti[i + 1]));
+  const chiavi = ['rapido', ...(tratte.every(t => t.some(v => v.chiave === 'senza_pedaggi')) ? ['senza_pedaggi'] : [])];
+  return chiavi.map(chiave => {
+    const scelte = tratte.map((t, i) => ({
+      ...(t.find(v => v.chiave === chiave) || t[0]),
+      from: punti[i], to: punti[i + 1],
+    }));
+    return {
+      chiave,
+      nome: chiave === 'rapido' ? 'Il piu\u2019 rapido' : 'Senza pedaggi',
+      evita_pedaggi: chiave === 'senza_pedaggi',
+      distance_km: +scelte.reduce((a, t) => a + t.distance_km, 0).toFixed(1),
+      duration_min: scelte.reduce((a, t) => a + t.duration_min, 0),
+      stimato: scelte.some(t => t.source === 'stima'),
+      tratte: scelte,
+    };
+  });
+}
+
 // POI lungo il percorso: aree sosta camper, campeggi e borghi/paesi attraversati
 export async function poisAlongRoute(geometry, radiusM = 4000) {
   if (!geometry || geometry.length < 2) return { stops: [], villages: [] };
