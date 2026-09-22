@@ -285,8 +285,11 @@ async function viewTrip(id) {
         <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card"><div class="row between"><h2>Foto</h2><label class="btn sm">📷 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div>
-        <div class="photos${photos.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${photos.map(p => `<figure><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">✕</button></figure>`).join('') || '<div class="muted small">Nessuna foto. Le foto con GPS vengono posizionate sulla mappa.</div>'}</div></div>
+      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${photos.length && !closed ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
+        <div class="card barra-selezione" id="barra-foto" hidden style="margin-top:10px;padding:10px 12px">
+          <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
+          <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
+        <div class="photos${photos.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${photos.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || '<div class="muted small">Nessuna foto. Le foto con GPS vengono posizionate sulla mappa.</div>'}</div></div>
       <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
     </div>`);
 
@@ -376,7 +379,43 @@ async function viewTrip(id) {
     const caption = prompt('Didascalia (opzionale)'); if (caption) fd.append('caption', caption);
     toast('Caricamento foto…'); await api(`/trips/${id}/photos`, { method: 'POST', body: fd }); toast('Foto caricate'); render();
   });
-  $('#photos').onclick = safe(async e => { const b = e.target.closest('[data-del-ph]'); if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); } });
+  // Le foto si tolgono una per volta col suo \u2715, oppure a gruppi: si entra in
+  // selezione, si toccano quelle da togliere e si conferma una volta sola
+  const scelteFoto = new Set();
+  const aggiornaBarraFoto = () => {
+    const barra = $('#barra-foto');
+    if (!barra) return;
+    barra.hidden = !scelteFoto.size;
+    $('#quante-foto').textContent = scelteFoto.size;
+    $$('#photos figure').forEach(f => f.classList.toggle('scelta', scelteFoto.has(+f.dataset.foto)));
+  };
+  let inSelezione = false;
+  $('#selfoto')?.addEventListener('click', () => {
+    inSelezione = !inSelezione;
+    $('#selfoto').textContent = inSelezione ? '\u2716\ufe0f Esci dalla selezione' : '\u2611\ufe0f Seleziona';
+    $('#photos').classList.toggle('in-selezione', inSelezione);
+    if (!inSelezione) { scelteFoto.clear(); }
+    aggiornaBarraFoto();
+  });
+  $('#annulla-foto')?.addEventListener('click', () => { scelteFoto.clear(); aggiornaBarraFoto(); });
+  $('#elimina-foto')?.addEventListener('click', safe(async () => {
+    const ids = [...scelteFoto];
+    if (!ids.length) return;
+    if (!await confirmDlg(ids.length === 1 ? 'Eliminare la foto selezionata?' : `Eliminare le ${ids.length} foto selezionate?`)) return;
+    const r = await api('/photos/elimina', { method: 'POST', body: { ids } });
+    toast(r.eliminate === 1 ? 'Foto eliminata' : `${r.eliminate} foto eliminate`);
+    render();
+  }));
+  $('#photos').onclick = safe(async e => {
+    const fig = e.target.closest('figure[data-foto]');
+    if (inSelezione && fig && !e.target.closest('[data-del-ph]')) {
+      const id = +fig.dataset.foto;
+      scelteFoto.has(id) ? scelteFoto.delete(id) : scelteFoto.add(id);
+      return aggiornaBarraFoto();
+    }
+    const b = e.target.closest('[data-del-ph]');
+    if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); }
+  });
   // aggiorna quando i POI arrivano in background
   if (legs.some(l => !l.pois)) setTimeout(() => { if (location.hash === '#/trip/' + id) render(); }, 12000);
 }
@@ -788,7 +827,7 @@ async function viewWorkouts(idAtleta) {
         <button class="btn ghost danger icon" data-peso-del="${p.day}" title="Elimina">🗑</button></div>`).join('')}</div></details>`
         : '<p class="small muted" style="margin-top:8px">Il peso arriva dalle metriche di Salute — nell’esportazione includi anche <span class="code">weight_body_mass</span> — oppure lo aggiungi a mano con «＋ Pesata».</p>'}</div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
-    ${altri.length ? `<div class="card" id="barra-scelta" hidden style="margin-bottom:12px">
+    ${altri.length ? `<div class="card barra-selezione" id="barra-scelta" hidden style="margin-bottom:12px">
       <div class="row between"><div><b id="quanti-scelti">0</b> selezionati</div>
       <div class="row">${altri.map(a => `<button class="btn primary" data-copia="${a.id}">Copia in Allenamenti ${esc(a.name)}</button>`).join('')}
       <button class="btn" id="scelta-annulla">Annulla</button></div></div></div>` : ''}
@@ -1379,6 +1418,7 @@ async function segnaStato() {
 async function guardaSeCambiato() {
   if (!user || document.hidden) return;
   if ($('.modal-bg')) return;                                   // c'e' una finestra aperta
+  if ($('.barra-selezione:not([hidden])')) return;              // sta scegliendo delle voci
   const a = document.activeElement;
   if (a && a.matches('input, textarea, select')) return;        // sta scrivendo
   const stato = await leggiStato();

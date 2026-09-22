@@ -38,6 +38,19 @@ router.put('/photos/:id', wrap(async (req, res) => {
   const b = req.body || {};
   res.json((await q('UPDATE photos SET caption=$2, leg_id=$3 WHERE id=$1 RETURNING *', [req.params.id, b.caption ?? null, b.leg_id || null])).rows[0]);
 }));
+// Piu' foto in una volta: con venti scatti da togliere, venti richieste e venti
+// conferme sono venti occasioni di sbagliare. I file spariscono dal disco solo
+// dopo che la riga e' stata tolta davvero.
+router.post('/photos/elimina', wrap(async (req, res) => {
+  const ids = (req.body?.ids || []).map(Number).filter(Number.isInteger).slice(0, 500);
+  if (!ids.length) return res.status(400).json({ error: 'Nessuna foto indicata' });
+  const tolte = (await q('DELETE FROM photos WHERE id = ANY($1::int[]) AND (user_id=$2 OR $3) RETURNING filename',
+    [ids, req.user.id, req.user.role === 'admin'])).rows;
+  for (const p of tolte) fs.rm(path.join(UPLOAD_DIR, p.filename), () => {});
+  console.log(`foto: eliminate ${tolte.length} su ${ids.length} richieste, utente=${req.user.id}`);
+  res.json({ ok: true, eliminate: tolte.length });
+}));
+
 router.delete('/photos/:id', wrap(async (req, res) => {
   const p = (await q('DELETE FROM photos WHERE id=$1 AND (user_id=$2 OR $3) RETURNING filename', [req.params.id, req.user.id, req.user.role === 'admin'])).rows[0];
   if (p) fs.rm(path.join(UPLOAD_DIR, p.filename), () => {});
