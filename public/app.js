@@ -1260,8 +1260,9 @@ async function viewSettings() {
 }
 
 // ---------- Router ----------
-async function render() {
+async function render(opzioni = {}) {
   document.body.onclick = null;
+  const eraA = window.scrollY;
   try {
     if (!user) { const me = await api('/auth/me'); if (me.user?.approved) { user = me.user; [settings, atleti] = await Promise.all([api('/settings'), api('/athletes')]); } else return viewAuth(me.setup); }
     const h = location.hash || '#/';
@@ -1273,7 +1274,8 @@ async function render() {
     else if (h.startsWith('#/riepiloghi')) await viewSummary();
     else if (h.startsWith('#/impostazioni')) await viewSettings();
     else await viewTrips();
-    window.scrollTo(0, 0);
+    window.scrollTo(0, opzioni?.mantieniPosizione ? eraA : 0);
+    segnaStato();                       // quello che cambi tu non e' una novita' in arrivo
   } catch (e) { $('#app').innerHTML = `<div class="loading">⚠️ ${esc(e.message)}<br><button class="btn" onclick="location.reload()">Ricarica</button></div>`; }
 }
 // Una tendina e' un <details>: da sola si chiude solo ricliccando il suo pulsante.
@@ -1283,6 +1285,40 @@ async function render() {
 const chiudiTendine = tranne => $$('details.tendina[open]').forEach(d => { if (d !== tranne && !d.contains(tranne)) d.open = false; });
 document.addEventListener('click', e => { chiudiTendine(e.target); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') chiudiTendine(null); });
+
+// La pagina si aggiorna da sola. Non ridisegna a intervalli fissi — sprecherebbe
+// lavoro e farebbe saltare via lo scorrimento — ma chiede al server un'impronta
+// di cio' che esiste e si ridisegna solo se e' cambiata. Chi sta compilando un
+// campo o ha una finestra aperta non viene interrotto: l'aggiornamento aspetta.
+let improntaStato = null, contiPrecedenti = null;
+const leggiStato = () => api('/stato').catch(() => null);        // rete giu': si riprova dopo
+// Il riferimento si prende appena la pagina e' disegnata, non al primo controllo:
+// altrimenti cio' che arriva nel frattempo verrebbe assorbito senza ridisegnare
+async function segnaStato() {
+  const s = await leggiStato();
+  if (s) { improntaStato = JSON.stringify(s); contiPrecedenti = s; }
+}
+async function guardaSeCambiato() {
+  if (!user || document.hidden) return;
+  if ($('.modal-bg')) return;                                   // c'e' una finestra aperta
+  const a = document.activeElement;
+  if (a && a.matches('input, textarea, select')) return;        // sta scrivendo
+  const stato = await leggiStato();
+  if (!stato) return;
+  const impronta = JSON.stringify(stato);
+  if (improntaStato === null) { improntaStato = impronta; contiPrecedenti = stato; return; }
+  if (impronta === improntaStato) return;
+  const nuoviAllenamenti = stato.allenamenti - (contiPrecedenti?.allenamenti ?? stato.allenamenti);
+  const nuovePesate = stato.pesate - (contiPrecedenti?.pesate ?? stato.pesate);
+  improntaStato = impronta; contiPrecedenti = stato;
+  await render({ mantieniPosizione: true });
+  if (nuoviAllenamenti > 0) toast(nuoviAllenamenti === 1 ? 'Arrivato un allenamento nuovo' : `Arrivati ${nuoviAllenamenti} allenamenti nuovi`);
+  else if (nuovePesate > 0) toast(nuovePesate === 1 ? 'Arrivata una pesata nuova' : `Arrivate ${nuovePesate} pesate nuove`);
+}
+setInterval(guardaSeCambiato, 45000);
+// Tornando sulla scheda si controlla subito: e' il momento in cui si guarda
+document.addEventListener('visibilitychange', () => { if (!document.hidden) guardaSeCambiato(); });
+window.addEventListener('focus', guardaSeCambiato);
 
 document.addEventListener('click', e => { const a = e.target.closest('[data-logout]'); if (a) { e.preventDefault(); api('/auth/logout', { method: 'POST' }).then(() => { user = null; location.hash = '#/'; render(); }); } });
 window.addEventListener('hashchange', render);

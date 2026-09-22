@@ -43,6 +43,21 @@ async function tripTotals(tripId) {
 }
 
 // ---- impostazioni veicolo ----
+// Impronta di cio' che esiste: la pagina la richiede ogni tanto e si ridisegna
+// solo quando e' cambiata qualcosa, invece di rifare tutto a vuoto o di aspettare
+// che sia l'utente a ricaricare. Sono conteggi su tabelle piccole: costa nulla.
+router.get('/stato', wrap(async (req, res) => {
+  const r = (await q(`SELECT
+      (SELECT count(*) FROM workouts)::int AS allenamenti,
+      (SELECT count(*) FROM weights)::int AS pesate,
+      (SELECT count(*) FROM trips)::int AS viaggi,
+      (SELECT count(*) FROM legs)::int AS tappe,
+      (SELECT count(*) FROM expenses)::int AS spese,
+      (SELECT count(*) FROM photos)::int AS foto,
+      (SELECT max(started_at) FROM workouts) AS ultimo_allenamento`)).rows[0];
+  res.json(r);
+}));
+
 router.get('/settings', wrap(async (req, res) => res.json(await getSettings())));
 router.put('/settings/vehicle', wrap(async (req, res) => {
   const cur = (await getSettings()).vehicle || {};
