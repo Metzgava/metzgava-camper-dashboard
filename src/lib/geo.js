@@ -63,7 +63,10 @@ export async function route(from, to) {
 // una chiave. Senza chiave tutto continua a funzionare con la sola variante
 // rapida, e chi guarda lo vede scritto invece di credere a un dato che non c'e'.
 const ORS = process.env.ORS_URL || 'https://api.openrouteservice.org';
-const CHIAVE_ORS = process.env.ORS_API_KEY || '';
+// Il nome della variabile si scrive volentieri in minuscolo, e su Linux le
+// maiuscole contano: si accettano tutte le forme invece di far cercare l'errore
+const CHIAVE_ORS = (Object.entries(process.env)
+  .find(([k]) => k.toLowerCase() === 'ors_api_key')?.[1] || '').trim();
 export const sannoEvitareIPedaggi = () => !!CHIAVE_ORS;
 let avvisatoOrs = false;
 
