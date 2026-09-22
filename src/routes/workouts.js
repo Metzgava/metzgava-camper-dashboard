@@ -15,7 +15,21 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 // L'export di mesi di allenamenti puo' superare il limite pensato per un singolo GPX
 const uploadJson = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-async function saveWorkout(userId, w, tripId = null) {
+// Chi e' stato cancellato a mano non torna: si riconosce dall'identificativo
+// della sorgente, e in piu' dall'istante di partenza, perche' lo stesso giro
+// cancellato su Komoot potrebbe ripresentarsi come record di Salute.
+const CONDIZIONE_CESTINO = `user_id=$1 AND ((source=$2 AND external_id=$3)
+  OR (started_at IS NOT NULL AND abs(extract(epoch FROM (started_at - $4::timestamptz))) <= 120))`;
+
+async function saveWorkout(userId, w, tripId = null, opzioni = {}) {
+  const idEsterno = w.external_id || `${w.source}-${new Date(w.started_at).toISOString()}`;
+  const chiavi = [userId, w.source, idEsterno, w.started_at];
+  if (opzioni.forzato) {
+    // Caricato o scritto a mano adesso: la volonta' di oggi cancella quella di ieri
+    await q(`DELETE FROM deleted_workouts WHERE ${CONDIZIONE_CESTINO}`, chiavi);
+  } else if ((await q(`SELECT 1 FROM deleted_workouts WHERE ${CONDIZIONE_CESTINO} LIMIT 1`, chiavi)).rowCount) {
+    return null;
+  }
   // Il nome dell'attivita' viene ricondotto alla forma unica; il titolo cambia solo
   // se coincideva col tipo, cosi' un nome scelto a mano resta intatto
   const sportNorm = normalizzaSport(w.sport);
@@ -30,7 +44,7 @@ async function saveWorkout(userId, w, tripId = null) {
       speed_avg_kmh=coalesce(EXCLUDED.speed_avg_kmh,workouts.speed_avg_kmh), track=coalesce(EXCLUDED.track,workouts.track), meta=coalesce(workouts.meta,'{}')::jsonb || coalesce(EXCLUDED.meta,'{}')::jsonb,
       trip_id=coalesce(workouts.trip_id, EXCLUDED.trip_id)
     RETURNING *`,
-    [userId, tripId ?? await guessTrip(w.started_at), w.source, w.external_id || `${w.source}-${new Date(w.started_at).toISOString()}`, w.sport || null, w.name || null, w.started_at,
+    [userId, tripId ?? await guessTrip(w.started_at), w.source, idEsterno, w.sport || null, w.name || null, w.started_at,
       w.duration_s ?? null, w.distance_m ?? null, w.elevation_up_m ?? null, w.calories ?? null, w.hr_avg ?? null, w.hr_max ?? null, w.speed_avg_kmh ?? null,
       w.track ? JSON.stringify(w.track) : null, w.meta ? JSON.stringify(w.meta) : null]);
   return r.rows[0];
@@ -137,12 +151,14 @@ function itemsDaPacchetto(body, origine) {
 // Salva gli allenamenti, fondendo quelli senza GPS con l'attivita' Komoot/GPX corrispondente
 async function archivia(userId, items) {
   const saved = [], merged = [];
+  let scartati = 0;
   for (const w of items) {
     const m = w.track ? null : await mergeHealthIntoTrack(userId, w);
     if (m) { merged.push(m); continue; }
-    saved.push((await saveWorkout(userId, w)).id);
+    const riga = await saveWorkout(userId, w);
+    if (riga) saved.push(riga.id); else scartati++;   // cancellato a mano: resta fuori
   }
-  return { saved: saved.length, merged: merged.length };
+  return { saved: saved.length, merged: merged.length, scartati };
 }
 
 // ---------- pesate ----------
@@ -529,9 +545,22 @@ router.get('/workouts/duplicates', wrap(async (req, res) => {
 router.post('/workouts/duplicates/remove', wrap(async (req, res) => {
   const ids = (req.body?.ids || []).map(Number).filter(Number.isInteger);
   if (!ids.length) return res.status(400).json({ error: 'Nessun allenamento indicato' });
-  const r = await q('DELETE FROM workouts WHERE id = ANY($1::int[]) AND (user_id=$2 OR $3)', [ids, req.user.id, req.user.role === 'admin']);
-  console.log(`doppioni: eliminati ${r.rowCount} allenamenti su ${ids.length} richiesti, utente=${req.user.id}`);
-  res.json({ ok: true, eliminati: r.rowCount });
+  const eliminati = await cestina(ids, req);
+  console.log(`doppioni: eliminati ${eliminati} allenamenti su ${ids.length} richiesti, utente=${req.user.id}`);
+  res.json({ ok: true, eliminati });
+}));
+
+// Gli allenamenti tenuti fuori, con la possibilita' di riaprire la porta
+router.get('/workouts/esclusi', wrap(async (req, res) => {
+  const chi = req.query.user_id ? +req.query.user_id : req.user.id;
+  res.json((await q(`SELECT id, source, sport, name, started_at FROM deleted_workouts
+                     WHERE user_id=$1 ORDER BY started_at DESC NULLS LAST LIMIT 500`, [chi])).rows);
+}));
+
+router.delete('/workouts/esclusi/:id', wrap(async (req, res) => {
+  const r = await q('DELETE FROM deleted_workouts WHERE id=$1 AND (user_id=$2 OR $3)',
+    [req.params.id, req.user.id, req.user.role === 'admin']);
+  r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Non trovato' });
 }));
 
 router.get('/workouts/:id', wrap(async (req, res) => {
@@ -581,8 +610,23 @@ router.put('/workouts/:id', wrap(async (req, res) => {
   }
   res.json(r);
 }));
+// Cancellazione voluta: prima di togliere la riga se ne prende nota, cosi' la
+// prossima sincronizzazione non la riporta indietro
+async function cestina(ids, req) {
+  const r = await q(`DELETE FROM workouts WHERE id = ANY($1::int[]) AND (user_id=$2 OR $3)
+                     RETURNING user_id, source, external_id, sport, name, started_at`,
+    [ids, req.user.id, req.user.role === 'admin']);
+  for (const w of r.rows) {
+    await q(`INSERT INTO deleted_workouts(user_id,source,external_id,sport,name,started_at)
+             VALUES($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (user_id,source,external_id) DO UPDATE SET deleted_at = now()`,
+      [w.user_id, w.source, w.external_id, w.sport, w.name, w.started_at]);
+  }
+  return r.rowCount;
+}
+
 router.delete('/workouts/:id', wrap(async (req, res) => {
-  await q('DELETE FROM workouts WHERE id=$1 AND (user_id=$2 OR $3)', [req.params.id, req.user.id, req.user.role === 'admin']); res.json({ ok: true });
+  await cestina([+req.params.id], req); res.json({ ok: true });
 }));
 
 // Importazione manuale del JSON di Health Auto Export: serve per recuperare lo
@@ -620,7 +664,7 @@ router.post('/workouts/gpx', upload.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'File GPX mancante' });
   const w = parseGpx(req.file.buffer.toString('utf8'));
   w.source = 'gpx'; w.external_id = `${req.file.originalname}-${w.started_at.toISOString()}`;
-  const saved = await saveWorkout(req.user.id, w, req.body.trip_id ? +req.body.trip_id : null);
+  const saved = await saveWorkout(req.user.id, w, req.body.trip_id ? +req.body.trip_id : null, { forzato: true });
   res.json(saved);
 }));
 
@@ -659,7 +703,7 @@ export async function syncKomootFor(userId, { full = false } = {}) {
   for (const t of tours) {
     const exists = (await q(`SELECT id FROM workouts WHERE user_id=$1 AND source='komoot' AND external_id=$2 AND track IS NOT NULL`, [userId, String(t.id)])).rows[0];
     if (exists && !full) continue;
-    await saveWorkout(userId, await komoot.tourToWorkout(r.external_user_id, token, t)); n++;
+    if (await saveWorkout(userId, await komoot.tourToWorkout(r.external_user_id, token, t))) n++;   // null: cancellato a mano
   }
   await q('UPDATE integrations SET last_sync_at=now() WHERE id=$1', [r.id]);
   if (n) await rimuoviDoppioniAutomatici(userId).catch(e => console.warn('pulizia doppioni fallita:', e.message));
@@ -742,8 +786,7 @@ export async function syncStravaFor(userId, { full = false } = {}) {
       dettagliChiesti++;
       try { dettaglio = await strava.dettaglioAttivita(tok.access_token, a.id); } catch { /* restano i dati di riepilogo */ }
     }
-    await saveWorkout(userId, strava.attivitaToWorkout(a, dettaglio));
-    n++;
+    if (await saveWorkout(userId, strava.attivitaToWorkout(a, dettaglio))) n++;   // null: cancellato a mano
   }
   await q('UPDATE integrations SET last_sync_at=now() WHERE id=$1', [r.id]);
   if (n) await rimuoviDoppioniAutomatici(userId).catch(e => console.warn('pulizia doppioni fallita:', e.message));

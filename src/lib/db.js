@@ -152,6 +152,21 @@ export async function migrate() {
     UNIQUE (user_id, provider)
   );
 
+  -- Allenamenti cancellati a mano: se ne tiene memoria perche' la prossima
+  -- sincronizzazione non li riporti indietro. Si svuota ripristinandoli.
+  CREATE TABLE IF NOT EXISTS deleted_workouts (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    sport TEXT,
+    name TEXT,
+    started_at TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, source, external_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_deleted_workouts_ora ON deleted_workouts(user_id, started_at);
+
   -- Pesate: una riga al giorno per atleta. Arrivano dalle metriche di Salute
   -- (weight_body_mass) e servono ad affiancare al singolo allenamento il peso
   -- di quella giornata e a disegnare l'andamento nel tempo.

@@ -556,11 +556,11 @@ async function viewWorkouts(idAtleta) {
   const qsPeso = new URLSearchParams({ user_id: String(idAtleta) });
   if (da) qsPeso.set('from', da);
   if (a) qsPeso.set('to', a);
-  const [ws, trips, anni, quante, pesi] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni?user_id=' + idAtleta), api('/workouts/discipline?user_id=' + idAtleta), api('/weights?' + qsPeso)]);
+  const [ws, trips, anni, quante, pesi, esclusi] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni?user_id=' + idAtleta), api('/workouts/discipline?user_id=' + idAtleta), api('/weights?' + qsPeso), api('/workouts/esclusi?user_id=' + idAtleta)]);
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
-    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti ${esc(atleta.name)}</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
+    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti ${esc(atleta.name)}</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button>${esclusi.length ? `<button class="btn" id="esclusi">\ud83d\udeab Esclusi (${esclusi.length})</button>` : ''}<label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="card" style="margin-bottom:16px">
       <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto'], ['scelta', 'Scegli\u2026']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
       ${elenco.periodo === 'scelta' ? (() => { const c = elenco.scelta; return `<div class="row" style="margin-top:12px">
@@ -679,6 +679,21 @@ async function viewWorkouts(idAtleta) {
     render();
   });
   $('#v-azzera').onclick = () => { elenco.trips = []; render(); };
+  // Gli esclusi: cancellati a mano e tenuti fuori dalle sincronizzazioni.
+  // Ripristinarne uno riapre solo la porta: torna quando la sorgente lo rimanda.
+  $('#esclusi')?.addEventListener('click', () => modal(`<h2>Allenamenti esclusi</h2>
+    <p class="small muted">Li hai cancellati tu, quindi Komoot, Strava e Salute non li riportano pi\u00f9 indietro. Ripristinandone uno torner\u00e0 alla prima sincronizzazione che lo rimanda.</p>
+    <div class="stack" style="margin-top:12px;max-height:50vh;overflow:auto">${esclusi.map(e => `<div class="row between" style="gap:10px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px">
+      <div class="small"><b>${esc(e.name || e.sport || 'Allenamento')}</b><br><span class="muted">${fdt(e.started_at)} \u00b7 <span class="badge">${esc(e.source)}</span></span></div>
+      <button class="btn sm" data-ripristina="${e.id}">Ripristina</button></div>`).join('')}</div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Chiudi</button></div>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      $$('[data-ripristina]', el).forEach(b => b.onclick = safe(async () => {
+        await api('/workouts/esclusi/' + b.dataset.ripristina, { method: 'DELETE' });
+        close(); toast('Riammesso: tornera\u2019 alla prossima sincronizzazione'); render();
+      }));
+    }));
   $('#dup').onclick = safe(async () => {
     const { gruppi, totale_da_eliminare } = await api('/workouts/duplicates');
     if (!gruppi.length) return toast('Nessun doppione trovato');
@@ -723,7 +738,7 @@ async function viewWorkouts(idAtleta) {
   }));
   $$('[data-ren]').forEach(b => b.onclick = () => renameWorkout(b.dataset.ren, b.dataset.name, render));
   $$('[data-del]').forEach(b => b.onclick = safe(async () => {
-    if (!await confirmDlg('Eliminare l\'allenamento?')) return;
+    if (!await confirmDlg('Eliminare l\'allenamento? Non verr\u00e0 pi\u00f9 ricaricato dalle sincronizzazioni.')) return;
     await api('/workouts/' + b.dataset.del, { method: 'DELETE' });
     toast('Allenamento eliminato'); render();
   }));
