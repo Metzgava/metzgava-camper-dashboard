@@ -1384,7 +1384,7 @@ async function viewDashboard() {
         <div class="tile"><div class="label">Dislivello</div><div class="value">${num(t.up, 0)} m</div></div>
         <div class="tile"><div class="label">Battito medio</div><div class="value">${t.hrn ? Math.round(t.hr / t.hrn) + ' bpm' : '—'}</div></div>
       </div>
-      <div class="grid cols-2">
+      <div class="grid uno-due">
         <div class="card"><h2>Km di allenamento per sport</h2><div class="small muted">i km in camper sono nella tabella accanto</div>
           <div class="barre-oriz">${sportOrd.map(([k, v]) => `<div class="barra-oriz">
             <div class="riga"><span class="etichetta">${sportIco(k)} ${esc(k)}</span><b class="valore">${num(v)} km</b></div>

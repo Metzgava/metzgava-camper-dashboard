@@ -233,3 +233,7 @@ input[type=checkbox], input[type=radio] { width: auto; }
 /* Le date di un viaggio si toccano per cambiarle, come il titolo per rinominare */
 .data-viaggio { cursor: pointer; border-bottom: 1px dashed var(--line); }
 .data-viaggio:hover { border-bottom-color: var(--accent); color: var(--text); }
+/* Cruscotto: a sinistra i km per sport, a destra la tabella per viaggio, che ha
+   sette colonne e a meta' schermo scorreva di lato invece di leggersi */
+.grid.uno-due { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+@media (max-width: 900px) { .grid.uno-due { grid-template-columns: 1fr; } }
