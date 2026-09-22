@@ -65,6 +65,7 @@ export async function route(from, to) {
 const ORS = process.env.ORS_URL || 'https://api.openrouteservice.org';
 const CHIAVE_ORS = process.env.ORS_API_KEY || '';
 export const sannoEvitareIPedaggi = () => !!CHIAVE_ORS;
+let avvisatoOrs = false;
 
 async function percorsoOrs(from, to, evitare = []) {
   const corpo = {
@@ -101,10 +102,15 @@ export async function variantiTratto(from, to) {
   if (CHIAVE_ORS) {
     try {
       const senza = await percorsoOrs(from, to, ['tollways']);
+      avvisatoOrs = false;
       const differisce = Math.abs(senza.distance_km - rapido.distance_km) > 0.5
         || Math.abs(senza.duration_min - rapido.duration_min) > 3;
       if (differisce) fuori.push({ chiave: 'senza_pedaggi', nome: 'Senza pedaggi', evita_pedaggi: true, ...senza });
-    } catch { /* la variante senza pedaggi non c'e': resta solo la rapida */ }
+    } catch (e) {
+      // Un rifiuto sistematico di solito e' la chiave: dirlo una volta sola,
+      // perche' a ogni tratto di ogni viaggio riempirebbe il registro
+      if (!avvisatoOrs) { avvisatoOrs = true; console.warn('percorsi: OpenRouteService non ha dato la variante senza pedaggi:', String(e.message).slice(0, 160)); }
+    }
   }
   return fuori;
 }

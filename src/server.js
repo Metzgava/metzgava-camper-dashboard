@@ -8,6 +8,7 @@ import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR } from './routes/photos.js';
+import { sannoEvitareIPedaggi } from './lib/geo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -70,6 +71,9 @@ migrate().then(async () => {
   // Ripulisce anche i doppioni gia' in archivio, non solo quelli che arriveranno
   await rimuoviDoppioniAutomatici().catch(e => console.warn('pulizia doppioni fallita:', e.message));
   app.listen(port, () => console.log(`Camper dashboard su porta ${port}`));
+    console.log(sannoEvitareIPedaggi()
+      ? 'percorsi: variante senza pedaggi attiva (OpenRouteService)'
+      : 'percorsi: solo la variante piu\u2019 rapida (manca ORS_API_KEY)');
   const every = Number(process.env.KOMOOT_SYNC_HOURS || 6);
   if (every > 0) {
     const giro = () => { syncAllKomoot(); syncAllStrava(); };
