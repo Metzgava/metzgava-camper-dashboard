@@ -166,7 +166,7 @@ router.post('/trips', wrap(async (req, res) => {
       [row.id, ++pos, t.date || null, t.from.name || 'Partenza', t.from.lat, t.from.lon, t.to.name || 'Arrivo', t.to.lat, t.to.lon,
         num(t.distance_km), Math.round(num(t.duration_min)), JSON.stringify(t.geometry || null)])).rows[0];
     await syncFuelExpense(leg.id);
-    if (leg.geometry) poisAlongRoute(leg.geometry).then(x => q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, x])).catch(() => {});
+    cercaSosteArrivo(leg.id, t.to.name, t.to.lat, t.to.lon).catch(e => console.warn('soste all\u2019arrivo:', e.message));
   }
   // Il pedaggio stimato nasce come spesa automatica, come il gasolio: quando
   // arriva il conto vero basta modificarla e non viene piu' ricalcolata
@@ -217,6 +217,23 @@ router.delete('/trips/:id', wrap(async (req, res) => {
 }));
 
 // ---- tappe ----
+// Cerca i posti dove fermarsi intorno all'arrivo di una tappa e li salva. E' la
+// stessa cosa che fa il pulsante, e gira da sola quando la tappa nasce o cambia
+// destinazione: cosi' quando la si apre il risultato e' gia' li'.
+const RAGGIO_SOSTE = 5000;
+async function cercaSosteArrivo(legId, nome, lat, lon) {
+  const casa = nomeCasa(await getSettings());
+  if (eCasa(nome, casa)) {
+    await q('UPDATE legs SET pois=$2 WHERE id=$1', [legId, { stops: [], villages: [], raggio: RAGGIO_SOSTE, casa: true, cercato_il: new Date().toISOString() }]);
+    return;
+  }
+  const p = await poisAlongRoute([[lat, lon]], RAGGIO_SOSTE);
+  await q('UPDATE legs SET pois=$2 WHERE id=$1', [legId, {
+    ...p, raggio: RAGGIO_SOSTE, cercato_il: p.warning ? null : new Date().toISOString(),
+    stops: (p.stops || []).map(x => ({ ...x, park4night: linkPark4night(x.lat, x.lon) })),
+  }]);
+}
+
 // ---------- dove ci fermiamo ----------
 // I luoghi lungo il percorso arrivano da OpenStreetMap in un raggio che si
 // sceglie; per ciascuno si da' l'indirizzo che apre park4night centrato li',
@@ -334,7 +351,7 @@ router.post('/trips/:id/legs', wrap(async (req, res) => {
     [req.params.id, pos, b.date || null, from.name, from.lat, from.lon, to.name, to.lat, to.lon, r.distance_km, r.duration_min, b.fuel_price ? num(b.fuel_price) : null, JSON.stringify(r.geometry), b.notes || null])).rows[0];
   await syncFuelExpense(leg.id);
   // POI in background: non blocca la risposta
-  poisAlongRoute(r.geometry).then(p => q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, p])).catch(() => {});
+  cercaSosteArrivo(leg.id, to.name, to.lat, to.lon).catch(e => console.warn('soste all\u2019arrivo:', e.message));
   res.json({ ...leg, routing_warning: r.warning || null });
 }));
 router.put('/legs/:id', wrap(async (req, res) => {
@@ -348,7 +365,7 @@ router.put('/legs/:id', wrap(async (req, res) => {
     [cur.id, b.date ?? cur.date, b.from?.name ?? cur.from_name, b.from?.lat ?? cur.from_lat, b.from?.lon ?? cur.from_lon, b.to?.name ?? cur.to_name, b.to?.lat ?? cur.to_lat, b.to?.lon ?? cur.to_lon,
       geo.distance_km, geo.duration_min, b.fuel_price != null && b.fuel_price !== '' ? num(b.fuel_price) : null, JSON.stringify(geo.geometry), b.notes ?? cur.notes, b.position])).rows[0];
   await syncFuelExpense(leg.id);
-  if (changedPts) poisAlongRoute(geo.geometry).then(p => q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, p])).catch(() => {});
+  if (changedPts) cercaSosteArrivo(leg.id, leg.to_name, leg.to_lat, leg.to_lon).catch(e => console.warn('soste all\u2019arrivo:', e.message));
   res.json(leg);
 }));
 router.post('/legs/:id/pois', wrap(async (req, res) => {
@@ -500,7 +517,7 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   // riordina le tappe per data/ora e cerca i POI in background, uno alla volta
   const all = (await q('SELECT id FROM legs WHERE trip_id=$1 ORDER BY date NULLS LAST, start_time NULLS LAST, position, id', [trip.id])).rows;
   for (let i = 0; i < all.length; i++) await q('UPDATE legs SET position=$2 WHERE id=$1', [all[i].id, i + 1]);
-  (async () => { for (const leg of created) { try { await q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, await poisAlongRoute(leg.geometry)]); } catch { } await new Promise(r => setTimeout(r, 3000)); } })();
+  (async () => { for (const leg of created) { try { await cercaSosteArrivo(leg.id, leg.to_name, leg.to_lat, leg.to_lon); } catch { } await new Promise(r => setTimeout(r, 3000)); } })();
   if (errors.size) console.warn('CarLock: errori geocoder', Object.fromEntries(errors));
   let split = null;
   if (req.body.split_home && created.length) split = await splitTripByHome(trip.id, String(req.body.split_home).trim(), req.user.id);

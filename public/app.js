@@ -270,7 +270,7 @@ async function viewTrip(id) {
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
-      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : '<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>'}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
   $('#app').innerHTML = layout(`
@@ -696,7 +696,12 @@ function expenseForm(trip, legs, ex = null) {
 const MAX_TAPPE_MAPS = 9;                       // il limite di Google per i punti intermedi
 function mapsIndicazioni(da, a, intermedie = []) {
   const punto = p => `${(+p.lat).toFixed(5)},${(+p.lon).toFixed(5)}`;
-  const q = new URLSearchParams({ api: '1', origin: punto(da), destination: punto(a), travelmode: 'driving' });
+  // Partenza e arrivo coincidono quando si vuole solo «portami qui»: allora
+  // l'origine si lascia decidere al telefono, che sa dov'e'
+  const soloMeta = da && a && +da.lat === +a.lat && +da.lon === +a.lon;
+  const q = new URLSearchParams(soloMeta
+    ? { api: '1', destination: punto(a), travelmode: 'driving' }
+    : { api: '1', origin: punto(da), destination: punto(a), travelmode: 'driving' });
   const tappe = intermedie.filter(p => p?.lat != null).slice(0, MAX_TAPPE_MAPS);
   if (tappe.length) q.set('waypoints', tappe.map(punto).join('|'));
   return `https://www.google.com/maps/dir/?${q}`;
@@ -711,14 +716,23 @@ const eCasa = nome => !!nome && String(nome).toLowerCase().includes(casaNome().t
 
 const p4n = (lat, lon, zoom = 14) => `https://park4night.com/it/search?lat=${(+lat).toFixed(5)}&lng=${(+lon).toFixed(5)}&z=${zoom}`;
 
+// OpenStreetMap scrive «yes» e «no»: qui dentro si legge in italiano
+const tariffaPoi = f => !f ? null : f === 'yes' ? 'a pagamento' : f === 'no' ? 'gratis' : f;
+
 function poiModal(l) {
   const p = l.pois || {};
-  const gm = (lat, lon) => `https://maps.apple.com/?daddr=${lat},${lon}`;
   modal(`<h2>All\u2019arrivo a ${esc(l.to_name.split(',')[0])}</h2><div class="muted small">Cercati intorno alla destinazione${p.warning ? ' · ⚠️ ' + p.warning : ''}</div>
     <h3 style="margin:14px 0 4px">🅿️ Aree sosta e campeggi (${(p.stops || []).length})</h3>
-    ${(p.stops || []).map(s => `<div class="poi"><div class="k">${s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰'}</div><div class="grow"><b>${esc(s.name)}</b> <span class="muted small">${s.kind.replace('_', ' ')}</span><div class="small muted">${[s.fee && 'tariffa: ' + s.fee, s.capacity && s.capacity + ' posti', s.power && 'corrente', s.drinking_water && 'acqua', s.opening_hours].filter(Boolean).map(esc).join(' · ')}</div>${s.website ? `<a class="small" href="${esc(s.website)}" target="_blank">sito web</a> · ` : ''}<a class="small" href="${gm(s.lat, s.lon)}" target="_blank">naviga</a>${s.park4night ? `<a class="btn ghost sm" href="${esc(s.park4night)}" target="_blank" rel="noopener" title="Apri su park4night">\ud83c\udd7f\ufe0f</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessuna area censita su OpenStreetMap nel raggio di 4 km.</div>'}
+    ${(p.stops || []).map(s => `<div class="poi"><div class="k">${s.kind === 'area_sosta' ? '\ud83c\udd7f\ufe0f' : s.kind === 'campeggio' ? '\u26fa' : '\ud83d\udeb0'}</div>
+      <div class="grow"><b>${esc(s.name)}</b> <span class="muted small">${esc(s.kind.replace('_', ' '))}</span>
+      <div class="small muted">${[tariffaPoi(s.fee), (s.power && s.power !== 'no') && 'corrente', (s.drinking_water && s.drinking_water !== 'no') && 'acqua', s.capacity && s.capacity + ' posti', s.opening_hours].filter(Boolean).map(esc).join(' \u00b7 ')}</div>
+      <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
+        <a class="btn sm" href="${p4n(s.lat, s.lon)}" target="_blank" rel="noopener" title="Foto, prezzi e commenti su park4night">\ud83c\udd7f\ufe0f park4night</a>
+        <a class="btn sm" href="${mapsIndicazioni({ lat: s.lat, lon: s.lon }, { lat: s.lat, lon: s.lon })}" target="_blank" rel="noopener" title="Portami qui">\ud83d\uddfa\ufe0f Naviga</a>
+        ${s.website ? `<a class="btn sm ghost" href="${esc(s.website)}" target="_blank" rel="noopener">\ud83c\udf10 Sito</a>` : ''}
+      </div></div></div>`).join('') || `<div class="muted small">Nessuna area censita su OpenStreetMap entro ${(p.raggio || 5000) / 1000} km. Prova ad allargare il raggio, oppure guarda su park4night: loro ne conoscono di piu\u2019.</div>`}
     <h3 style="margin:14px 0 4px">🏘️ Borghi e paesi attraversati (${(p.villages || []).length})</h3>
-    ${(p.villages || []).map(v => `<div class="poi"><div class="k">${v.historic ? '🏰' : '🏘️'}</div><div class="grow"><b>${esc(v.name)}</b> <span class="muted small">${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}</span>${v.wikipedia ? ` · <a class="small" href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessun borgo trovato.</div>'}
+    ${(p.villages || []).map(v => `<div class="poi"><div class="k">${v.historic ? '🏰' : '🏘️'}</div><div class="grow"><b>${esc(v.name)}</b> <span class="muted small">${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}</span>${v.wikipedia ? ` · <a class="small" href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank" rel="noopener">Wikipedia</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessun borgo trovato.</div>'}
     <div class="row between" style="margin-top:14px"><div class="row" style="gap:8px;align-items:center">
         <label class="small muted">Raggio</label>
         <select id="poi-raggio" style="width:auto">${[5, 10, 15, 25].map(k => `<option value="${k * 1000}" ${k * 1000 === (p.raggio || 5000) ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
