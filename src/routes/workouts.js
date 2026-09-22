@@ -76,6 +76,18 @@ function healthDuration(w) {
 }
 
 // Converte la distanza nell’unità dichiarata da HAE (km, miglia, iarde, piedi; altrimenti metri)
+// L'energia arriva con la sua unita': Salute la esporta spesso in kilojoule e
+// prenderli per chilocalorie gonfia tutto di quattro volte. Per Apple "Cal" e'
+// la chilocaloria, la caloria piccola non si usa.
+function healthEnergy(e) {
+  if (e?.qty == null) return null;
+  const u = String(e.units || 'kcal').toLowerCase().replace(/[^a-z]/g, '');
+  const q = num(e.qty);
+  if (!Number.isFinite(q)) return null;
+  const kcal = (u === 'kj' || u.includes('joule')) ? q / 4.184 : q;
+  return Math.round(kcal);
+}
+
 function healthDistance(d) {
   if (!d || d.qty == null) return null;
   const u = String(d.units || '').trim().toLowerCase();
@@ -129,13 +141,14 @@ function itemsDaPacchetto(body, origine) {
       source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: w.name, name: w.name,
       started_at: new Date(w.start), duration_s: healthDuration(w),
       distance_m: healthDistance(w.distance),
-      calories: w.activeEnergy?.qty != null ? Math.round(num(w.activeEnergy.qty)) : (w.activeEnergyBurned?.qty != null ? Math.round(num(w.activeEnergyBurned.qty)) : null),
+      calories: healthEnergy(w.activeEnergy) ?? healthEnergy(w.activeEnergyBurned),
       hr_avg: w.avgHeartRate?.qty != null ? Math.round(num(w.avgHeartRate.qty)) : (w.heartRate?.avg?.qty != null ? Math.round(num(w.heartRate.avg.qty)) : null),
       hr_max: w.maxHeartRate?.qty != null ? Math.round(num(w.maxHeartRate.qty)) : (w.heartRate?.max?.qty != null ? Math.round(num(w.heartRate.max.qty)) : null),
       elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
       track: healthTrack(w.route),
       meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null,
-        nome_originale: w.name !== normalizzaSport(w.name) ? w.name : undefined, raw_units: { distance: w.distance?.units } },
+        nome_originale: w.name !== normalizzaSport(w.name) ? w.name : undefined,
+        raw_units: { distance: w.distance?.units, energia: w.activeEnergy?.units || w.activeEnergyBurned?.units } },
     }));
   }
   const list = Array.isArray(body) ? body : Array.isArray(body.workouts) ? body.workouts : [body];
