@@ -156,11 +156,43 @@ function viewAuth(setup) {
 }
 
 // ---------- Viaggi ----------
+// I viaggi nati dalla divisione automatica si chiamano «3 ago\u201311 ago 2026 \u00b7
+// Alpago \u00b7 Tambre»: le date stanno gia' nel titolo e vengono ripetute sotto.
+// Qui si mostra il solo nome, senza toccare il titolo in archivio: chi l'ha
+// scritto a mano lo rivede com'e'.
+const MESI_TITOLO = 'gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic';
+const nomeViaggio = t => {
+  const titolo = String(t?.title || '').trim();
+  const senzaDate = titolo.replace(new RegExp(`^\\d{1,2}\\s*(${MESI_TITOLO})?\\s*(\\u2013|-|\\u2192)?\\s*\\d{0,2}\\s*(${MESI_TITOLO})?\\s*\\d{4}\\s*\\u00b7\\s*`, 'i'), '').trim();
+  return senzaDate || titolo;
+};
+
+// Le date di un viaggio: si toccano e si cambiano, come il titolo si tocca e si
+// rinomina. Compaiono in piu' posti, e in tutti fanno la stessa cosa.
+const dateViaggio = t => `${fdate(t.start_date)}${t.end_date ? ' \u2192 ' + fdate(t.end_date) : ''}`;
+function dateForm(trip, dopo) {
+  modal(`<h2>Date del viaggio</h2><p class="small muted">Gli allenamenti che cadono in queste date si agganciano da soli al viaggio.</p>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div class="form-grid"><div><label class="f">Inizio</label><input type="date" name="start_date" value="${trip.start_date ? iso(trip.start_date) : ''}"></div>
+        <div><label class="f">Fine</label><input type="date" name="end_date" value="${trip.end_date ? iso(trip.end_date) : ''}"></div></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const d = Object.fromEntries(new FormData(e.target));
+        if (d.end_date && d.start_date && d.end_date < d.start_date) return toast('La fine viene prima dell\u2019inizio', true);
+        await api('/trips/' + trip.id, { method: 'PUT', body: { start_date: d.start_date || null, end_date: d.end_date || null } });
+        close(); toast('Date aggiornate'); (dopo || render)();
+      });
+    });
+}
+
 async function viewTrips() {
   const trips = await api('/trips');
   const open = trips.filter(t => t.status === 'open'), closed = trips.filter(t => t.status !== 'open');
   const card = t => `<a class="item" href="#/trip/${t.id}"><span class="dot" style="background:${t.status === 'open' ? 'var(--accent)' : 'var(--muted)'}"></span>
-    <div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">${fdate(t.start_date)}${t.end_date ? ' → ' + fdate(t.end_date) : ''} · ${t.n_legs} tappe · ${num(t.km)} km${t.n_workouts ? ' · 👟 ' + t.n_workouts + ' allenament' + (t.n_workouts === 1 ? 'o' : 'i') : ''}${t.n_photos ? ' · 📷 ' + t.n_photos : ''}</div></div>
+        <div class="grow"><div class="title">${esc(nomeViaggio(t))}</div><div class="meta"><span class="data-viaggio" data-date="${t.id}" title="Tocca per cambiare le date">${dateViaggio(t)}</span> \u00b7 ${t.n_legs} tappe \u00b7 ${num(t.km)} km
     <div class="right"><div style="font-weight:700">${eur(t.total)}</div><span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div></a>`;
   const totKm = trips.reduce((a, t) => a + t.km, 0), totSp = trips.reduce((a, t) => a + t.total, 0);
   $('#app').innerHTML = layout(`
@@ -174,6 +206,11 @@ async function viewTrips() {
     <div class="section"><h2 style="margin-bottom:8px">Conclusi</h2><div class="card pad-0 list">${closed.length ? closed.map(card).join('') : '<div class="empty">Nessun viaggio concluso.<br>Crea il primo viaggio e aggiungi le tappe: distanze e gasolio si calcolano da soli.</div>'}</div></div>`);
   $('#new').onclick = () => tripForm();
   $('#carlock').onclick = () => carlockImport(null, open);
+  // Le date dentro la riga: toccarle cambia le date, non apre il viaggio
+  $$('[data-date]').forEach(d => d.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    dateForm(trips.find(t => t.id === +d.dataset.date), render);
+  });
 }
 
 function tripForm(t = null) {
@@ -274,8 +311,8 @@ async function viewTrip(id) {
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
   $('#app').innerHTML = layout(`
-    <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(trip.title)}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
-      <div class="muted small">${fdate(trip.start_date)}${trip.end_date ? ' → ' + fdate(trip.end_date) : ''} · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
+    <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(nomeViaggio(trip))}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
+      <div class="muted small"><span class="data-viaggio" id="date-viaggio" title="Tocca per cambiare le date">${dateViaggio(trip)}</span> · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
       <div class="row"><button class="btn" id="edit">✏️ Modifica</button>${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn primary" id="close">Concludi viaggio</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
@@ -328,6 +365,7 @@ async function viewTrip(id) {
 
   // Azioni
   $('#edit')?.addEventListener('click', () => tripForm(trip));
+  $('#date-viaggio').onclick = () => dateForm(trip, render);
   $('#ttl').onclick = () => modal(`<h2>Rinomina viaggio</h2><form id="f" class="stack" style="margin-top:12px"><input name="title" value="${esc(trip.title)}" required maxlength="120"><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
     (el, close) => { $('[data-x]', el).onclick = close; $('[name=title]', el).select(); $('#f', el).onsubmit = safe(async e => { e.preventDefault(); await api('/trips/' + id, { method: 'PUT', body: { title: $('[name=title]', el).value.trim(), start_date: trip.start_date, end_date: trip.end_date, fuel_price: trip.fuel_price, km_per_liter: trip.km_per_liter, notes: trip.notes } }); close(); render(); }); });
   $('#split')?.addEventListener('click', () => modal(`<h2>✂️ Dividi in viaggi</h2><p class="small muted">Ogni partenza da casa fino al rientro a casa diventa un viaggio separato, con le sue tappe, spese e foto. Il titolo prende date e mete.</p><form id="f" class="stack"><div><label class="f">Nome di casa (come compare nelle tappe)</label><input name="home" value="Susegana" required></div><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Dividi</button></div></form>`,
@@ -606,7 +644,7 @@ function carlockImport(trip, openTrips = [], sostituisciDefault = false) {
     <p class="small muted">Su <b>my.carlock.co</b> → Trips → scegli le date → icona <b>CSV</b> (va bene anche l'XLS). Ogni tragitto diventa una tappa con i km reali percorsi; il gasolio viene calcolato su quelli.</p>
     <form id="f" class="stack">
       <input type="file" name="file" accept=".csv,.xls,.xlsx,text/csv" required>
-      ${trip ? '' : `<div><label class="f">In quale viaggio</label><select id="dest"><option value="new">➕ Nuovo viaggio (date prese dal file)</option>${openTrips.map(t => `<option value="${t.id}">${esc(t.title)} (${fdate(t.start_date)}${t.end_date ? ' → ' + fdate(t.end_date) : ''})</option>`).join('')}</select></div>`}
+      ${trip ? '' : `<div><label class="f">In quale viaggio</label><select id="dest"><option value="new">➕ Nuovo viaggio (date prese dal file)</option>${openTrips.map(t => `<option value="${t.id}">${esc(nomeViaggio(t))} (${dateViaggio(t)})</option>`).join('')}</select></div>`}
       <div class="form-grid"><div><label class="f">Ignora tratte sotto (km)</label><input type="number" step="0.5" name="min_km" value="3"></div><div><label class="f">Unisci soste più brevi di (min)</label><input type="number" name="merge_gap_min" value="30"></div></div>
       ${previste ? `<label class="row small" style="align-items:flex-start;gap:8px;flex-wrap:nowrap"><input type="checkbox" id="sost" ${sostituisciDefault ? 'checked' : ''} style="flex:0 0 auto;margin-top:2px">
         <span class="grow">Sostituisci le <b>${previste} tappe previste</b> con quelle davvero percorse<br><span class="muted">Le tappe pianificate e il gasolio stimato spariscono; restano le spese che hai scritto tu.</span></span></label>` : ''}
@@ -970,7 +1008,7 @@ async function viewWorkouts(idAtleta) {
           })()}</summary>
           <div class="tendina-corpo">
             <label><input type="checkbox" data-trip="none" ${elenco.trips.includes('none') ? 'checked' : ''}> Senza viaggio</label>
-            ${trips.map(t => `<label><input type="checkbox" data-trip="${t.id}" ${elenco.trips.includes(String(t.id)) ? 'checked' : ''}> ${esc(t.title)}</label>`).join('')}
+            ${trips.map(t => `<label><input type="checkbox" data-trip="${t.id}" ${elenco.trips.includes(String(t.id)) ? 'checked' : ''}> ${esc(nomeViaggio(t))}</label>`).join('')}
             <button class="btn" id="v-azzera" style="margin-top:6px" ${elenco.trips.length ? '' : 'disabled'}>Mostra tutti i viaggi</button>
           </div>
         </details>
@@ -1213,7 +1251,7 @@ async function viewWorkout(id) {
       <select id="trip">
         <option value="auto" ${w.trip_manual ? '' : 'selected'}>Automatico, in base alle date</option>
         <option value="" ${w.trip_manual && !w.trip_id ? 'selected' : ''}>Nessun viaggio</option>
-        ${trips.map(t => `<option value="${t.id}" ${w.trip_manual && w.trip_id === t.id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
+        ${trips.map(t => `<option value="${t.id}" ${w.trip_manual && w.trip_id === t.id ? 'selected' : ''}>${esc(nomeViaggio(t))}</option>`).join('')}
       </select>
       <div class="small muted" style="margin-top:6px">${w.trip_manual
         ? (w.trip_id ? 'Scelta tua: resta su questo viaggio anche se le date non coincidono.' : 'Scelta tua: resta senza viaggio, l\u2019abbinamento automatico non lo tocca.')
