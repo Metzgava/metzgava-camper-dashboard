@@ -573,6 +573,24 @@ function expenseForm(trip, legs, ex = null) {
       if (ex) await api('/expenses/' + ex.id, { method: 'PUT', body }); else await api(`/trips/${trip.id}/expenses`, { method: 'POST', body }); close(); render(); }); });
 }
 
+// park4night dentro la dashboard, senza perdere di vista il viaggio. Il loro
+// sito non vieta di essere incluso, e il riquadro resta chiaramente loro: in
+// alto c'e' il nome e il pulsante per aprirlo intero nel browser. Un clic con
+// cmd o ctrl, o il tasto centrale, continua ad aprire una scheda come sempre.
+function finestraPark4night(nome, lat, lon) {
+  const url = p4n(lat, lon);
+  modal(`<div class="row between" style="align-items:center"><h2 style="margin:0">\ud83c\udd7f\ufe0f ${esc(nome || 'park4night')}</h2>
+      <div class="row"><a class="btn sm" href="${url}" target="_blank" rel="noopener">Apri intero</a><button class="btn sm" data-x>Chiudi</button></div></div>
+    <p class="small muted" style="margin:6px 0 0">Aree sosta, foto, prezzi e commenti sono di park4night.</p>
+    <iframe class="telaio-p4n" src="${url}" loading="lazy" referrerpolicy="no-referrer"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-forms" title="park4night"></iframe>
+    <p class="small muted" id="p4n-aiuto" style="margin-top:6px">Se resta bianco, tocca \u00abApri intero\u00bb: a volte il loro sito rifiuta di mostrarsi dentro un riquadro.</p>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      el.querySelector('.modal').classList.add('modal-largo');
+    });
+}
+
 // L'indirizzo che apre park4night centrato su un punto. Sul telefono, se l'app
 // e' installata, iOS e Android la aprono al posto del sito. Non serve chiedere
 // niente a nessun servizio: e' un indirizzo, ed e' immediato.
@@ -1464,6 +1482,19 @@ setInterval(guardaSeCambiato, 45000);
 // Tornando sulla scheda si controlla subito: e' il momento in cui si guarda
 document.addEventListener('visibilitychange', () => { if (!document.hidden) guardaSeCambiato(); });
 window.addEventListener('focus', guardaSeCambiato);
+
+// I collegamenti a park4night restano indirizzi veri — si possono copiare e
+// aprire in una scheda — ma con un clic semplice si aprono qui dentro
+document.addEventListener('click', e => {
+  const a = e.target.closest('a[href*="park4night.com"]');
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button > 0) return;
+  if (a.closest('.modal')) return;                       // dentro il riquadro, «Apri intero» fa il suo
+  const u = new URL(a.href);
+  const lat = u.searchParams.get('lat'), lon = u.searchParams.get('lng');
+  if (!lat || !lon) return;
+  e.preventDefault();
+  finestraPark4night(a.textContent.replace(/[^\p{L}\p{N} .'\-]/gu, '').trim() || a.title, lat, lon);
+});
 
 document.addEventListener('click', e => { const a = e.target.closest('[data-logout]'); if (a) { e.preventDefault(); api('/auth/logout', { method: 'POST' }).then(() => { user = null; location.hash = '#/'; render(); }); } });
 window.addEventListener('hashchange', render);
