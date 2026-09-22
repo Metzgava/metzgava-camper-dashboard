@@ -197,12 +197,16 @@ function pesiDaPacchetto(body) {
   return fuori;
 }
 
-// Di una giornata resta la pesata piu' bassa: chi sale due volte sulla bilancia
-// tiene per buona quella, e il grafico vuole comunque un punto al giorno.
-// La pesata corretta a mano vince su Salute, quale che sia il numero: altrimenti
-// il primo invio del telefono cancellerebbe la correzione appena fatta.
-// Il confronto e' sul peso e non sull'ora, quindi l'ordine di arrivo non conta:
-// lo stesso file ricaricato porta allo stesso risultato.
+// Di una giornata resta la pesata del mattino, e fra piu' pesate del mattino la
+// piu' bassa: e' quella che racconta il peso vero, prima che mangiare e bere lo
+// muovano. Mattino vuol dire prima di mezzogiorno, ora italiana; nelle giornate
+// in cui ci si e' pesati solo nel pomeriggio resta la minore di quelle, altrimenti
+// la giornata sparirebbe dal grafico.
+// La pesata corretta a mano vince su Salute, quale che sia il numero e l'ora:
+// altrimenti il primo invio del telefono cancellerebbe la correzione appena fatta.
+// Il confronto non guarda l'ordine di arrivo: lo stesso file ricaricato, o gli
+// stessi invii in ordine diverso, portano sempre allo stesso risultato.
+const E_MATTINO = ora => `coalesce(extract(hour FROM ${ora} AT TIME ZONE 'Europe/Rome') < 12, false)`;
 async function archiviaPesi(userId, pesi) {
   // Si contano le giornate, non le letture: due pesate dello stesso giorno
   // valgono per una, altrimenti il riepilogo direbbe numeri gonfiati
@@ -211,7 +215,10 @@ async function archiviaPesi(userId, pesi) {
     const r = await q(`INSERT INTO weights(user_id, day, kg, measured_at, source)
                        VALUES($1, ($2::timestamptz AT TIME ZONE 'Europe/Rome')::date, $3, $2, 'health')
                        ON CONFLICT (user_id, day) DO UPDATE SET kg = EXCLUDED.kg, measured_at = EXCLUDED.measured_at
-                       WHERE weights.source <> 'manual' AND EXCLUDED.kg < weights.kg
+                       WHERE weights.source <> 'manual' AND (
+                         (${E_MATTINO('EXCLUDED.measured_at')} AND NOT ${E_MATTINO('weights.measured_at')})
+                         OR (${E_MATTINO('EXCLUDED.measured_at')} = ${E_MATTINO('weights.measured_at')}
+                             AND EXCLUDED.kg < weights.kg))
                        RETURNING to_char(day,'YYYY-MM-DD') AS day`, [userId, p.measured_at, p.kg]);
     if (r.rowCount) giornate.add(r.rows[0].day);
   }
