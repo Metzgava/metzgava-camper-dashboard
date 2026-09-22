@@ -227,6 +227,7 @@ function tripForm(t = null) {
           $('#p-esiti', el).innerHTML = varianti.map(x => `<div class="variante" data-variante="${x.chiave}">
               <div class="row between"><b>${esc(x.nome)}</b><b>${num(x.distance_km)} km</b></div>
               <div class="small muted">${dur(x.duration_min * 60)} di guida \u00b7 ${num(x.litri)} l \u00b7 <b>${eur(x.gasolio)}</b> di gasolio${x.stimato ? ' \u00b7 \u26a0\ufe0f distanza stimata' : ''}</div>
+              <div class="small" style="margin-top:4px"><a class="btn sm" href="${mapsIndicazioni(lista[0], lista[lista.length - 1], lista.slice(1, -1))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">\ud83d\uddfa\ufe0f Vedi su Google Maps</a></div>
               ${x.pedaggio_km == null ? '' : x.pedaggio_km > 0
                 ? `<div class="small muted">\ud83d\udee3\ufe0f ${num(x.pedaggio_km)} km a pedaggio \u00b7 <b>${eur(x.pedaggio)}</b> stimati \u00b7 totale <b>${eur(x.gasolio + x.pedaggio)}</b></div>`
                 : '<div class="small muted">\ud83d\udee3\ufe0f nessun tratto a pedaggio</div>'}
@@ -260,7 +261,7 @@ async function viewTrip(id) {
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
-      <div class="row" style="margin-top:6px"><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a><button class="btn sm ghost" data-poi="${l.id}">Soste & borghi</button>${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a><button class="btn sm ghost" data-poi="${l.id}">Soste & borghi</button>${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${eur(e.amount)}</b></td>
     <td class="num">${closed ? '' : `<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
   $('#app').innerHTML = layout(`
@@ -278,10 +279,13 @@ async function viewTrip(id) {
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : `<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove ci fermiamo</h2>${closed ? '' : '<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi lungo il percorso">\ud83d\udd0e Lungo il percorso</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
-        ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">Apri park4night sui punti del viaggio:
+        ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">
+          <a class="btn sm" href="${mapsIndicazioni({ lat: legs[0].from_lat, lon: legs[0].from_lon }, { lat: legs[legs.length - 1].to_lat, lon: legs[legs.length - 1].to_lon }, legs.slice(0, -1).map(l => ({ lat: l.to_lat, lon: l.to_lon })))}" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Tutto il percorso su Maps</a>
+          ${legs.length > MAX_TAPPE_MAPS + 1 ? `<span class="small muted"> \u00b7 Google accetta ${MAX_TAPPE_MAPS} punti intermedi: le tappe oltre restano fuori</span>` : ''}
+          <div style="margin-top:8px">Apri park4night sui punti del viaggio:
           ${[{ n: legs[0].from_name, lat: legs[0].from_lat, lon: legs[0].from_lon }, ...legs.map(l => ({ n: l.to_name, lat: l.to_lat, lon: l.to_lon }))]
             .filter(x => x.lat != null)
-            .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div>` : ''}
+            .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div></div>` : ''}
         <div class="list">${soste.length ? soste.map(sostaRiga).join('') : '<div class="empty">Nessuna sosta segnata. Cercale lungo il percorso, oppure aggiungile a mano: puoi indicare se \u00e8 una sosta di passaggio o un pernotto, e i giorni in cui ci fermate.</div>'}</div></div>
 
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2>${closed ? '' : '<button class="btn primary sm" id="addex">＋ Spesa</button>'}</div>
@@ -493,7 +497,8 @@ function legForm(trip, legs, leg = null) {
         const r = await api('/route/preview', { method: 'POST', body: { from, to } });
         const price = +($('[name=fuel_price]', el).value || trip.fuel_price || settings.vehicle?.fuel_price || 0);
         const lt = r.distance_km / (trip.km_per_liter || 10);
-        $('#prev', el).innerHTML = `<b>${num(r.distance_km)} km</b> · ${dur(r.duration_min * 60)} · ${num(lt)} l ≈ <b>${eur(lt * price)}</b> di gasolio${r.warning ? ' · ⚠️ ' + r.warning : ''}`;
+        $('#prev', el).innerHTML = `<b>${num(r.distance_km)} km</b> · ${dur(r.duration_min * 60)} · ${num(lt)} l ≈ <b>${eur(lt * price)}</b> di gasolio${r.warning ? ' · ⚠️ ' + r.warning : ''}`
+          + ` <a class="btn sm" href="${mapsIndicazioni(from, to)}" target="_blank" rel="noopener" title="Le indicazioni le calcola Google quando ci clicchi">\ud83d\uddfa\ufe0f Maps</a>`;
         const m = $('#pmap', el); m.style.display = 'block'; if (!pmap) pmap = makeMap(m, { simple: true }); else pmap.eachLayer(l => l instanceof L.Polyline && pmap.removeLayer(l));
         pmap.invalidateSize(); pmap.fitBounds(L.polyline(r.geometry, { color: '#0f766e', weight: 4 }).addTo(pmap).getBounds(), { padding: [10, 10] });
       });
@@ -589,6 +594,20 @@ function finestraPark4night(nome, lat, lon) {
       $('[data-x]', el).onclick = close;
       el.querySelector('.modal').classList.add('modal-largo');
     });
+}
+
+// Indicazioni stradali su Google Maps. L'indirizzo porta solo le coordinate:
+// il percorso lo calcola Google nel momento in cui ci si clicca sopra, quindi
+// traffico, cantieri e chiusure sono quelli di allora e non di quando abbiamo
+// creato la tappa. Sul telefono si apre l'app, se c'e'.
+// Il formato e' quello documentato da Google (Maps URLs, api=1) e non vuole chiavi.
+const MAX_TAPPE_MAPS = 9;                       // il limite di Google per i punti intermedi
+function mapsIndicazioni(da, a, intermedie = []) {
+  const punto = p => `${(+p.lat).toFixed(5)},${(+p.lon).toFixed(5)}`;
+  const q = new URLSearchParams({ api: '1', origin: punto(da), destination: punto(a), travelmode: 'driving' });
+  const tappe = intermedie.filter(p => p?.lat != null).slice(0, MAX_TAPPE_MAPS);
+  if (tappe.length) q.set('waypoints', tappe.map(punto).join('|'));
+  return `https://www.google.com/maps/dir/?${q}`;
 }
 
 // L'indirizzo che apre park4night centrato su un punto. Sul telefono, se l'app
