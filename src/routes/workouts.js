@@ -145,18 +145,71 @@ async function archivia(userId, items) {
   return { saved: saved.length, merged: merged.length };
 }
 
-const formaPacchetto = body => Array.isArray(body.data?.workouts) ? `data.workouts[${body.data.workouts.length}]`
+// ---------- pesate ----------
+// Salute esporta il peso fra le "metriche", non fra gli allenamenti:
+// { data: { metrics: [ { name: "weight_body_mass", units: "kg",
+//                        data: [ { date: "2024-05-03 07:12:00 +0200", qty: 72.4 } ] } ] } }
+// Altre metriche hanno avg/min/max invece di qty, e le bilance americane mandano
+// libbre: qui si tiene solo il peso corporeo, convertito in chilogrammi.
+const PESO_CORPOREO = /weight|body_?mass|peso|massa.?corp/i;
+const NON_PESO = /lean|fat|bmi|indice|magra|grass/i;
+const inChili = (valore, unita) => {
+  const u = String(unita || 'kg').toLowerCase();
+  if (u.startsWith('lb') || u.includes('libbr') || u.includes('pound')) return valore * 0.45359237;
+  if (u.startsWith('st')) return valore * 6.35029318;
+  if (u === 'g' || u.startsWith('gramm')) return valore / 1000;
+  return valore;                                   // kg e tutto il resto
+};
+
+function pesiDaPacchetto(body) {
+  const metriche = body?.data?.metrics;
+  if (!Array.isArray(metriche)) return [];
+  const fuori = [];
+  for (const m of metriche) {
+    const nome = String(m?.name || '');
+    if (!PESO_CORPOREO.test(nome) || NON_PESO.test(nome)) continue;
+    for (const p of (Array.isArray(m.data) ? m.data : [])) {
+      const valore = num(p?.qty ?? p?.avg ?? p?.Avg ?? p?.value);
+      const quando = new Date(p?.date || p?.start || p?.startDate);
+      if (!Number.isFinite(valore) || valore <= 0 || isNaN(quando)) continue;
+      const kg = inChili(valore, m.units || p.units);
+      // Una bilancia che sballa non deve inquinare il grafico
+      if (kg < 20 || kg > 400) continue;
+      fuori.push({ measured_at: quando, kg: Math.round(kg * 100) / 100 });
+    }
+  }
+  return fuori;
+}
+
+// Di una giornata resta l'ultima pesata: chi sale due volte sulla bilancia
+// ha di solito l'ultima come quella buona, e il grafico vuole un punto al giorno.
+async function archiviaPesi(userId, pesi) {
+  let salvate = 0;
+  for (const p of pesi) {
+    const r = await q(`INSERT INTO weights(user_id, day, kg, measured_at, source)
+                       VALUES($1, ($2::timestamptz AT TIME ZONE 'Europe/Rome')::date, $3, $2, 'health')
+                       ON CONFLICT (user_id, day) DO UPDATE SET kg = EXCLUDED.kg, measured_at = EXCLUDED.measured_at
+                       WHERE weights.measured_at IS NULL OR EXCLUDED.measured_at >= weights.measured_at
+                       RETURNING id`, [userId, p.measured_at, p.kg]);
+    if (r.rowCount) salvate++;
+  }
+  return salvate;
+}
+
+const formaPacchetto = body => Array.isArray(body.data?.workouts) || Array.isArray(body.data?.metrics)
+  ? `data.workouts[${body.data?.workouts?.length || 0}] data.metrics[${body.data?.metrics?.length || 0}]`
   : `non riconosciuta (chiavi: ${Object.keys(body).join(',') || 'nessuna'}${body.data ? '; dentro data: ' + Object.keys(body.data).join(',') : ''})`;
 
 ingest.post('/health', requireDevice, wrap(async (req, res) => {
   const body = req.body || {};
   const items = itemsDaPacchetto(body, req.device.name);
   const r = await archivia(req.user.id, items);
+  const pesate = await archiviaPesi(req.user.id, pesiDaPacchetto(body));
   // Traccia l'esito: un invio accettato ma vuoto altrimenti non lascerebbe alcun segno.
   // Registriamo solo la forma del pacchetto e i conteggi, mai i dati sanitari.
-  console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged} dispositivo=${req.device.name}`);
+  console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged} pesate=${pesate} dispositivo=${req.device.name}`);
   if (r.saved) await rimuoviDoppioniAutomatici(req.user.id).catch(e => console.warn('pulizia doppioni fallita:', e.message));
-  res.json({ ok: true, ...r, device: req.device.name });
+  res.json({ ok: true, ...r, pesate, device: req.device.name });
 }));
 
 // ---------- rotte autenticate ----------
@@ -213,8 +266,20 @@ router.get('/workouts', wrap(async (req, res) => {
     if (pezzi.length) conds.push('(' + pezzi.join(' OR ') + ')');
   }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
-  const rows = (await q(`SELECT w.id,w.user_id,w.trip_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,w.hr_max,w.speed_avg_kmh,w.meta,(w.track IS NOT NULL) AS has_track,u.name AS athlete,t.title AS trip_title
-    FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id ${where} ORDER BY started_at DESC LIMIT $${params.length + 1}`, [...params, tetto])).rows;
+  // Il peso della giornata accanto all'allenamento. Nessuno sale sulla bilancia
+  // ogni mattina, quindi se quel giorno manca si prende l'ultima pesata dei
+  // sette giorni precedenti: peso_giorno dice a quando risale davvero.
+  const rows = (await q(`SELECT w.id,w.user_id,w.trip_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,w.hr_max,w.speed_avg_kmh,w.meta,(w.track IS NOT NULL) AS has_track,u.name AS athlete,t.title AS trip_title,
+      p.kg AS peso_kg, p.day AS peso_giorno
+    FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id
+    LEFT JOIN LATERAL (
+      SELECT pe.kg, pe.day FROM weights pe
+      WHERE pe.user_id = w.user_id
+        AND pe.day <= (w.started_at AT TIME ZONE 'Europe/Rome')::date
+        AND pe.day >  (w.started_at AT TIME ZONE 'Europe/Rome')::date - 7
+      ORDER BY pe.day DESC LIMIT 1
+    ) p ON true
+    ${where} ORDER BY started_at DESC LIMIT $${params.length + 1}`, [...params, tetto])).rows;
   res.json(rows);
 }));
 // ---------- doppioni ----------
@@ -304,6 +369,17 @@ router.post('/workouts/copy', wrap(async (req, res) => {
 }));
 
 // Anni in cui esiste almeno un allenamento, per il selettore del periodo
+// Le pesate di un atleta, per il grafico dell'andamento nel tempo
+router.get('/weights', wrap(async (req, res) => {
+  const chi = req.query.user_id ? +req.query.user_id : req.user.id;
+  const conds = ['user_id = $1'], params = [chi];
+  if (req.query.from) { params.push(req.query.from); conds.push(`day >= $${params.length}`); }
+  if (req.query.to) { params.push(req.query.to); conds.push(`day <= $${params.length}`); }
+  const rows = (await q(`SELECT to_char(day,'YYYY-MM-DD') AS day, kg::float AS kg FROM weights
+                         WHERE ${conds.join(' AND ')} ORDER BY day`, params)).rows;
+  res.json(rows);
+}));
+
 router.get('/workouts/anni', wrap(async (req, res) => {
   const atleta = req.query.user_id ? +req.query.user_id : null;
   const rows = (await q(`SELECT DISTINCT extract(year FROM started_at AT TIME ZONE 'Europe/Rome')::int AS anno FROM workouts
@@ -424,7 +500,16 @@ router.post('/workouts/duplicates/remove', wrap(async (req, res) => {
 }));
 
 router.get('/workouts/:id', wrap(async (req, res) => {
-  const r = (await q('SELECT w.*, u.name AS athlete, t.title AS trip_title FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id WHERE w.id=$1', [req.params.id])).rows[0];
+  const r = (await q(`SELECT w.*, u.name AS athlete, t.title AS trip_title, p.kg AS peso_kg, p.day AS peso_giorno
+    FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id
+    LEFT JOIN LATERAL (
+      SELECT pe.kg, pe.day FROM weights pe
+      WHERE pe.user_id = w.user_id
+        AND pe.day <= (w.started_at AT TIME ZONE 'Europe/Rome')::date
+        AND pe.day >  (w.started_at AT TIME ZONE 'Europe/Rome')::date - 7
+      ORDER BY pe.day DESC LIMIT 1
+    ) p ON true
+    WHERE w.id=$1`, [req.params.id])).rows[0];
   r ? res.json(r) : res.status(404).json({ error: 'Non trovato' });
 }));
 router.put('/workouts/:id', wrap(async (req, res) => {
@@ -472,8 +557,6 @@ router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req,
   let body;
   try { body = JSON.parse(req.file.buffer.toString('utf8')); }
   catch { return res.status(400).json({ error: 'Il file non e\u2019 un JSON valido' }); }
-  const items = itemsDaPacchetto(body, `file ${req.file.originalname}`);
-  if (!items.length) return res.status(400).json({ error: `Nessun allenamento nel file (forma: ${formaPacchetto(body)}). Esporta il tipo di dato "Allenamenti", non le metriche.` });
   // Il file si carica dalla pagina di un atleta e finisce nel suo archivio:
   // chi amministra puo' quindi caricare lo storico anche per gli altri
   let destinatario = req.user.id;
@@ -483,9 +566,18 @@ router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req,
     if (!u) return res.status(404).json({ error: 'Utente non trovato' });
     destinatario = u.id;
   }
+  // Un'esportazione puo' contenere gli allenamenti, le pesate o tutti e due:
+  // si prende quello che c'e' e si rifiuta solo il file che non porta nulla
+  const items = itemsDaPacchetto(body, `file ${req.file.originalname}`);
+  const pesi = pesiDaPacchetto(body);
+  if (!items.length && !pesi.length) {
+    return res.status(400).json({ error: `Nel file non ci sono ne\u2019 allenamenti ne\u2019 pesate (forma: ${formaPacchetto(body)}). Esporta il tipo di dato "Allenamenti" per le attivita\u2019 e "weight_body_mass" fra le metriche per il peso.` });
+  }
   const r = await archivia(destinatario, items);
-  console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} utente=${destinatario}`);
-  res.json({ ok: true, letti: items.length, ...r });
+  const pesate = await archiviaPesi(destinatario, pesi);
+  console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} pesate=${pesate} utente=${destinatario}`);
+  if (r.saved) await rimuoviDoppioniAutomatici(destinatario).catch(e => console.warn('pulizia doppioni fallita:', e.message));
+  res.json({ ok: true, letti: items.length, pesate, ...r });
 }));
 
 // Upload GPX manuale

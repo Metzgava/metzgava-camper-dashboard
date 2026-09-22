@@ -152,6 +152,20 @@ export async function migrate() {
     UNIQUE (user_id, provider)
   );
 
+  -- Pesate: una riga al giorno per atleta. Arrivano dalle metriche di Salute
+  -- (weight_body_mass) e servono ad affiancare al singolo allenamento il peso
+  -- di quella giornata e a disegnare l'andamento nel tempo.
+  CREATE TABLE IF NOT EXISTS weights (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day DATE NOT NULL,                             -- giorno della pesata, ora italiana
+    kg NUMERIC(5,2) NOT NULL,
+    measured_at TIMESTAMPTZ,                       -- momento esatto, se la sorgente lo dice
+    source TEXT NOT NULL DEFAULT 'health',
+    UNIQUE (user_id, day)
+  );
+  CREATE INDEX IF NOT EXISTS idx_weights_user_day ON weights(user_id, day);
+
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';   -- manual | carlock
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS start_time TEXT;

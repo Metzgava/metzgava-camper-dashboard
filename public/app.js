@@ -427,7 +427,63 @@ const dislivelloOrario = w => (w.elevation_up_m > 0 && w.duration_s > 0)
 // Colonna destra della riga d'elenco: distanza, durata e le due medie, visibili
 // senza dover aprire la scheda
 const numeriRiga = w => `<b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}${mediaKmh(w) ? ' · ' + num(mediaKmh(w)) + ' km/h' : ''}<br>
-  <span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm ' : ''}${w.calories ? '🔥 ' + w.calories + ' ' : ''}${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' + (dislivelloOrario(w) ? ' · ' + num(dislivelloOrario(w), 0) + ' m/h' : '') : ''}</span>`;
+  <span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm ' : ''}${w.calories ? '🔥 ' + w.calories + ' ' : ''}${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' + (dislivelloOrario(w) ? ' · ' + num(dislivelloOrario(w), 0) + ' m/h' : '') : ''}${pesoRiga(w)}</span>`;
+
+// Peso del giorno dell'allenamento. Se quel giorno non c'e' stata pesata si
+// mostra l'ultima delle precedenti, con la tilde, e la data vera nel suggerimento
+const pesoRiga = w => {
+  if (w.peso_kg == null) return '';
+  const stesso = w.peso_giorno && w.peso_giorno === iso(w.started_at);
+  return ` <span title="${stesso ? 'Pesata di quel giorno' : 'Pesata del ' + fdate(w.peso_giorno)}">\u2696\ufe0f ${stesso ? '' : '~'}${num(w.peso_kg, 1)} kg</span>`;
+};
+
+// Andamento del peso: una spezzata disegnata a mano in SVG, senza librerie.
+// Le coordinate stanno in un viewBox fisso e il foglio di stile la fa scalare,
+// cosi' il disegno resta nitido anche sul telefono.
+function graficoPeso(pesi) {
+  if (!pesi.length) return '<div class="empty">Nessuna pesata in questo periodo.</div>';
+  const ultimo = pesi[pesi.length - 1], primo = pesi[0];
+  const valori = pesi.map(p => p.kg);
+  const minimo = Math.min(...valori), massimo = Math.max(...valori);
+  const variazione = ultimo.kg - primo.kg;
+  const riassunto = `<div class="peso-testa">
+    <div><span class="peso-ora">${num(ultimo.kg, 1)} kg</span> <span class="small muted">il ${fdate(ultimo.day)}</span></div>
+    ${pesi.length > 1 ? `<div class="small ${variazione >= 0.05 ? 'in-salita' : variazione <= -0.05 ? 'in-discesa' : 'muted'}">
+      ${variazione >= 0.05 ? '\u25b2 +' + num(variazione, 1) + ' kg' : variazione <= -0.05 ? '\u25bc \u2212' + num(-variazione, 1) + ' kg' : 'stabile'} <span class="muted">dal ${fdate(primo.day)}</span></div>
+    <div class="small muted">min ${num(minimo, 1)} \u00b7 max ${num(massimo, 1)} kg \u00b7 ${pesi.length} pesate</div>` : ''}
+  </div>`;
+  if (pesi.length < 2) return riassunto;
+
+  const L = 640, A = 210, sx = 46, dx = 10, su = 12, giu = 26;
+  const istante = g => new Date(g + 'T12:00:00').getTime();
+  const t0 = istante(primo.day), t1 = istante(ultimo.day);
+  // Un fondo scala tutto schiacciato renderebbe drammatico un etto: sotto il
+  // chilo di escursione si allarga la scala, cosi' la linea resta leggibile
+  let basso = minimo, alto = massimo;
+  const respiro = Math.max(0.5, (alto - basso) * 0.18);
+  basso -= respiro; alto += respiro;
+  const X = g => sx + (t1 === t0 ? 0 : (istante(g) - t0) / (t1 - t0)) * (L - sx - dx);
+  const Y = v => su + (1 - (v - basso) / (alto - basso)) * (A - su - giu);
+  const punti = pesi.map(p => `${X(p.day).toFixed(1)},${Y(p.kg).toFixed(1)}`);
+  const base = (A - giu).toFixed(1);
+  const area = `M${punti[0]} L${punti.join(' L')} L${X(ultimo.day).toFixed(1)},${base} L${X(primo.day).toFixed(1)},${base} Z`;
+  const tacche = [alto - respiro, (basso + alto) / 2, basso + respiro];
+  const griglia = tacche.map(v => `<line x1="${sx}" y1="${Y(v).toFixed(1)}" x2="${L - dx}" y2="${Y(v).toFixed(1)}" class="griglia"/>
+    <text x="${sx - 6}" y="${(Y(v) + 3.5).toFixed(1)}" class="tacca" text-anchor="end">${num(v, 1)}</text>`).join('');
+  // Con tante pesate i pallini diventano una collana illeggibile: restano gli estremi
+  const pallini = pesi.length <= 60
+    ? pesi.map(p => `<circle cx="${X(p.day).toFixed(1)}" cy="${Y(p.kg).toFixed(1)}" r="3" class="punto"><title>${fdate(p.day)}: ${num(p.kg, 1)} kg</title></circle>`).join('')
+    : [primo, ultimo].map(p => `<circle cx="${X(p.day).toFixed(1)}" cy="${Y(p.kg).toFixed(1)}" r="3.5" class="punto"><title>${fdate(p.day)}: ${num(p.kg, 1)} kg</title></circle>`).join('');
+  // Su pochi mesi il solo mese si ripeterebbe tre volte: li' serve il giorno
+  const giorni = (t1 - t0) / 86400000;
+  const formato = giorni > 80 ? { month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' };
+  const mezzo = pesi[Math.floor(pesi.length / 2)];
+  const date = [[primo, 'start'], [mezzo, 'middle'], [ultimo, 'end']]
+    .filter(([p], i, a) => i === 0 || p.day !== a[i - 1][0].day)
+    .map(([p, ancora]) => `<text x="${X(p.day).toFixed(1)}" y="${A - 8}" class="tacca" text-anchor="${ancora}">${new Date(p.day + 'T12:00:00').toLocaleDateString('it-IT', formato)}</text>`).join('');
+  return `${riassunto}<svg class="grafico-peso" viewBox="0 0 ${L} ${A}" role="img" aria-label="Andamento del peso">
+    ${griglia}<path d="${area}" class="area"/><polyline points="${punti.join(' ')}" class="linea"/>${pallini}${date}</svg>`;
+}
 
 // Modifica dei dati di un allenamento, con la media che si aggiorna mentre scrivi
 function modificaWorkout(w, dopo) {
@@ -497,7 +553,10 @@ async function viewWorkouts(idAtleta) {
   if (elenco.trips.length) qs.set('trip_id', elenco.trips.join(','));
   if (elenco.tapis) qs.set('tapis', elenco.tapis);
   if (elenco.discipline.length) qs.set('disciplina', elenco.discipline.join(','));
-  const [ws, trips, anni, quante] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni?user_id=' + idAtleta), api('/workouts/discipline?user_id=' + idAtleta)]);
+  const qsPeso = new URLSearchParams({ user_id: String(idAtleta) });
+  if (da) qsPeso.set('from', da);
+  if (a) qsPeso.set('to', a);
+  const [ws, trips, anni, quante, pesi] = await Promise.all([api('/workouts?' + qs), api('/trips'), api('/workouts/anni?user_id=' + idAtleta), api('/workouts/discipline?user_id=' + idAtleta), api('/weights?' + qsPeso)]);
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
@@ -545,6 +604,9 @@ async function viewWorkouts(idAtleta) {
       </div>
     </div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : da && a && da === a ? fdate(da) : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="row between"><h2>⚖️ Peso nel tempo</h2></div>
+      ${graficoPeso(pesi)}
+      ${pesi.length ? '' : '<p class="small muted" style="margin-top:8px">Il peso arriva dalle metriche di Salute: nell’esportazione di Health Auto Export includi anche <span class="code">weight_body_mass</span>.</p>'}</div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     ${altri.length ? `<div class="card" id="barra-scelta" hidden style="margin-bottom:12px">
       <div class="row between"><div><b id="quanti-scelti">0</b> selezionati</div>
@@ -644,7 +706,7 @@ async function viewWorkout(id) {
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
   $('#app').innerHTML = layout(`<a href="${tornaAllenamenti(w)}" class="small">← Allenamenti ${esc(w.athlete || '')}</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
-    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}</div>
+    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}${w.peso_kg != null ? stat('Peso', `${num(w.peso_kg, 1)} kg<div class="sub">${w.peso_giorno === iso(w.started_at) ? 'pesata del giorno' : 'pesata del ' + fdate(w.peso_giorno)}</div>`) : ''}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
       <select id="trip">
