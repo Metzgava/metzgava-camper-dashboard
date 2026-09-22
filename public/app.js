@@ -10,6 +10,15 @@ const fdt = d => d ? new Date(d).toLocaleString('it-IT', { day: 'numeric', month
 const iso = d => { if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10); const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
 const dur = s => { if (!s) return '—'; const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m} min`; };
 const today = () => iso(new Date());
+// Le valute che si possono scegliere su ogni importo. L'euro e' il metro con
+// cui si fanno i totali: ogni spesa porta il cambio del suo giorno, congelato.
+const VALUTE = { EUR: '\u20ac Euro', CHF: 'CHF Franchi', GBP: '\u00a3 Sterline', NOK: 'kr Corone norvegesi', SEK: 'kr Corone svedesi', DKK: 'kr Corone danesi' };
+const scegliValuta = (nome, scelta) => `<select name="${nome}">${Object.entries(VALUTE).map(([c, e]) => `<option value="${c}" ${c === (scelta || 'EUR') ? 'selected' : ''}>${e}</option>`).join('')}</select>`;
+// Un importo in valuta si legge com'e' stato speso, con accanto quanto fa in euro
+const importoConValuta = (v, valuta, cambio) => valuta && valuta !== 'EUR'
+  ? `${num(v, 2)} ${valuta} <span class="muted">(${eur(v * (cambio || 1))})</span>`
+  : eur(v);
+
 const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'] };
 const catLabel = c => CAT[c] ? `${CAT[c][0]} ${CAT[c][1]}` : c;
 const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 10) % 10 + 1})`;
@@ -262,7 +271,7 @@ async function viewTrip(id) {
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : '<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>'}${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
-  const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${eur(e.amount)}</b></td>
+  const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${closed ? '' : `<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(trip.title)}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
@@ -339,6 +348,11 @@ async function viewTrip(id) {
   $('#sostituisci')?.addEventListener('click', () => carlockImport({ ...trip, legs }, [], true));
   $('#addsosta')?.addEventListener('click', () => sostaForm(trip));
   $$('[data-sosta]').forEach(b => b.onclick = () => sostaForm(trip, soste.find(x => x.id === +b.dataset.sosta)));
+  $$('[data-sostaspesa]').forEach(b => b.onclick = safe(async () => {
+    const r = await api(`/soste/${b.dataset.sostaspesa}/spesa`, { method: 'POST' });
+    toast(`Aggiunta alle spese: ${importoConValuta(r.amount, r.currency, r.rate).replace(/<[^>]+>/g, '')}`);
+    render();
+  }));
   $$('[data-delsosta]').forEach(b => b.onclick = safe(async () => {
     if (!await confirmDlg('Togliere questa sosta?')) return;
     await api('/soste/' + b.dataset.delsosta, { method: 'DELETE' }); render();
@@ -450,9 +464,9 @@ const sostaRiga = s => {
   return `<div class="item"><div class="item-main" style="cursor:default">
     <div class="sport-ico">${s.kind === 'pernotto' ? '\ud83c\udf19' : '\u23f8\ufe0f'}</div>
     <div class="grow"><div class="title">${esc(s.name)}${s.stars ? ` <span class="stelle" title="${s.stars} su 5">${stelline(s.stars)}</span>` : ''}</div>
-      <div class="meta"><span class="badge ${s.kind === 'pernotto' ? 'ok' : ''}">${s.kind === 'pernotto' ? 'pernotto' : 'sosta'}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${eur(s.cost)}</b>` : ''}</div>
+      <div class="meta"><span class="badge ${s.kind === 'pernotto' ? 'ok' : ''}">${s.kind === 'pernotto' ? 'pernotto' : 'sosta'}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.meta?.spesa_id ? ' \u00b7 <span class="badge ok">nelle spese</span>' : ''}</div>
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
-  <div class="item-actions">${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
+  <div class="item-actions">${s.cost > 0 && !s.meta?.spesa_id ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Aggiungi il costo alle spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div></div>`;
 };
@@ -481,7 +495,10 @@ function sostaForm(trip, s = null, preimpostato = null) {
     <div><label class="f">Gradimento</label>
       <div class="stelle-scelta" id="stelle">${[1, 2, 3, 4, 5].map(stella).join('')}
         <button type="button" class="btn ghost sm" data-stella="0" title="Togli il giudizio" style="margin-left:8px">\u2715</button></div></div>
-    <div><label class="f">Costo \u20ac</label><input type="text" inputmode="decimal" name="cost" value="${s?.cost ?? ''}" placeholder="Es. 18,50 \u2014 a notte o in tutto, come preferisci"></div>
+    <div class="form-grid">
+      <div><label class="f">Costo</label><input type="text" inputmode="decimal" name="cost" value="${s?.cost ?? ''}" placeholder="Es. 18,50"></div>
+      <div><label class="f">Valuta</label>${scegliValuta('currency', s?.currency)}</div>
+    </div>
     <div><label class="f">Collegamento</label><input name="link" value="${esc(s?.link || preimpostato?.park4night || '')}" placeholder="park4night, sito del campeggio, qualunque indirizzo"></div>
     <div><label class="f">Commenti</label><textarea name="notes" rows="2" placeholder="Es. carico acqua, silenzioso, ombra la mattina">${esc(s?.notes || '')}</textarea></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${s ? 'Salva' : 'Aggiungi'}</button></div></form>`,
@@ -615,13 +632,40 @@ function expenseForm(trip, legs, ex = null) {
   const cats = settings.categories || Object.keys(CAT);
   modal(`<h2>${ex ? 'Modifica spesa' : 'Nuova spesa'}</h2>${ex?.auto ? '<p class="small muted">Spesa calcolata automaticamente: se la modifichi non verrà più ricalcolata (potrai ripristinarla con ↺).</p>' : ''}<form id="f" class="stack" style="margin-top:14px">
     <div class="form-grid"><div><label class="f">Categoria</label><select name="category">${cats.map(c => `<option value="${c}" ${ex?.category === c ? 'selected' : ''}>${catLabel(c)}</option>`).join('')}</select></div>
-      <div><label class="f">Importo €</label><input type="number" step="0.01" name="amount" required inputmode="decimal" value="${ex?.amount ?? ''}"></div></div>
+      <div><label class="f">Importo</label><input type="text" name="amount" required inputmode="decimal" value="${ex?.amount ?? ''}" placeholder="Es. 18,50"></div>
+      <div><label class="f">Valuta</label>${scegliValuta('currency', ex?.currency)}</div>
+      <div style="align-self:end"><div class="small muted" id="in-euro"></div></div></div>
     <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${ex?.date ? iso(ex.date) : today()}"></div>
       <div><label class="f">Tappa (opz.)</label><select name="leg_id"><option value="">—</option>${legs.map((l, i) => `<option value="${l.id}" ${ex?.leg_id === l.id ? 'selected' : ''}>${i + 1}. ${esc(l.to_name.split(',')[0])}</option>`).join('')}</select></div></div>
     <div><label class="f">Descrizione</label><input name="description" value="${esc(ex?.description || '')}" placeholder="Es. Traghetto Piombino–Portoferraio"></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
-    (el, close) => { $('[data-x]', el).onclick = close; $('#f', el).onsubmit = safe(async e => { e.preventDefault(); const body = Object.fromEntries(new FormData(e.target));
-      if (ex) await api('/expenses/' + ex.id, { method: 'PUT', body }); else await api(`/trips/${trip.id}/expenses`, { method: 'POST', body }); close(); render(); }); });
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      // Quanto fa in euro, col cambio del giorno della spesa: si vede prima di salvare
+      const mostraEuro = safe(async () => {
+        const valuta = $('[name=currency]', el).value;
+        const importo = +String($('[name=amount]', el).value).replace(',', '.');
+        const riquadro = $('#in-euro', el);
+        if (valuta === 'EUR' || !(importo > 0)) return riquadro.textContent = '';
+        riquadro.textContent = 'cambio\u2026';
+        try {
+          const c = await api(`/cambio?valuta=${valuta}&data=${$('[name=date]', el).value || today()}`);
+          riquadro.innerHTML = `\u2248 <b>${eur(importo * c.cambio)}</b><br><span class="muted">1 ${valuta} = ${num(c.cambio, 4)} \u20ac</span>`;
+        } catch { riquadro.textContent = 'cambio non disponibile'; }
+      });
+      ['[name=currency]', '[name=amount]', '[name=date]'].forEach(sel => {
+        $(sel, el).addEventListener('change', mostraEuro);
+        $(sel, el).addEventListener('input', mostraEuro);
+      });
+      mostraEuro();
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(e.target));
+        if (ex) await api('/expenses/' + ex.id, { method: 'PUT', body });
+        else await api(`/trips/${trip.id}/expenses`, { method: 'POST', body });
+        close(); render();
+      });
+    });
 }
 
 // park4night dentro la dashboard, senza perdere di vista il viaggio. Il loro

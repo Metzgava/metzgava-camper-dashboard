@@ -4,6 +4,7 @@ import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName } from '../lib/carlock.js';
+import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
 
 export const router = Router();
@@ -35,7 +36,7 @@ async function syncFuelExpense(legId) {
 }
 
 async function tripTotals(tripId) {
-  const byCat = (await q('SELECT category, sum(amount)::float AS total, count(*)::int AS n FROM expenses WHERE trip_id=$1 GROUP BY category ORDER BY total DESC', [tripId])).rows;
+  const byCat = (await q('SELECT category, sum(amount * rate)::float AS total, count(*)::int AS n FROM expenses WHERE trip_id=$1 GROUP BY category ORDER BY total DESC', [tripId])).rows;
   const legs = (await q('SELECT coalesce(sum(distance_km),0)::float AS km, coalesce(sum(duration_min),0)::int AS minutes, count(*)::int AS n FROM legs WHERE trip_id=$1', [tripId])).rows[0];
   const fuel = (await q(`SELECT coalesce(sum((meta->>'liters')::float),0) AS liters FROM expenses WHERE trip_id=$1 AND category='gasolio' AND auto=true`, [tripId])).rows[0];
   const total = byCat.reduce((a, b) => a + b.total, 0);
@@ -56,6 +57,16 @@ router.put('/settings/casa', wrap(async (req, res) => {
   const casa = String(req.body?.casa || '').trim().slice(0, 80) || CASA_PREDEFINITA;
   await q(`INSERT INTO settings(key,value) VALUES('casa',$1) ON CONFLICT(key) DO UPDATE SET value=$1`, [JSON.stringify(casa)]);
   res.json({ casa });
+}));
+
+router.get('/valute', wrap(async (req, res) => res.json(VALUTE)));
+
+// Il cambio di una valuta a una data: serve alla pagina per mostrare quanto fa
+// in euro mentre si scrive, prima di salvare
+router.get('/cambio', wrap(async (req, res) => {
+  const c = await cambioPerSpesa({ currency: req.query.valuta, date: req.query.data });
+  if (c.rate == null) return res.status(502).json({ error: c.avviso });
+  res.json({ valuta: c.currency, cambio: c.rate });
 }));
 
 router.get('/stato', wrap(async (req, res) => {
@@ -132,7 +143,7 @@ export async function agganciaAllenamenti() {
 router.get('/trips', wrap(async (req, res) => {
   const trips = (await q(`SELECT t.*, u.name AS owner,
       (SELECT coalesce(sum(distance_km),0)::float FROM legs WHERE trip_id=t.id) AS km,
-      (SELECT coalesce(sum(amount),0)::float FROM expenses WHERE trip_id=t.id) AS total,
+      (SELECT coalesce(sum(amount * rate),0)::float FROM expenses WHERE trip_id=t.id) AS total,
       (SELECT count(*)::int FROM legs WHERE trip_id=t.id) AS n_legs,
       (SELECT count(*)::int FROM photos WHERE trip_id=t.id) AS n_photos,
       (SELECT count(*)::int FROM workouts WHERE trip_id=t.id AND meta->'copiato_da' IS NULL) AS n_workouts
@@ -246,6 +257,7 @@ const datiSosta = b => ({
   // Le stelle si tolgono rimettendo zero: vuoto vuol dire «non l'ho giudicata»
   stars: b?.stars === '' || b?.stars == null ? null : Math.min(5, Math.max(0, Math.round(num(b.stars)))) || null,
   cost: b?.cost === '' || b?.cost == null ? null : num(b.cost),
+  currency: valutaValida(b?.currency),
   notes: b?.notes || null,
   link: String(b?.link || '').trim().slice(0, 500) || null,
   source: b?.source === 'osm' ? 'osm' : 'manuale',
@@ -257,10 +269,11 @@ router.post('/trips/:id/soste', wrap(async (req, res) => {
   if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
   // Il collegamento a park4night si costruisce da se' quando ci sono le coordinate
   const link = d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null);
-  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,from_date,to_date,arrival_time,departure_time,stars,cost,notes,link,source)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+  const c = await cambioPerSpesa({ currency: d.currency, rate: req.body?.rate, date: d.from_date });
+  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,from_date,to_date,arrival_time,departure_time,stars,cost,currency,rate,notes,link,source)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
     [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date,
-      d.arrival_time, d.departure_time, d.stars, d.cost, d.notes, link, d.source])).rows[0];
+      d.arrival_time, d.departure_time, d.stars, d.cost, c.currency, c.rate ?? 1, d.notes, link, d.source])).rows[0];
   res.json(r);
 }));
 
@@ -269,11 +282,35 @@ router.put('/soste/:id', wrap(async (req, res) => {
   if (!cur) return res.status(404).json({ error: 'Sosta non trovata' });
   const d = datiSosta({ ...cur, ...req.body });
   if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
+  const rifare = d.currency !== cur.currency || String(d.from_date || '') !== String(cur.from_date || '').slice(0, 10);
+  const c = rifare ? await cambioPerSpesa({ currency: d.currency, rate: req.body?.rate, date: d.from_date }) : { currency: cur.currency, rate: cur.rate };
   const r = (await q(`UPDATE stops SET name=$2, lat=$3, lon=$4, kind=$5, from_date=$6, to_date=$7,
-      arrival_time=$8, departure_time=$9, stars=$10, cost=$11, notes=$12, link=$13 WHERE id=$1 RETURNING *`,
-    [cur.id, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.arrival_time, d.departure_time, d.stars, d.cost, d.notes,
+      arrival_time=$8, departure_time=$9, stars=$10, cost=$11, currency=$12, rate=$13, notes=$14, link=$15 WHERE id=$1 RETURNING *`,
+    [cur.id, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.arrival_time, d.departure_time, d.stars, d.cost,
+      c.currency, c.rate ?? 1, d.notes,
       d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null)])).rows[0];
   res.json(r);
+}));
+
+// Il costo di una sosta non entra nei totali finche' non lo si dice: con questo
+// diventa una spesa vera, nella categoria giusta, e la sosta se ne ricorda per
+// non farlo due volte.
+router.post('/soste/:id/spesa', wrap(async (req, res) => {
+  const s = (await q('SELECT * FROM stops WHERE id=$1', [req.params.id])).rows[0];
+  if (!s) return res.status(404).json({ error: 'Sosta non trovata' });
+  if (!(num(s.cost) > 0)) return res.status(400).json({ error: 'Questa sosta non ha un costo' });
+  if (s.meta?.spesa_id) {
+    const gia = (await q('SELECT id FROM expenses WHERE id=$1', [s.meta.spesa_id])).rows[0];
+    if (gia) return res.status(409).json({ error: 'Il costo di questa sosta e\u2019 gia\u2019 fra le spese' });
+  }
+  const categoria = s.kind === 'pernotto' ? 'campeggio' : 'area_sosta';
+  const notti = (s.from_date && s.to_date) ? Math.max(0, Math.round((new Date(s.to_date) - new Date(s.from_date)) / 86400000)) : 0;
+  const spesa = (await q(`INSERT INTO expenses(trip_id,date,category,description,amount,currency,rate,auto,edited)
+    VALUES($1,$2,$3,$4,$5,$6,$7,false,true) RETURNING *`,
+    [s.trip_id, s.from_date || new Date(), categoria,
+      `${s.name}${notti ? ` (${notti} ${notti === 1 ? 'notte' : 'notti'})` : ''}`, s.cost, s.currency, s.rate])).rows[0];
+  await q(`UPDATE stops SET meta = coalesce(meta,'{}')::jsonb || jsonb_build_object('spesa_id', $2::int) WHERE id=$1`, [s.id, spesa.id]);
+  res.json(spesa);
 }));
 
 router.delete('/soste/:id', wrap(async (req, res) => {
@@ -465,14 +502,29 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
 router.post('/trips/:id/expenses', wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.category || b.amount == null) return res.status(400).json({ error: 'Categoria e importo obbligatori' });
-  const row = (await q('INSERT INTO expenses(trip_id,leg_id,date,category,description,amount,auto,edited) VALUES($1,$2,$3,$4,$5,$6,false,true) RETURNING *',
-    [req.params.id, b.leg_id || null, b.date || new Date(), b.category, b.description || null, num(b.amount)])).rows[0];
+  // L'importo resta nella valuta in cui e' stato speso; accanto si congela il
+  // cambio del giorno, ed e' quello a fare i totali
+  const c = await cambioPerSpesa({ currency: b.currency, rate: b.rate, date: b.date });
+  if (c.rate == null) return res.status(502).json({ error: c.avviso });
+  const row = (await q(`INSERT INTO expenses(trip_id,leg_id,date,category,description,amount,currency,rate,auto,edited)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,false,true) RETURNING *`,
+    [req.params.id, b.leg_id || null, b.date || new Date(), b.category, b.description || null, num(b.amount), c.currency, c.rate])).rows[0];
   res.json(row);
 }));
 router.put('/expenses/:id', wrap(async (req, res) => {
   const b = req.body || {};
-  const row = (await q('UPDATE expenses SET date=coalesce($2,date), category=coalesce($3,category), description=coalesce($4,description), amount=coalesce($5,amount), edited=true WHERE id=$1 RETURNING *',
-    [req.params.id, b.date || null, b.category || null, b.description ?? null, b.amount != null ? num(b.amount) : null])).rows[0];
+  const cur = (await q('SELECT * FROM expenses WHERE id=$1', [req.params.id])).rows[0];
+  if (!cur) return res.status(404).json({ error: 'Spesa non trovata' });
+  // Il cambio si rifa' solo se cambia la valuta o la data: altrimenti resta
+  // quello con cui la spesa e' nata
+  const valuta = b.currency ? valutaValida(b.currency) : cur.currency;
+  const data = b.date || cur.date;
+  const rifare = valuta !== cur.currency || String(data).slice(0, 10) !== String(cur.date).slice(0, 10) || b.rate != null;
+  const c = rifare ? await cambioPerSpesa({ currency: valuta, rate: b.rate, date: data }) : { currency: cur.currency, rate: cur.rate };
+  if (c.rate == null) return res.status(502).json({ error: c.avviso });
+  const row = (await q(`UPDATE expenses SET date=coalesce($2,date), category=coalesce($3,category), description=coalesce($4,description),
+      amount=coalesce($5,amount), currency=$6, rate=$7, edited=true WHERE id=$1 RETURNING *`,
+    [req.params.id, b.date || null, b.category || null, b.description ?? null, b.amount != null ? num(b.amount) : null, c.currency, c.rate])).rows[0];
   res.json(row);
 }));
 // Ripristina il calcolo automatico di una spesa gasolio modificata
@@ -491,7 +543,7 @@ router.get('/summary', wrap(async (req, res) => {
   const tripId = req.query.trip_id ? +req.query.trip_id : null;
   const tripCond = tripId ? ' AND trip_id=$3' : '';
   const params = tripId ? [from, to, tripId] : [from, to];
-  const periods = (await q(`SELECT to_char(date_trunc('${group}', date), 'YYYY-MM-DD') AS period, category, sum(amount)::float AS total
+  const periods = (await q(`SELECT to_char(date_trunc('${group}', date), 'YYYY-MM-DD') AS period, category, sum(amount * rate)::float AS total
     FROM expenses WHERE date BETWEEN $1 AND $2${tripCond} GROUP BY 1,2 ORDER BY 1`, params)).rows;
   const km = (await q(`SELECT to_char(date_trunc('${group}', coalesce(date, created_at::date)), 'YYYY-MM-DD') AS period, sum(distance_km)::float AS km, count(*)::int AS legs
     FROM legs WHERE coalesce(date, created_at::date) BETWEEN $1 AND $2${tripCond} GROUP BY 1 ORDER BY 1`, params)).rows;
@@ -503,7 +555,7 @@ router.get('/summary', wrap(async (req, res) => {
   if (atleta) { paramsWo.push(atleta); condWo += ` AND user_id=$${paramsWo.length}`; }
   const wo = (await q(`SELECT to_char(date_trunc('${group}', started_at), 'YYYY-MM-DD') AS period, count(*)::int AS n, sum(distance_m)::float/1000 AS km, sum(duration_s)::int AS seconds, sum(calories)::int AS calories, avg(hr_avg)::int AS hr_avg
     FROM workouts WHERE started_at BETWEEN $1 AND $2::date + 1${condWo} GROUP BY 1 ORDER BY 1`, paramsWo)).rows;
-  const byCat = (await q(`SELECT category, sum(amount)::float AS total FROM expenses WHERE date BETWEEN $1 AND $2${tripCond} GROUP BY 1 ORDER BY 2 DESC`, params)).rows;
+  const byCat = (await q(`SELECT category, sum(amount * rate)::float AS total FROM expenses WHERE date BETWEEN $1 AND $2${tripCond} GROUP BY 1 ORDER BY 2 DESC`, params)).rows;
   const totals = {
     spent: +byCat.reduce((a, b) => a + b.total, 0).toFixed(2),
     km: +km.reduce((a, b) => a + b.km, 0).toFixed(1),

@@ -179,6 +179,16 @@ export async function migrate() {
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS stars SMALLINT;       -- 1..5, vuoto se non giudicata
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS cost NUMERIC(10,2);
 
+  -- Valuta e cambio viaggiano con l'importo. Il cambio si congela al momento
+  -- della registrazione: una nota in corone di luglio deve restare quello che
+  -- e' costata a luglio, anche se la corona poi si muove.
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'EUR';
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS rate NUMERIC(12,6) NOT NULL DEFAULT 1;
+  ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'EUR';
+  ALTER TABLE expenses ADD COLUMN IF NOT EXISTS rate NUMERIC(12,6) NOT NULL DEFAULT 1;
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS fuel_currency TEXT NOT NULL DEFAULT 'EUR';
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS fuel_rate NUMERIC(12,6) NOT NULL DEFAULT 1;
+
   -- Allenamenti cancellati a mano: se ne tiene memoria perche' la prossima
   -- sincronizzazione non li riporti indietro. Si svuota ripristinandoli.
   CREATE TABLE IF NOT EXISTS deleted_workouts (
