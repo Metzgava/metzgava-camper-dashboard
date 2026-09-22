@@ -170,6 +170,9 @@ const nomeViaggio = t => {
 // Le date di un viaggio: si toccano e si cambiano, come il titolo si tocca e si
 // rinomina. Compaiono in piu' posti, e in tutti fanno la stessa cosa.
 const dateViaggio = t => `${fdate(t.start_date)}${t.end_date ? ' \u2192 ' + fdate(t.end_date) : ''}`;
+// Le date si portano dietro i propri valori: cosi' il gestore del clic, che sta
+// sul documento e vale ovunque, non deve andare a cercarle da nessuna parte
+const dateCliccabili = t => `<span class="data-viaggio" data-date="${t.id}" data-da="${t.start_date ? iso(t.start_date) : ''}" data-a="${t.end_date ? iso(t.end_date) : ''}" title="Tocca per cambiare le date">${dateViaggio(t)}</span>`;
 function dateForm(trip, dopo) {
   modal(`<h2>Date del viaggio</h2><p class="small muted">Gli allenamenti che cadono in queste date si agganciano da soli al viaggio.</p>
     <form id="f" class="stack" style="margin-top:12px">
@@ -192,7 +195,7 @@ async function viewTrips() {
   const trips = await api('/trips');
   const open = trips.filter(t => t.status === 'open'), closed = trips.filter(t => t.status !== 'open');
   const card = t => `<a class="item" href="#/trip/${t.id}"><span class="dot" style="background:${t.status === 'open' ? 'var(--accent)' : 'var(--muted)'}"></span>
-        <div class="grow"><div class="title">${esc(nomeViaggio(t))}</div><div class="meta"><span class="data-viaggio" data-date="${t.id}" title="Tocca per cambiare le date">${dateViaggio(t)}</span> \u00b7 ${t.n_legs} tappe \u00b7 ${num(t.km)} km
+        <div class="grow"><div class="title">${esc(nomeViaggio(t))}</div><div class="meta">${dateCliccabili(t)} \u00b7 ${t.n_legs} tappe \u00b7 ${num(t.km)} km
     <div class="right"><div style="font-weight:700">${eur(t.total)}</div><span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div></a>`;
   const totKm = trips.reduce((a, t) => a + t.km, 0), totSp = trips.reduce((a, t) => a + t.total, 0);
   $('#app').innerHTML = layout(`
@@ -206,11 +209,6 @@ async function viewTrips() {
     <div class="section"><h2 style="margin-bottom:8px">Conclusi</h2><div class="card pad-0 list">${closed.length ? closed.map(card).join('') : '<div class="empty">Nessun viaggio concluso.<br>Crea il primo viaggio e aggiungi le tappe: distanze e gasolio si calcolano da soli.</div>'}</div></div>`);
   $('#new').onclick = () => tripForm();
   $('#carlock').onclick = () => carlockImport(null, open);
-  // Le date dentro la riga: toccarle cambia le date, non apre il viaggio
-  $$('[data-date]').forEach(d => d.onclick = e => {
-    e.preventDefault(); e.stopPropagation();
-    dateForm(trips.find(t => t.id === +d.dataset.date), render);
-  });
 }
 
 function tripForm(t = null) {
@@ -312,7 +310,7 @@ async function viewTrip(id) {
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(nomeViaggio(trip))}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
-      <div class="muted small"><span class="data-viaggio" id="date-viaggio" title="Tocca per cambiare le date">${dateViaggio(trip)}</span> · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
+      <div class="muted small">${dateCliccabili(trip)} · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
       <div class="row"><button class="btn" id="edit">✏️ Modifica</button>${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn primary" id="close">Concludi viaggio</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
@@ -365,7 +363,6 @@ async function viewTrip(id) {
 
   // Azioni
   $('#edit')?.addEventListener('click', () => tripForm(trip));
-  $('#date-viaggio').onclick = () => dateForm(trip, render);
   $('#ttl').onclick = () => modal(`<h2>Rinomina viaggio</h2><form id="f" class="stack" style="margin-top:12px"><input name="title" value="${esc(trip.title)}" required maxlength="120"><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
     (el, close) => { $('[data-x]', el).onclick = close; $('[name=title]', el).select(); $('#f', el).onsubmit = safe(async e => { e.preventDefault(); await api('/trips/' + id, { method: 'PUT', body: { title: $('[name=title]', el).value.trim(), start_date: trip.start_date, end_date: trip.end_date, fuel_price: trip.fuel_price, km_per_liter: trip.km_per_liter, notes: trip.notes } }); close(); render(); }); });
   $('#split')?.addEventListener('click', () => modal(`<h2>✂️ Dividi in viaggi</h2><p class="small muted">Ogni partenza da casa fino al rientro a casa diventa un viaggio separato, con le sue tappe, spese e foto. Il titolo prende date e mete.</p><form id="f" class="stack"><div><label class="f">Nome di casa (come compare nelle tappe)</label><input name="home" value="Susegana" required></div><div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Dividi</button></div></form>`,
@@ -1393,8 +1390,9 @@ async function viewDashboard() {
             <div class="riga"><span class="etichetta">${sportIco(k)} ${esc(k)}</span><b class="valore">${num(v)} km</b></div>
             <span class="traccia"><i style="width:${Math.max(2, v / maxKm * 100)}%"></i></span></div>`).join('') || '<div class="empty">Nessun dato con questi filtri</div>'}</div></div>
         <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Per viaggio</h2></div>
-          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th class="num">Km camper</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
-          <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th>Date</th><th class="num">Km camper</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
+          <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(v ? nomeViaggio(v) : r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td>
+            <td class="nowrap small">${v ? `${dateCliccabili(v)}` : '<span class="muted">\u2014</span>'}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
       </div>
       <div class="card pad-0" style="margin-top:14px"><div class="row between" style="padding:14px 16px 6px"><h2>Allenamenti (${f.length})</h2>${f.length > MAX ? `<span class="small muted">mostrati i primi ${MAX}</span>` : ''}</div>
         <div class="list">${f.slice(0, MAX).map(w => `<div class="item"><a class="item-main" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
@@ -1657,6 +1655,16 @@ setInterval(guardaSeCambiato, 45000);
 // Tornando sulla scheda si controlla subito: e' il momento in cui si guarda
 document.addEventListener('visibilitychange', () => { if (!document.hidden) guardaSeCambiato(); });
 window.addEventListener('focus', guardaSeCambiato);
+
+// Le date di un viaggio si toccano dovunque compaiano — elenco, intestazione,
+// cruscotto — e fanno sempre la stessa cosa. Dentro una riga che e' un
+// collegamento, il tocco resta alle date e non apre il viaggio.
+document.addEventListener('click', e => {
+  const d = e.target.closest('[data-date]');
+  if (!d) return;
+  e.preventDefault(); e.stopPropagation();
+  dateForm({ id: +d.dataset.date, start_date: d.dataset.da || null, end_date: d.dataset.a || null }, render);
+});
 
 document.addEventListener('click', e => { const a = e.target.closest('[data-logout]'); if (a) { e.preventDefault(); api('/auth/logout', { method: 'POST' }).then(() => { user = null; location.hash = '#/'; render(); }); } });
 window.addEventListener('hashchange', render);
