@@ -197,10 +197,12 @@ function pesiDaPacchetto(body) {
   return fuori;
 }
 
-// Di una giornata resta l'ultima pesata: chi sale due volte sulla bilancia
-// ha di solito l'ultima come quella buona, e il grafico vuole un punto al giorno.
-// La pesata corretta a mano vince su Salute: altrimenti il primo invio del
-// telefono cancellerebbe la correzione appena fatta.
+// Di una giornata resta la pesata piu' bassa: chi sale due volte sulla bilancia
+// tiene per buona quella, e il grafico vuole comunque un punto al giorno.
+// La pesata corretta a mano vince su Salute, quale che sia il numero: altrimenti
+// il primo invio del telefono cancellerebbe la correzione appena fatta.
+// Il confronto e' sul peso e non sull'ora, quindi l'ordine di arrivo non conta:
+// lo stesso file ricaricato porta allo stesso risultato.
 async function archiviaPesi(userId, pesi) {
   // Si contano le giornate, non le letture: due pesate dello stesso giorno
   // valgono per una, altrimenti il riepilogo direbbe numeri gonfiati
@@ -209,8 +211,7 @@ async function archiviaPesi(userId, pesi) {
     const r = await q(`INSERT INTO weights(user_id, day, kg, measured_at, source)
                        VALUES($1, ($2::timestamptz AT TIME ZONE 'Europe/Rome')::date, $3, $2, 'health')
                        ON CONFLICT (user_id, day) DO UPDATE SET kg = EXCLUDED.kg, measured_at = EXCLUDED.measured_at
-                       WHERE weights.source <> 'manual'
-                         AND (weights.measured_at IS NULL OR EXCLUDED.measured_at >= weights.measured_at)
+                       WHERE weights.source <> 'manual' AND EXCLUDED.kg < weights.kg
                        RETURNING to_char(day,'YYYY-MM-DD') AS day`, [userId, p.measured_at, p.kg]);
     if (r.rowCount) giornate.add(r.rows[0].day);
   }
