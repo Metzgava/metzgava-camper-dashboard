@@ -579,7 +579,7 @@ async function viewWorkouts(idAtleta) {
   const k = await api('/komoot');
   const tot = { km: ws.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000, kcal: ws.reduce((a, w) => a + (w.calories || 0), 0), s: ws.reduce((a, w) => a + (w.duration_s || 0), 0) };
   $('#app').innerHTML = layout(`
-    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti ${esc(atleta.name)}</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button>${esclusi.length ? `<button class="btn" id="esclusi">\ud83d\udeab Esclusi (${esclusi.length})</button>` : ''}<label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
+    <div class="row between" style="margin-bottom:16px"><h1>Allenamenti ${esc(atleta.name)}</h1><div class="row"><button class="btn" id="sync" ${k.connected ? '' : 'disabled title="Collega Komoot nelle impostazioni"'}>🔄 Sincronizza Komoot</button><button class="btn" id="dup">🔎 Doppioni</button>${esclusi.length ? `<button class="btn" id="esclusi">\ud83d\udeab Esclusi (${esclusi.length})</button>` : ''}<button class="btn" id="gruppi">\ud83e\udde9 Raggruppa</button><label class="btn">＋ JSON Salute<input type="file" id="hjson" accept=".json,application/json" hidden></label><label class="btn primary">＋ GPX<input type="file" id="gpx" accept=".gpx" hidden></label></div></div>
     <div class="card" style="margin-bottom:16px">
       <div class="chips">${[['giorno', 'Oggi'], ['settimana', '7 giorni'], ['mese', 'Questo mese'], ['anno', 'Quest\u2019anno'], ['tutto', 'Tutto'], ['scelta', 'Scegli\u2026']].map(([k2, l]) => `<span class="chip ${elenco.periodo === k2 ? 'active' : ''}" data-per="${k2}">${l}</span>`).join('')}</div>
       ${elenco.periodo === 'scelta' ? (() => { const c = elenco.scelta; return `<div class="row" style="margin-top:12px">
@@ -745,6 +745,44 @@ async function viewWorkouts(idAtleta) {
         close(); toast('Riammesso: tornera\u2019 alla prossima sincronizzazione'); render();
       }));
     }));
+  // Uscite spezzate: la stessa disciplina piu' volte nella giornata, a poca
+  // distanza. Si propone di ricomporle, ma la scelta resta a chi guarda
+  $('#gruppi').onclick = safe(async () => {
+    const mostra = async (minuti, el, close) => {
+      const { gruppi } = await api(`/workouts/gruppi?user_id=${idAtleta}&minuti=${minuti}`);
+      const scelta = `<div class="row" style="gap:10px;align-items:center;margin-top:10px">
+        <label class="small muted">Stacco massimo fra un tratto e l\u2019altro</label>
+        <select id="g-min" style="width:auto">${[15, 30, 60, 120, 240].map(m => `<option value="${m}" ${m === minuti ? 'selected' : ''}>${m} minuti</option>`).join('')}</select></div>`;
+      const corpo = !gruppi.length
+        ? '<div class="empty">Nessuna uscita spezzata con questo stacco.</div>'
+        : `<div class="stack" style="margin-top:12px;max-height:46vh;overflow:auto">${gruppi.map((g, i) => `<div class="card" style="padding:12px">
+            <label class="row" style="gap:8px;align-items:flex-start"><input type="checkbox" class="gchk" value="${i}" checked>
+              <div class="grow"><b>${sportIco(g.unione.sport)} ${esc(g.unione.name || g.unione.sport || '')}</b>
+              <span class="small muted">\u00b7 ${fdate(g.unione.started_at)} \u00b7 ${g.pezzi.length} tratti</span></div></label>
+            <div class="small muted" style="margin:6px 0 0 26px">${g.pezzi.map((p, k) => `${k ? `<span title="stacco">\u2007\u21b3 ${g.stacchi[k - 1]} min\u2007</span>` : ''}${fdt(p.started_at).split(', ')[1] || fdt(p.started_at)} \u00b7 ${num((p.distance_m || 0) / 1000)} km \u00b7 ${dur(p.duration_s)}${p.has_track ? ' \u00b7 \ud83d\uddfa\ufe0f' : ''}`).join('<br>')}</div>
+            <div class="small" style="margin:8px 0 0 26px"><b>Unita:</b> ${num((g.unione.distance_m || 0) / 1000)} km \u00b7 ${dur(g.unione.duration_s)}${g.unione.speed_avg_kmh ? ' \u00b7 ' + num(g.unione.speed_avg_kmh) + ' km/h' : ''}${g.unione.calories ? ' \u00b7 \ud83d\udd25 ' + g.unione.calories : ''}${g.unione.hr_avg ? ' \u00b7 \u2764\ufe0f ' + g.unione.hr_avg + ' bpm medi' : ''}${g.unione.elevation_up_m ? ' \u00b7 \u26f0\ufe0f ' + g.unione.elevation_up_m + ' m' : ''}</div>
+          </div>`).join('')}</div>`;
+      $('#g-corpo', el).innerHTML = scelta + corpo;
+      $('#g-vai', el).disabled = !gruppi.length;
+      $('#g-vai', el).textContent = gruppi.length ? `Unisci i selezionati (${gruppi.length})` : 'Niente da unire';
+      $('#g-min', el).onchange = e => mostra(+e.target.value, el, close);
+      $('#g-vai', el).onclick = safe(async () => {
+        const scelti = $$('.gchk', el).filter(c => c.checked).map(c => gruppi[+c.value].pezzi.map(p => p.id));
+        if (!scelti.length) return toast('Nessun gruppo selezionato', true);
+        const tratti = scelti.reduce((t, g) => t + g.length, 0);
+        if (!await confirmDlg(`Unire ${scelti.length === 1 ? 'questa uscita' : scelti.length + ' uscite'}, ${tratti} tratti in tutto? I singoli tratti spariscono e non verranno piu\u2019 ricaricati.`)) return;
+        const r = await api('/workouts/gruppi/unisci', { method: 'POST', body: { gruppi: scelti } });
+        close();
+        toast(`${r.unite === 1 ? 'Un\u2019uscita ricomposta' : r.unite + ' uscite ricomposte'}, ${r.assorbiti === 1 ? 'un tratto assorbito' : r.assorbiti + ' tratti assorbiti'}`);
+        render();
+      });
+    };
+    modal(`<h2>\ud83e\udde9 Uscite spezzate</h2>
+      <p class="small muted">Stessa disciplina, stesso giorno, a poca distanza l\u2019una dall\u2019altra: probabilmente e\u2019 una sola uscita registrata a tratti. Unendole si sommano distanza, durata, dislivello e calorie, si incollano le tracce in ordine e il battito medio si pesa sulla durata.</p>
+      <div id="g-corpo"><div class="empty">Cerco\u2026</div></div>
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Annulla</button><button class="btn primary" id="g-vai" disabled>Cerco\u2026</button></div>`,
+      (el, close) => { $('[data-x]', el).onclick = close; mostra(60, el, close); });
+  });
   $('#dup').onclick = safe(async () => {
     const { gruppi, totale_da_eliminare } = await api('/workouts/duplicates');
     if (!gruppi.length) return toast('Nessun doppione trovato');

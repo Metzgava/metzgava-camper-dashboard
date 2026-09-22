@@ -201,3 +201,6 @@ details summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 .peso-scelto b { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
 .peso-scelto .in-salita { color: #dc2626; }
 .peso-scelto .in-discesa { color: #16a34a; }
+/* La regola generale allarga ogni campo: le caselle di spunta no, altrimenti
+   si stirano per tutta la riga e sembrano centrate da sole */
+input[type=checkbox], input[type=radio] { width: auto; }

@@ -594,6 +594,117 @@ router.post('/workouts/duplicates/remove', wrap(async (req, res) => {
   res.json({ ok: true, eliminati });
 }));
 
+// ---------- uscite spezzate in piu' tronconi ----------
+// Una camminata interrotta dal pranzo, o una gita registrata in tre riprese,
+// arriva come piu' allenamenti dello stesso tipo a poche decine di minuti l'uno
+// dall'altro. Non sono doppioni — descrivono tratti diversi — quindi non si
+// scarta nulla: si sommano le grandezze che si sommano e si mettono in fila le
+// tracce. E' una scelta di chi guarda, mai automatica: due giri in bici davvero
+// distinti nella stessa mattina hanno lo stesso aspetto.
+function stacco(precedente, seguente) {
+  const fine = new Date(precedente.started_at).getTime() + (precedente.duration_s || 0) * 1000;
+  return (new Date(seguente.started_at).getTime() - fine) / 60000;   // minuti
+}
+
+async function gruppiRavvicinati(userId, minuti) {
+  const rows = (await q(`SELECT id, trip_id, source, sport, name, started_at, duration_s, distance_m,
+      elevation_up_m, calories, hr_avg, hr_max, (track IS NOT NULL) AS has_track,
+      to_char(started_at AT TIME ZONE 'Europe/Rome','YYYY-MM-DD') AS giorno
+    FROM workouts WHERE user_id=$1 ORDER BY started_at`, [userId])).rows;
+  const perGiornoEsport = new Map();
+  for (const r of rows) {
+    const chiave = `${r.giorno}|${r.sport || ''}`;
+    if (!perGiornoEsport.has(chiave)) perGiornoEsport.set(chiave, []);
+    perGiornoEsport.get(chiave).push(r);
+  }
+  const gruppi = [];
+  for (const lista of perGiornoEsport.values()) {
+    let corrente = [lista[0]];
+    for (let i = 1; i < lista.length; i++) {
+      if (stacco(corrente[corrente.length - 1], lista[i]) <= minuti) corrente.push(lista[i]);
+      else { if (corrente.length > 1) gruppi.push(corrente); corrente = [lista[i]]; }
+    }
+    if (corrente.length > 1) gruppi.push(corrente);
+  }
+  return gruppi;
+}
+
+// Distanza, durata, dislivello e calorie si sommano perche' sono tratti diversi
+// della stessa uscita. Il battito no: si fa la media pesata sulla durata, perche'
+// mezz'ora a 150 e due ore a 110 non fanno 130. La media oraria si ricalcola.
+function fondiPezzi(pezzi) {
+  const ord = [...pezzi].sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+  const somma = campo => {
+    const v = ord.reduce((t, p) => p[campo] != null ? t + Number(p[campo]) : t, 0);
+    return ord.some(p => p[campo] != null) ? Math.round(v) : null;
+  };
+  const durata = somma('duration_s'), distanza = somma('distance_m');
+  const conBattito = ord.filter(p => p.hr_avg != null && p.duration_s > 0);
+  const secondi = conBattito.reduce((t, p) => t + p.duration_s, 0);
+  return {
+    started_at: ord[0].started_at,
+    sport: ord[0].sport, name: ord[0].name,
+    duration_s: durata, distance_m: distanza,
+    elevation_up_m: somma('elevation_up_m'), calories: somma('calories'),
+    hr_avg: secondi ? Math.round(conBattito.reduce((t, p) => t + p.hr_avg * p.duration_s, 0) / secondi) : null,
+    hr_max: ord.reduce((m, p) => (p.hr_max != null && (m == null || p.hr_max > m)) ? p.hr_max : m, null),
+    speed_avg_kmh: (distanza && durata) ? Math.round((distanza / 1000) / (durata / 3600) * 100) / 100 : null,
+    trip_id: ord.find(p => p.trip_id != null)?.trip_id ?? null,
+    pezzi: ord.length,
+  };
+}
+
+router.get('/workouts/gruppi', wrap(async (req, res) => {
+  const chi = req.query.user_id ? +req.query.user_id : req.user.id;
+  const minuti = Math.min(Math.max(1, Number(req.query.minuti) || 60), 600);
+  const gruppi = (await gruppiRavvicinati(chi, minuti)).map(g => ({
+    pezzi: g.map(p => ({ id: p.id, source: p.source, sport: p.sport, name: p.name, started_at: p.started_at,
+      duration_s: p.duration_s, distance_m: p.distance_m, calories: p.calories, hr_avg: p.hr_avg, has_track: p.has_track })),
+    stacchi: g.slice(1).map((p, i) => Math.round(stacco(g[i], p))),
+    unione: fondiPezzi(g),
+  }));
+  res.json({ minuti, gruppi });
+}));
+
+// L'unione tiene il primo troncone e gli versa dentro gli altri. I pezzi vengono
+// tenuti fuori dalle prossime sincronizzazioni, altrimenti tornerebbero a pezzi,
+// e l'unione prende un identificativo suo perche' nessuno la riscriva.
+router.post('/workouts/gruppi/unisci', wrap(async (req, res) => {
+  const gruppi = Array.isArray(req.body?.gruppi) ? req.body.gruppi : [];
+  if (!gruppi.length) return res.status(400).json({ error: 'Nessun gruppo indicato' });
+  let unite = 0, assorbiti = 0;
+  for (const voci of gruppi) {
+    const ids = (voci || []).map(Number).filter(Number.isInteger);
+    if (ids.length < 2) continue;
+    const righe = (await q(`SELECT * FROM workouts WHERE id = ANY($1::int[]) AND (user_id=$2 OR $3) ORDER BY started_at`,
+      [ids, req.user.id, req.user.role === 'admin'])).rows;
+    if (righe.length < 2) continue;
+    const u = fondiPezzi(righe);
+    const tenuto = righe[0];
+    const traccia = righe.filter(r => r.track).flatMap(r => r.track);
+    await q(`UPDATE workouts SET duration_s=$2, distance_m=$3, elevation_up_m=$4, calories=$5, hr_avg=$6, hr_max=$7,
+        speed_avg_kmh=$8, track=$9, trip_id=$10, external_id=$11,
+        meta = coalesce(meta,'{}')::jsonb || jsonb_build_object('unito_da', $12::jsonb, 'pezzi_uniti', $13::int)
+      WHERE id=$1`,
+      [tenuto.id, u.duration_s, u.distance_m, u.elevation_up_m, u.calories, u.hr_avg, u.hr_max, u.speed_avg_kmh,
+        traccia.length ? JSON.stringify(traccia) : null, u.trip_id, `unione-${tenuto.id}`,
+        JSON.stringify(righe.map(r => ({ id: r.id, source: r.source, external_id: r.external_id, started_at: r.started_at,
+          duration_s: r.duration_s, distance_m: r.distance_m, calories: r.calories, hr_avg: r.hr_avg }))),
+        righe.length]);
+    // I tronconi non devono tornare col prossimo scarico, nemmeno il primo, che
+    // ora vive sotto un altro identificativo
+    for (const r of righe) {
+      await q(`INSERT INTO deleted_workouts(user_id, source, external_id, sport, name, started_at)
+               VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id, source, external_id) DO UPDATE SET deleted_at = now()`,
+        [r.user_id, r.source, r.external_id, r.sport, r.name, r.started_at]);
+    }
+    await q('DELETE FROM workouts WHERE id = ANY($1::int[])', [righe.slice(1).map(r => r.id)]);
+    unite++; assorbiti += righe.length - 1;
+  }
+  console.log(`unioni: ${unite} uscite ricomposte, ${assorbiti} tronconi assorbiti, utente=${req.user.id}`);
+  res.json({ ok: true, unite, assorbiti });
+}));
+
 // Gli allenamenti tenuti fuori, con la possibilita' di riaprire la porta
 router.get('/workouts/esclusi', wrap(async (req, res) => {
   const chi = req.query.user_id ? +req.query.user_id : req.user.id;
