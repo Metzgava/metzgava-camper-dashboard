@@ -83,9 +83,21 @@ function healthEnergy(e) {
   if (e?.qty == null) return null;
   const u = String(e.units || 'kcal').toLowerCase().replace(/[^a-z]/g, '');
   const q = num(e.qty);
-  if (!Number.isFinite(q)) return null;
+  if (!Number.isFinite(q) || q <= 0) return null;   // uno zero vale quanto un dato assente
   const kcal = (u === 'kj' || u.includes('joule')) ? q / 4.184 : q;
   return Math.round(kcal);
+}
+
+// Sulle uscite in bici il telefono spesso segna energia attiva zero e riempie
+// solo quella totale: meglio il totale, che comprende il metabolismo basale ed
+// e' quindi un po' generoso, che un allenamento senza calorie. Da dove viene il
+// numero resta scritto accanto all'allenamento.
+function energiaAllenamento(w) {
+  const attiva = healthEnergy(w.activeEnergy) ?? healthEnergy(w.activeEnergyBurned);
+  if (attiva != null) return { kcal: attiva, da: 'attiva', unita: w.activeEnergy?.units || w.activeEnergyBurned?.units };
+  const totale = healthEnergy(w.totalEnergy) ?? healthEnergy(w.totalEnergyBurned);
+  if (totale != null) return { kcal: totale, da: 'totale', unita: w.totalEnergy?.units || w.totalEnergyBurned?.units };
+  return { kcal: null, da: null, unita: undefined };
 }
 
 function healthDistance(d) {
@@ -141,14 +153,15 @@ function itemsDaPacchetto(body, origine) {
       source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: w.name, name: w.name,
       started_at: new Date(w.start), duration_s: healthDuration(w),
       distance_m: healthDistance(w.distance),
-      calories: healthEnergy(w.activeEnergy) ?? healthEnergy(w.activeEnergyBurned),
+      calories: energiaAllenamento(w).kcal,
       hr_avg: w.avgHeartRate?.qty != null ? Math.round(num(w.avgHeartRate.qty)) : (w.heartRate?.avg?.qty != null ? Math.round(num(w.heartRate.avg.qty)) : null),
       hr_max: w.maxHeartRate?.qty != null ? Math.round(num(w.maxHeartRate.qty)) : (w.heartRate?.max?.qty != null ? Math.round(num(w.heartRate.max.qty)) : null),
       elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
       track: healthTrack(w.route),
       meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null,
         nome_originale: w.name !== normalizzaSport(w.name) ? w.name : undefined,
-        raw_units: { distance: w.distance?.units, energia: w.activeEnergy?.units || w.activeEnergyBurned?.units } },
+        energia_da: energiaAllenamento(w).da || undefined,
+        raw_units: { distance: w.distance?.units, energia: energiaAllenamento(w).unita } },
     }));
   }
   const list = Array.isArray(body) ? body : Array.isArray(body.workouts) ? body.workouts : [body];
