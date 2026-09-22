@@ -435,40 +435,86 @@ async function viewTrip(id) {
 }
 
 // Una sosta segnata: che tipo e', quando ci si sta, e la porta verso park4night
-const sostaRiga = s => `<div class="item"><div class="item-main" style="cursor:default">
+// Quante notti separano due date: e' il numero che si guarda davvero
+const notti = (da, a) => (da && a) ? Math.max(0, Math.round((new Date(a) - new Date(da)) / 86400000)) : 0;
+const stelline = n => n ? '\u2605'.repeat(n) + '\u2606'.repeat(5 - n) : '';
+
+// Una sosta segnata: quando si arriva e si riparte, quanto e' piaciuta, quanto
+// e' costata, e la porta verso park4night o qualunque altro indirizzo
+const sostaRiga = s => {
+  const n = notti(s.from_date, s.to_date);
+  const quando = !s.from_date ? '<i>giorni da decidere</i>'
+    : fdate(s.from_date) + (s.arrival_time ? ` alle ${s.arrival_time}` : '')
+      + (s.to_date && s.to_date !== s.from_date ? ` \u2192 ${fdate(s.to_date)}${s.departure_time ? ` alle ${s.departure_time}` : ''}` : (s.departure_time ? ` \u2192 ${s.departure_time}` : ''))
+      + (n ? ` \u00b7 ${n} ${n === 1 ? 'notte' : 'notti'}` : '');
+  return `<div class="item"><div class="item-main" style="cursor:default">
     <div class="sport-ico">${s.kind === 'pernotto' ? '\ud83c\udf19' : '\u23f8\ufe0f'}</div>
-    <div class="grow"><div class="title">${esc(s.name)}</div>
-      <div class="meta"><span class="badge ${s.kind === 'pernotto' ? 'ok' : ''}">${s.kind === 'pernotto' ? 'pernotto' : 'sosta'}</span>
-        ${s.from_date ? ' \u00b7 ' + fdate(s.from_date) + (s.to_date && s.to_date !== s.from_date ? ' \u2192 ' + fdate(s.to_date) : '') : ' \u00b7 <i>giorni da decidere</i>'}
-        ${s.notes ? ' \u00b7 ' + esc(s.notes) : ''}</div></div></div>
-  <div class="item-actions">${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri su park4night">\ud83c\udd7f\ufe0f</a>` : ''}
+    <div class="grow"><div class="title">${esc(s.name)}${s.stars ? ` <span class="stelle" title="${s.stars} su 5">${stelline(s.stars)}</span>` : ''}</div>
+      <div class="meta"><span class="badge ${s.kind === 'pernotto' ? 'ok' : ''}">${s.kind === 'pernotto' ? 'pernotto' : 'sosta'}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${eur(s.cost)}</b>` : ''}</div>
+      ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
+  <div class="item-actions">${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div></div>`;
+};
 
 // Scheda di una sosta: il posto si cerca come ogni altro luogo, il tipo dice se
 // e' un passaggio o una notte, e le date sono i giorni in cui ci si ferma
 function sostaForm(trip, s = null, preimpostato = null) {
   let luogo = s?.lat != null ? { name: s.name, lat: s.lat, lon: s.lon } : preimpostato;
+  let stelle = s?.stars || 0;
+  const stella = n => `<button type="button" class="stella ${n <= stelle ? 'accesa' : ''}" data-stella="${n}" title="${n} su 5">\u2605</button>`;
   modal(`<h2>${s ? 'Modifica sosta' : 'Nuova sosta'}</h2><form id="f" class="stack" style="margin-top:14px">
     <div><label class="f">Posto</label><input id="luogo" required value="${esc(s?.name || preimpostato?.name || '')}" placeholder="Cerca area sosta, campeggio, paese\u2026" autocomplete="off"></div>
+    <div><label class="f">Tipo</label><select name="kind">
+      <option value="pernotto" ${s?.kind !== 'sosta' ? 'selected' : ''}>\ud83c\udf19 Pernotto</option>
+      <option value="sosta" ${s?.kind === 'sosta' ? 'selected' : ''}>\u23f8\ufe0f Sosta di passaggio</option></select></div>
     <div class="form-grid">
-      <div><label class="f">Tipo</label><select name="kind">
-        <option value="pernotto" ${s?.kind !== 'sosta' ? 'selected' : ''}>\ud83c\udf19 Pernotto</option>
-        <option value="sosta" ${s?.kind === 'sosta' ? 'selected' : ''}>\u23f8\ufe0f Sosta di passaggio</option></select></div>
-      <div><label class="f">Dal</label><input type="date" name="from_date" value="${s?.from_date ? iso(s.from_date) : (trip.start_date ? iso(trip.start_date) : '')}"></div>
-      <div><label class="f">Al</label><input type="date" name="to_date" value="${s?.to_date ? iso(s.to_date) : ''}"></div>
+      <div><label class="f">Arrivo</label><input type="date" name="from_date" value="${s?.from_date ? iso(s.from_date) : (trip.start_date ? iso(trip.start_date) : '')}"></div>
+      <div><label class="f">Ora</label><input type="time" name="arrival_time" value="${esc(s?.arrival_time || '')}"></div>
+      <div><label class="f">Partenza</label><input type="date" name="to_date" value="${s?.to_date ? iso(s.to_date) : ''}"></div>
+      <div><label class="f">Ora</label><input type="time" name="departure_time" value="${esc(s?.departure_time || '')}"></div>
     </div>
-    <div><label class="f">Note</label><input name="notes" value="${esc(s?.notes || '')}" placeholder="Es. carico acqua, 12 \u20ac a notte"></div>
-    <div class="small muted">Se il posto ha una posizione, il pulsante \ud83c\udd7f\ufe0f nell\u2019elenco apre park4night centrato l\u00ec: foto, prezzi e commenti stanno da loro.</div>
+    <div class="row" style="gap:10px;align-items:flex-end">
+      <div class="field w-sm"><label class="f">Notti</label><input type="number" min="0" max="120" id="notti" value="${notti(s?.from_date, s?.to_date) || ''}" placeholder="0"></div>
+      <div class="grow small muted" id="quanti-giorni"></div>
+    </div>
+    <div><label class="f">Gradimento</label>
+      <div class="stelle-scelta" id="stelle">${[1, 2, 3, 4, 5].map(stella).join('')}
+        <button type="button" class="btn ghost sm" data-stella="0" title="Togli il giudizio" style="margin-left:8px">\u2715</button></div></div>
+    <div><label class="f">Costo \u20ac</label><input type="text" inputmode="decimal" name="cost" value="${s?.cost ?? ''}" placeholder="Es. 18,50 \u2014 a notte o in tutto, come preferisci"></div>
+    <div><label class="f">Collegamento</label><input name="link" value="${esc(s?.link || preimpostato?.park4night || '')}" placeholder="park4night, sito del campeggio, qualunque indirizzo"></div>
+    <div><label class="f">Commenti</label><textarea name="notes" rows="2" placeholder="Es. carico acqua, silenzioso, ombra la mattina">${esc(s?.notes || '')}</textarea></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${s ? 'Salva' : 'Aggiungi'}</button></div></form>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;
       geoInput($('#luogo', el), r => luogo = r);
+
+      // Date e notti dicono la stessa cosa: chi tocca l'una aggiorna l'altra
+      const dal = $('[name=from_date]', el), al = $('[name=to_date]', el), quante = $('#notti', el);
+      const mostraGiorni = () => {
+        const n = notti(dal.value, al.value);
+        $('#quanti-giorni', el).textContent = !dal.value ? 'Scegli la data di arrivo'
+          : n ? `${n} ${n === 1 ? 'notte' : 'notti'} \u00b7 ${n + 1} giorni` : 'Stesso giorno, nessun pernotto';
+      };
+      const daDate = () => { quante.value = notti(dal.value, al.value) || ''; mostraGiorni(); };
+      dal.onchange = al.onchange = daDate;
+      quante.oninput = () => {
+        const n = Math.max(0, Math.round(+quante.value || 0));
+        if (!dal.value) return;
+        const d = new Date(dal.value + 'T12:00:00'); d.setDate(d.getDate() + n);
+        al.value = iso(d); mostraGiorni();
+      };
+      mostraGiorni();
+
+      const disegnaStelle = () => $$('[data-stella]', el).forEach(b => b.classList.toggle('accesa', +b.dataset.stella && +b.dataset.stella <= stelle));
+      $$('[data-stella]', el).forEach(b => b.onclick = () => { stelle = +b.dataset.stella; disegnaStelle(); });
+
       $('#f', el).onsubmit = safe(async e => {
         e.preventDefault();
         const fd = Object.fromEntries(new FormData(e.target));
-        const corpo = { ...fd, name: $('#luogo', el).value.trim() || luogo?.name, lat: luogo?.lat ?? s?.lat ?? null, lon: luogo?.lon ?? s?.lon ?? null,
-          source: preimpostato ? 'osm' : (s?.source || 'manuale'), link: preimpostato?.park4night || s?.link || null };
+        const corpo = { ...fd, stars: stelle || '', name: $('#luogo', el).value.trim() || luogo?.name,
+          lat: luogo?.lat ?? s?.lat ?? null, lon: luogo?.lon ?? s?.lon ?? null,
+          source: preimpostato ? 'osm' : (s?.source || 'manuale') };
         if (s) await api('/soste/' + s.id, { method: 'PUT', body: corpo });
         else await api(`/trips/${trip.id}/soste`, { method: 'POST', body: corpo });
         close(); render();

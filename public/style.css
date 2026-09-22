@@ -224,3 +224,9 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .modal.modal-largo { max-width: 1000px; }
 .telaio-p4n { width: 100%; height: 62vh; min-height: 320px; border: 1px solid var(--line); border-radius: 12px; margin-top: 10px; background: var(--surface-2); }
 @media (max-width: 720px) { .telaio-p4n { height: 68vh; } }
+/* Gradimento a stelle: si tocca la stella fino a cui si vuole arrivare */
+.stelle-scelta { display: flex; align-items: center; gap: 2px; }
+.stelle-scelta .stella { background: none; border: 0; cursor: pointer; font-size: 26px; line-height: 1; padding: 0 2px; color: var(--line); transition: color .12s; }
+.stelle-scelta .stella.accesa { color: #f2b01e; }
+.stelle-scelta .stella:hover { color: #f2b01e; }
+.item .stelle { color: #f2b01e; font-size: 13px; letter-spacing: 1px; }

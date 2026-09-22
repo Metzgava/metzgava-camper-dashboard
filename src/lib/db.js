@@ -172,6 +172,12 @@ export async function migrate() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS idx_stops_trip ON stops(trip_id, from_date);
+  -- Di una sosta conta anche a che ora si arriva e si riparte, quanto e'
+  -- piaciuta, quanto e' costata e dove leggerne di piu'
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS arrival_time TEXT;    -- hh:mm
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS departure_time TEXT;  -- hh:mm
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS stars SMALLINT;       -- 1..5, vuoto se non giudicata
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS cost NUMERIC(10,2);
 
   -- Allenamenti cancellati a mano: se ne tiene memoria perche' la prossima
   -- sincronizzazione non li riporti indietro. Si svuota ripristinandoli.

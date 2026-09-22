@@ -228,6 +228,12 @@ router.get('/trips/:id/soste', wrap(async (req, res) => {
   res.json((await q('SELECT * FROM stops WHERE trip_id=$1 ORDER BY from_date NULLS LAST, id', [req.params.id])).rows);
 }));
 
+// Un'ora deve esistere davvero: 25:99 passava il controllo sulla forma
+const oraValida = v => {
+  const m = String(v || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!m || +m[1] > 23 || +m[2] > 59) return null;
+  return `${String(+m[1]).padStart(2, '0')}:${m[2]}`;
+};
 const datiSosta = b => ({
   name: String(b?.name || '').trim().slice(0, 200),
   lat: b?.lat != null && b.lat !== '' ? num(b.lat) : null,
@@ -235,8 +241,13 @@ const datiSosta = b => ({
   kind: b?.kind === 'sosta' ? 'sosta' : 'pernotto',
   from_date: b?.from_date || null,
   to_date: b?.to_date || null,
+  arrival_time: oraValida(b?.arrival_time),
+  departure_time: oraValida(b?.departure_time),
+  // Le stelle si tolgono rimettendo zero: vuoto vuol dire «non l'ho giudicata»
+  stars: b?.stars === '' || b?.stars == null ? null : Math.min(5, Math.max(0, Math.round(num(b.stars)))) || null,
+  cost: b?.cost === '' || b?.cost == null ? null : num(b.cost),
   notes: b?.notes || null,
-  link: b?.link || null,
+  link: String(b?.link || '').trim().slice(0, 500) || null,
   source: b?.source === 'osm' ? 'osm' : 'manuale',
 });
 
@@ -246,9 +257,10 @@ router.post('/trips/:id/soste', wrap(async (req, res) => {
   if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
   // Il collegamento a park4night si costruisce da se' quando ci sono le coordinate
   const link = d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null);
-  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,from_date,to_date,notes,link,source)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-    [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.notes, link, d.source])).rows[0];
+  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,from_date,to_date,arrival_time,departure_time,stars,cost,notes,link,source)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+    [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date,
+      d.arrival_time, d.departure_time, d.stars, d.cost, d.notes, link, d.source])).rows[0];
   res.json(r);
 }));
 
@@ -257,8 +269,9 @@ router.put('/soste/:id', wrap(async (req, res) => {
   if (!cur) return res.status(404).json({ error: 'Sosta non trovata' });
   const d = datiSosta({ ...cur, ...req.body });
   if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
-  const r = (await q(`UPDATE stops SET name=$2, lat=$3, lon=$4, kind=$5, from_date=$6, to_date=$7, notes=$8, link=$9 WHERE id=$1 RETURNING *`,
-    [cur.id, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.notes,
+  const r = (await q(`UPDATE stops SET name=$2, lat=$3, lon=$4, kind=$5, from_date=$6, to_date=$7,
+      arrival_time=$8, departure_time=$9, stars=$10, cost=$11, notes=$12, link=$13 WHERE id=$1 RETURNING *`,
+    [cur.id, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.arrival_time, d.departure_time, d.stars, d.cost, d.notes,
       d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null)])).rows[0];
   res.json(r);
 }));

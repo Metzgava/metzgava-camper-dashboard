@@ -52,7 +52,13 @@ export async function fetchJson(url, opts = {}, timeoutMs = 15000) {
   } finally { clearTimeout(t); }
 }
 
-export const num = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+// Un numero scritto all'italiana — 12,50 — non e' un errore da trasformare in
+// zero: la virgola e' il separatore decimale di chi usa questa dashboard. Il
+// punto resta valido, e resta valido tutto cio' che Number capiva prima.
+export const num = (v, d = 0) => {
+  const n = Number(typeof v === 'string' && v.includes(',') && !v.includes('.') ? v.replace(',', '.') : v);
+  return Number.isFinite(n) ? n : d;
+};
 
 // ---- helper per le rotte express ----
 export const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
