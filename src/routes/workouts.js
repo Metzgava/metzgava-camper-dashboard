@@ -177,6 +177,13 @@ const inChili = (valore, unita) => {
   return valore;                                   // kg e tutto il resto
 };
 
+// Diagnostica: quando un invio porta metriche ma nessun peso, sapere quali
+// metriche c'erano dentro dice subito se il peso non e' stato scelto
+// nell'automazione oppure se in Salute non c'e' proprio. Solo i nomi dei tipi
+// di dato, mai un valore.
+const nomiMetriche = body => (Array.isArray(body?.data?.metrics) ? body.data.metrics : [])
+  .map(m => `${String(m?.name || '?')}[${Array.isArray(m?.data) ? m.data.length : 0}]`);
+
 function pesiDaPacchetto(body) {
   const metriche = body?.data?.metrics;
   if (!Array.isArray(metriche)) return [];
@@ -233,10 +240,16 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
   const body = req.body || {};
   const items = itemsDaPacchetto(body, req.device.name);
   const r = await archivia(req.user.id, items);
-  const pesate = await archiviaPesi(req.user.id, pesiDaPacchetto(body));
+  const pesiTrovati = pesiDaPacchetto(body);
+  const pesate = await archiviaPesi(req.user.id, pesiTrovati);
   // Traccia l'esito: un invio accettato ma vuoto altrimenti non lascerebbe alcun segno.
   // Registriamo solo la forma del pacchetto e i conteggi, mai i dati sanitari.
-  console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged} pesate=${pesate} dispositivo=${req.device.name}`);
+  const metriche = nomiMetriche(body);
+  console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged}`
+    + ` scartati=${r.scartati} letture-peso=${pesiTrovati.length} pesate=${pesate} dispositivo=${req.device.name}`);
+  if (metriche.length && !pesiTrovati.length) {
+    console.log(`ingest: nessun peso fra le metriche di ${req.device.name} -> ${metriche.join(' ').slice(0, 400)}`);
+  }
   if (r.saved) await rimuoviDoppioniAutomatici(req.user.id).catch(e => console.warn('pulizia doppioni fallita:', e.message));
   res.json({ ok: true, ...r, pesate, device: req.device.name });
 }));
@@ -671,6 +684,10 @@ router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req,
   const periodoPesi = giorni.length ? { dal: giorni[0], al: giorni[giorni.length - 1] } : null;
   console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} scartati=${r.scartati}`
     + ` letture-peso=${pesi.length} pesate=${pesate}${periodoPesi ? ` (dal ${periodoPesi.dal} al ${periodoPesi.al})` : ''} utente=${destinatario}`);
+  const metriche = nomiMetriche(body);
+  if (metriche.length && !pesi.length) {
+    console.log(`importazione file: nessun peso fra le metriche -> ${metriche.join(' ').slice(0, 400)}`);
+  }
   if (r.saved) await rimuoviDoppioniAutomatici(destinatario).catch(e => console.warn('pulizia doppioni fallita:', e.message));
   res.json({ ok: true, letti: items.length, pesate, letture_peso: pesi.length, periodo_pesi: periodoPesi, ...r });
 }));
