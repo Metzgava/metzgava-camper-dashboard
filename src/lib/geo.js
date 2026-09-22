@@ -180,15 +180,26 @@ export async function poisAlongRoute(geometry, radiusM = 4000, { conBorghi = tru
 ${conBorghi ? `  node["place"~"^(town|village)$"](around:${Math.max(radiusM, 5000)},${around});` : ''}
 );
 out center tags 150;`;
-  let data;
-  try {
-    // Senza un User-Agent che dica chi siamo, Overpass risponde 406 e rifiuta
-    // tutto: e' scritto nelle loro regole d'uso, e per noi era un servizio muto
-    data = await fetchJson(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(query),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA } }, 40000);
-  } catch (e) {
-    console.warn('POI: Overpass non ha risposto:', String(e.message).slice(0, 160));
-    return { stops: [], villages: [], warning: 'Servizio POI momentaneamente non disponibile' };
+  // Senza un User-Agent che dica chi siamo, Overpass risponde 406 e rifiuta
+  // tutto: e' scritto nelle loro regole d'uso, e per noi era un servizio muto.
+  // E' anche lento — mezzo minuto non e' raro — e a ondate risponde 429: allora
+  // si aspetta e si riprova una volta, invece di dire che non c'e' niente.
+  const chiedi = () => fetchJson(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(query),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA } }, 95000);
+  let data, motivo;
+  for (let tentativo = 0; tentativo < 2; tentativo++) {
+    try { data = await chiedi(); break; } catch (e) {
+      motivo = String(e.message || '');
+      const vaRiprovato = /429|504|503|abort|timeout/i.test(motivo);
+      console.warn(`POI: Overpass non ha risposto (${motivo.slice(0, 80)})${vaRiprovato && tentativo === 0 ? ', riprovo fra poco' : ''}`);
+      if (!vaRiprovato || tentativo === 1) break;
+      await new Promise(r => setTimeout(r, 12000));
+    }
+  }
+  if (!data) {
+    return { stops: [], villages: [],
+      warning: /429/.test(motivo) ? 'Il servizio delle mappe sta limitando le richieste: riprova fra qualche minuto'
+        : 'Servizio POI momentaneamente non disponibile' };
   }
   if (data.remark) {
     console.warn('POI: Overpass ha troncato la ricerca:', String(data.remark).slice(0, 160));
