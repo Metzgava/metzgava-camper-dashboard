@@ -162,51 +162,46 @@ export async function percorsiConTappe(punti) {
 export async function poisAlongRoute(geometry, radiusM = 4000, { conBorghi = true } = {}) {
   if (!geometry || geometry.length < 2) return { stops: [], villages: [] };
   // Quanti centri servono lo decide la lunghezza della strada, non un numero
-  // fisso: cerchi da venti chilometri piazzati ogni trenta coprono tutto senza
-  // sovrapporsi, e una richiesta con pochi cerchi Overpass la serve; con troppi
-  // risponde 504 e non si capisce perche'.
+  // fisso: cerchi piazzati a una volta e mezza il raggio coprono tutto senza
+  // sovrapporsi. Con troppi, la richiesta scade dopo novanta secondi.
   const lunghezzaKm = geometry.reduce((t, p, i) => i ? t + haversineKm(geometry[i - 1], p) : 0, 0);
   const passoKm = Math.max(3, (radiusM / 1000) * 1.5);
-  const quanti = Math.min(25, Math.max(2, Math.round(lunghezzaKm / passoKm) + 1));
-  const pts = samplePoints(geometry, quanti);
-  const around = pts.map(([lat, lon]) => `${lat},${lon}`).join(',');
-  // Il tempo massimo lo decide la richiesta stessa: se scade, Overpass non da'
-  // errore ma una risposta vuota con un commento, ed e' peggio di un errore
-  const query = `[out:json][timeout:90];
-(
+  const quanti = Math.min(15, Math.max(2, Math.round(lunghezzaKm / passoKm) + 1));
+  const around = samplePoints(geometry, quanti).map(([lat, lon]) => `${lat},${lon}`).join(',');
+
+  // Due richieste separate invece di una: i posti dove fermarsi e i paesi
+  // attraversati costano quasi uguale e insieme sforano il tempo massimo del
+  // servizio. Divise, se una non passa l'altra arriva lo stesso.
+  const chiedi = async corpoQuery => {
+    const query = `[out:json][timeout:90];\n(${corpoQuery}\n);\nout center tags 150;`;
+    for (let tentativo = 0; tentativo < 2; tentativo++) {
+      try {
+        // Senza un User-Agent che dica chi siamo, Overpass risponde 406 e
+        // rifiuta tutto: e' scritto nelle loro regole d'uso
+        const d = await fetchJson(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(query),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA } }, 95000);
+        if (d.remark) throw new Error(String(d.remark).slice(0, 120));
+        return { elementi: d.elements || [] };
+      } catch (e) {
+        const motivo = String(e.message || '');
+        const vaRiprovato = /429|503|504|abort|timed out|timeout/i.test(motivo);
+        console.warn(`POI: Overpass non ha risposto (${motivo.slice(0, 90)})${vaRiprovato && tentativo === 0 ? ', riprovo fra poco' : ''}`);
+        if (!vaRiprovato || tentativo === 1) return { errore: motivo };
+        await new Promise(r => setTimeout(r, 12000));
+      }
+    }
+  };
+
+  const soste = await chiedi(`
   nwr["tourism"="caravan_site"](around:${radiusM},${around});
   nwr["tourism"="camp_site"]["caravans"!="no"](around:${radiusM},${around});
-  nwr["amenity"="sanitary_dump_station"](around:${radiusM},${around});
-${conBorghi ? `  node["place"~"^(town|village)$"](around:${Math.max(radiusM, 5000)},${around});` : ''}
-);
-out center tags 150;`;
-  // Senza un User-Agent che dica chi siamo, Overpass risponde 406 e rifiuta
-  // tutto: e' scritto nelle loro regole d'uso, e per noi era un servizio muto.
-  // E' anche lento — mezzo minuto non e' raro — e a ondate risponde 429: allora
-  // si aspetta e si riprova una volta, invece di dire che non c'e' niente.
-  const chiedi = () => fetchJson(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(query),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA } }, 95000);
-  let data, motivo;
-  for (let tentativo = 0; tentativo < 2; tentativo++) {
-    try { data = await chiedi(); break; } catch (e) {
-      motivo = String(e.message || '');
-      const vaRiprovato = /429|504|503|abort|timeout/i.test(motivo);
-      console.warn(`POI: Overpass non ha risposto (${motivo.slice(0, 80)})${vaRiprovato && tentativo === 0 ? ', riprovo fra poco' : ''}`);
-      if (!vaRiprovato || tentativo === 1) break;
-      await new Promise(r => setTimeout(r, 12000));
-    }
-  }
-  if (!data) {
-    return { stops: [], villages: [],
-      warning: /429/.test(motivo) ? 'Il servizio delle mappe sta limitando le richieste: riprova fra qualche minuto'
-        : 'Servizio POI momentaneamente non disponibile' };
-  }
-  if (data.remark) {
-    console.warn('POI: Overpass ha troncato la ricerca:', String(data.remark).slice(0, 160));
-    return { stops: [], villages: [], warning: 'Ricerca troppo ampia per il servizio: prova un raggio piu\u2019 stretto' };
-  }
+  nwr["amenity"="sanitary_dump_station"](around:${radiusM},${around});`);
+  const borghi = conBorghi
+    ? await chiedi(`\n  node["place"~"^(town|village)$"](around:${Math.max(radiusM, 5000)},${samplePoints(geometry, Math.min(8, quanti)).map(([a, b]) => `${a},${b}`).join(',')});`)
+    : { elementi: [] };
+
   const stops = [], villages = [];
-  for (const el of data.elements || []) {
+  for (const el of [...(soste.elementi || []), ...(borghi.elementi || [])]) {
     const t = el.tags || {};
     const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
     if (lat == null) continue;
@@ -226,5 +221,9 @@ out center tags 150;`;
   villages.sort((a, b) => (b.historic - a.historic) || ((a.population || 1e9) - (b.population || 1e9)));
   const seen = new Set();
   const uniq = arr => arr.filter(v => !seen.has(v.name) && seen.add(v.name));
-  return { stops: uniq(stops).slice(0, 40), villages: uniq(villages).slice(0, 20) };
+  const avviso = !soste.errore ? null
+    : /429/.test(soste.errore) ? 'Il servizio delle mappe sta limitando le richieste: riprova fra qualche minuto'
+    : /timed out|timeout/i.test(soste.errore) ? 'Ricerca troppo ampia per il servizio: prova un raggio piu\u2019 stretto'
+    : 'Servizio mappe momentaneamente non disponibile';
+  return { stops: uniq(stops).slice(0, 40), villages: uniq(villages).slice(0, 20), ...(avviso ? { warning: avviso } : {}) };
 }
