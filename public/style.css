@@ -237,3 +237,6 @@ input[type=checkbox], input[type=radio] { width: auto; }
    sette colonne e a meta' schermo scorreva di lato invece di leggersi */
 .grid.uno-due { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
 @media (max-width: 900px) { .grid.uno-due { grid-template-columns: 1fr; } }
+/* Dentro una griglia le schede sono affiancate: il margine fra schede in colonna
+   le disallineerebbe di quattordici pixel */
+.grid > .card + .card { margin-top: 0; }

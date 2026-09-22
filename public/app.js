@@ -1384,20 +1384,20 @@ async function viewDashboard() {
         <div class="tile"><div class="label">Dislivello</div><div class="value">${num(t.up, 0)} m</div></div>
         <div class="tile"><div class="label">Battito medio</div><div class="value">${t.hrn ? Math.round(t.hr / t.hrn) + ' bpm' : '—'}</div></div>
       </div>
-      <div class="grid uno-due">
+        <div class="card pad-0" style="margin-bottom:14px"><div style="padding:14px 16px 6px"><h2>Per viaggio</h2></div>
+          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th>Date</th><th class="num">Km camper</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
+          <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(v ? nomeViaggio(v) : r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td>
+            <td class="nowrap small">${v ? `${dateCliccabili(v)}` : '<span class="muted">\u2014</span>'}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
+      <div class="grid due">
         <div class="card"><h2>Km di allenamento per sport</h2><div class="small muted">i km in camper sono nella tabella accanto</div>
           <div class="barre-oriz">${sportOrd.map(([k, v]) => `<div class="barra-oriz">
             <div class="riga"><span class="etichetta">${sportIco(k)} ${esc(k)}</span><b class="valore">${num(v)} km</b></div>
             <span class="traccia"><i style="width:${Math.max(2, v / maxKm * 100)}%"></i></span></div>`).join('') || '<div class="empty">Nessun dato con questi filtri</div>'}</div></div>
-        <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Per viaggio</h2></div>
-          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th>Date</th><th class="num">Km camper</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
-          <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(v ? nomeViaggio(v) : r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td>
-            <td class="nowrap small">${v ? `${dateCliccabili(v)}` : '<span class="muted">\u2014</span>'}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
-      </div>
-      <div class="card pad-0" style="margin-top:14px"><div class="row between" style="padding:14px 16px 6px"><h2>Allenamenti (${f.length})</h2>${f.length > MAX ? `<span class="small muted">mostrati i primi ${MAX}</span>` : ''}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Allenamenti (${f.length})</h2>${f.length > MAX ? `<span class="small muted">mostrati i primi ${MAX}</span>` : ''}</div>
         <div class="list">${f.slice(0, MAX).map(w => `<div class="item"><a class="item-main" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div>
           <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
-          <div class="right small nowrap">${numeriRiga(w)}</div></a></div>`).join('') || '<div class="empty">Nessun allenamento corrisponde ai filtri.</div>'}</div></div>`;
+          <div class="right small nowrap">${numeriRiga(w)}</div></a></div>`).join('') || '<div class="empty">Nessun allenamento corrisponde ai filtri.</div>'}</div></div>
+      </div>`;
   };
 
   const lega = (sel, chiave, evento = 'change') => { const el = $(sel); el.addEventListener(evento, () => { dash[chiave] = el.value; disegna(); }); };
