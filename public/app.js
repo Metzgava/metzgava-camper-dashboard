@@ -284,7 +284,7 @@ async function viewTrip(id) {
       <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
     </div>
     <div class="card pad-0"><div id="map" class="map tall"></div></div>
-    <div class="grid cols-2" style="margin-top:14px">
+    <div class="grid due" style="margin-top:14px">
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove dormiamo o dove ci fermiamo</h2>${'<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
@@ -297,7 +297,7 @@ async function viewTrip(id) {
             .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div></div>` : ''}
         <div class="list">${soste.length ? soste.map(sostaRiga).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
 
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2><button class="btn primary sm" id="addex">＋ Spesa</button></div>
+      <div class="card pad-0" style="grid-column:1/-1"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2><button class="btn primary sm" id="addex">＋ Spesa</button></div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
         <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
     </div>

@@ -226,3 +226,7 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .stelle-scelta .stella.accesa { color: #f2b01e; }
 .stelle-scelta .stella:hover { color: #f2b01e; }
 .item .stelle { color: #f2b01e; font-size: 13px; letter-spacing: 1px; }
+/* Le schede del viaggio stanno su due colonne fisse: con auto-fit su uno schermo
+   largo diventavano tre, e tre colonne strette si leggono peggio di due larghe */
+.grid.due { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 800px) { .grid.due { grid-template-columns: 1fr; } .grid.due > [style*="grid-column"] { grid-column: auto !important; } }
