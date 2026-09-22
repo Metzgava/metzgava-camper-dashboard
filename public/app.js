@@ -487,6 +487,11 @@ function graficoPeso(pesi) {
 
 // Modifica dei dati di un allenamento, con la media che si aggiorna mentre scrivi
 function modificaWorkout(w, dopo) {
+  // Il peso non appartiene all'allenamento ma alla giornata: si modifica da qui
+  // per comodita', e finisce nell'archivio delle pesate come una scritta a mano.
+  // Se il numero mostrato veniva da un giorno precedente, il campo parte vuoto:
+  // altrimenti si copierebbe quella pesata su una data che non le appartiene.
+  const pesoDelGiorno = (w.peso_kg != null && w.peso_giorno === iso(w.started_at)) ? +w.peso_kg : '';
   const campo = (id, etichetta, valore, passo, suffisso) =>
     `<div class="field"><label class="f">${etichetta}</label><input type="number" step="${passo}" min="0" id="${id}" value="${valore ?? ''}" placeholder="${suffisso}"></div>`;
   modal(`<h2>Dati dell\u2019allenamento</h2>
@@ -499,6 +504,12 @@ function modificaWorkout(w, dopo) {
       ${campo('m-kcal', 'Calorie', w.calories, '1', 'kcal')}
       ${campo('m-hr', 'Battito medio', w.hr_avg, '1', 'bpm')}
       ${campo('m-hrmax', 'Battito massimo', w.hr_max, '1', 'bpm')}
+    </div>
+    <div class="row">
+      ${campo('m-peso', 'Peso del giorno (kg)', pesoDelGiorno, '0.1', 'kg')}
+      <div class="field grow"><label class="f">&nbsp;</label><div class="small muted">${w.peso_kg != null && w.peso_giorno !== iso(w.started_at)
+        ? `Qui c\u2019\u00e8 la pesata del ${fdate(w.peso_giorno)}: se la cambi diventa una pesata del ${fdate(w.started_at)}.`
+        : 'Vale per l\u2019intera giornata, quindi anche per gli altri allenamenti dello stesso giorno. Svuota il campo per togliere la pesata.'}</div></div>
     </div>
     <div class="tiles" style="margin-top:12px">
       <div class="tile"><div class="label">Media oraria</div><div class="value" id="m-media" style="font-size:22px">\u2014</div><div class="sub">da distanza e durata</div></div>
@@ -522,6 +533,13 @@ function modificaWorkout(w, dopo) {
           duration_s: min === null ? null : Math.round(min * 60),
           elevation_up_m: v('#m-disl'), calories: v('#m-kcal'), hr_avg: v('#m-hr'), hr_max: v('#m-hrmax'),
         } });
+        // La pesata viaggia su una strada sua: e' della giornata, non dell'allenamento
+        const peso = v('#m-peso');
+        if (peso !== pesoDelGiorno && !(peso === null && pesoDelGiorno === '')) {
+          const giorno = iso(w.started_at);
+          if (peso === null) await api(`/weights/${giorno}?user_id=${w.user_id}`, { method: 'DELETE' }).catch(() => {});
+          else await api('/weights', { method: 'POST', body: { day: giorno, kg: peso, user_id: w.user_id } });
+        }
         close(); toast('Dati aggiornati'); dopo?.();
       });
     });
@@ -651,7 +669,12 @@ async function viewWorkouts(idAtleta) {
     fd.append('user_id', String(idAtleta));
     toast('Importazione in corso\u2026');
     const r = await api('/workouts/health-json', { method: 'POST', body: fd });
-    toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti ad attivit\u00e0 esistenti`); render();
+    // Il riepilogo dice anche che cosa portava il file quanto a pesate: se il
+    // periodo non e' quello che ci si aspettava, il problema e' nell'esportazione
+    const pesi = r.letture_peso
+      ? `${r.pesate} pesate su ${r.letture_peso} letture${r.periodo_pesi ? `, dal ${fdate(r.periodo_pesi.dal)} al ${fdate(r.periodo_pesi.al)}` : ''}`
+      : 'nessuna pesata nel file';
+    toast(`Letti ${r.letti}: ${r.saved} salvati, ${r.merged} uniti\u00a0\u2014 ${pesi}`); render();
   });
   $$('[data-per]').forEach(c => c.onclick = () => { elenco.periodo = c.dataset.per; render(); });
   if ($('#s-tipo')) $('#s-tipo').onchange = e => { elenco.scelta.tipo = e.target.value; render(); };

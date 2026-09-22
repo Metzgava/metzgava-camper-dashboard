@@ -202,17 +202,19 @@ function pesiDaPacchetto(body) {
 // La pesata corretta a mano vince su Salute: altrimenti il primo invio del
 // telefono cancellerebbe la correzione appena fatta.
 async function archiviaPesi(userId, pesi) {
-  let salvate = 0;
+  // Si contano le giornate, non le letture: due pesate dello stesso giorno
+  // valgono per una, altrimenti il riepilogo direbbe numeri gonfiati
+  const giornate = new Set();
   for (const p of pesi) {
     const r = await q(`INSERT INTO weights(user_id, day, kg, measured_at, source)
                        VALUES($1, ($2::timestamptz AT TIME ZONE 'Europe/Rome')::date, $3, $2, 'health')
                        ON CONFLICT (user_id, day) DO UPDATE SET kg = EXCLUDED.kg, measured_at = EXCLUDED.measured_at
                        WHERE weights.source <> 'manual'
                          AND (weights.measured_at IS NULL OR EXCLUDED.measured_at >= weights.measured_at)
-                       RETURNING id`, [userId, p.measured_at, p.kg]);
-    if (r.rowCount) salvate++;
+                       RETURNING to_char(day,'YYYY-MM-DD') AS day`, [userId, p.measured_at, p.kg]);
+    if (r.rowCount) giornate.add(r.rows[0].day);
   }
-  return salvate;
+  return giornate.size;
 }
 
 const formaPacchetto = body => Array.isArray(body.data?.workouts) || Array.isArray(body.data?.metrics)
@@ -654,9 +656,15 @@ router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req,
   }
   const r = await archivia(destinatario, items);
   const pesate = await archiviaPesi(destinatario, pesi);
-  console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} pesate=${pesate} utente=${destinatario}`);
+  // Letture e giornate non coincidono: piu' pesate nello stesso giorno valgono
+  // per una sola. Il periodo coperto dice subito se il file conteneva davvero
+  // tutto l'arco di tempo che ci si aspettava.
+  const giorni = pesi.map(x => x.measured_at.toISOString().slice(0, 10)).sort();
+  const periodoPesi = giorni.length ? { dal: giorni[0], al: giorni[giorni.length - 1] } : null;
+  console.log(`importazione file: elementi=${items.length} salvati=${r.saved} uniti=${r.merged} scartati=${r.scartati}`
+    + ` letture-peso=${pesi.length} pesate=${pesate}${periodoPesi ? ` (dal ${periodoPesi.dal} al ${periodoPesi.al})` : ''} utente=${destinatario}`);
   if (r.saved) await rimuoviDoppioniAutomatici(destinatario).catch(e => console.warn('pulizia doppioni fallita:', e.message));
-  res.json({ ok: true, letti: items.length, pesate, ...r });
+  res.json({ ok: true, letti: items.length, pesate, letture_peso: pesi.length, periodo_pesi: periodoPesi, ...r });
 }));
 
 // Upload GPX manuale
