@@ -481,8 +481,16 @@ function graficoPeso(pesi) {
   const date = [[primo, 'start'], [mezzo, 'middle'], [ultimo, 'end']]
     .filter(([p], i, a) => i === 0 || p.day !== a[i - 1][0].day)
     .map(([p, ancora]) => `<text x="${X(p.day).toFixed(1)}" y="${A - 8}" class="tacca" text-anchor="${ancora}">${new Date(p.day + 'T12:00:00').toLocaleDateString('it-IT', formato)}</text>`).join('');
-  return `${riassunto}<svg class="grafico-peso" viewBox="0 0 ${L} ${A}" role="img" aria-label="Andamento del peso">
-    ${griglia}<path d="${area}" class="area"/><polyline points="${punti.join(' ')}" class="linea"/>${pallini}${date}</svg>`;
+  // Le coordinate di ogni pesata viaggiano dentro il disegno: servono al dito
+  // per trovare il punto piu' vicino a dove ha toccato
+  const coordinate = pesi.map(p => ({ x: +X(p.day).toFixed(1), y: +Y(p.kg).toFixed(1), day: p.day, kg: p.kg }));
+  return `${riassunto}<svg class="grafico-peso" viewBox="0 0 ${L} ${A}" role="img" aria-label="Andamento del peso"
+      data-larghezza="${L}" data-punti="${esc(JSON.stringify(coordinate))}">
+    ${griglia}<path d="${area}" class="area"/><polyline points="${punti.join(' ')}" class="linea"/>${pallini}
+    <line class="guida-scelta" y1="${su}" y2="${base}" x1="0" x2="0" hidden/>
+    <circle class="punto-scelto" r="6" cx="0" cy="0" hidden/>
+    ${date}<rect class="tocco" x="0" y="0" width="${L}" height="${A}" fill="transparent"/></svg>
+    <div class="peso-scelto" id="peso-scelto">Tocca il grafico per vedere giorno e peso</div>`;
 }
 
 // Modifica dei dati di un allenamento, con la media che si aggiorna mentre scrivi
@@ -655,6 +663,33 @@ async function viewWorkouts(idAtleta) {
         close(); toast('Pesata salvata'); render();
       });
     });
+  // Toccando il grafico si legge la pesata piu' vicina al dito: sul telefono non
+  // esiste il passaggio del mouse, e i suggerimenti del disegno resterebbero muti
+  const disegnoPeso = $('.grafico-peso');
+  if (disegnoPeso) {
+    const coordinate = JSON.parse(disegnoPeso.dataset.punti);
+    const larghezza = +disegnoPeso.dataset.larghezza;
+    const guida = $('.guida-scelta', disegnoPeso), segno = $('.punto-scelto', disegnoPeso), scritta = $('#peso-scelto');
+    const mostra = i => {
+      const p = coordinate[i], prima = coordinate[i - 1];
+      guida.setAttribute('x1', p.x); guida.setAttribute('x2', p.x); guida.removeAttribute('hidden');
+      segno.setAttribute('cx', p.x); segno.setAttribute('cy', p.y); segno.removeAttribute('hidden');
+      const salto = prima ? p.kg - prima.kg : null;
+      scritta.innerHTML = `<b>${num(p.kg, 1)} kg</b> \u00b7 ${fdate(p.day)}`
+        + (salto != null ? ` <span class="${salto > 0.049 ? 'in-salita' : salto < -0.049 ? 'in-discesa' : 'muted'}">${salto > 0.049 ? '+' : salto < -0.049 ? '\u2212' : '\u00b1'}${num(Math.abs(salto), 1)} kg dalla pesata prima</span>` : '');
+    };
+    const cerca = e => {
+      const r = disegnoPeso.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width * larghezza;
+      let vicino = 0;
+      coordinate.forEach((p, i) => { if (Math.abs(p.x - x) < Math.abs(coordinate[vicino].x - x)) vicino = i; });
+      mostra(vicino);
+    };
+    let premuto = false;
+    disegnoPeso.addEventListener('pointerdown', e => { premuto = true; cerca(e); });
+    disegnoPeso.addEventListener('pointermove', e => { if (premuto) cerca(e); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(v => disegnoPeso.addEventListener(v, () => { premuto = false; }));
+  }
   $('#peso-nuovo').onclick = () => finestraPesata(null, null);
   $$('[data-peso-mod]').forEach(b => b.onclick = () => finestraPesata(b.dataset.pesoMod, b.dataset.kg));
   $$('[data-peso-del]').forEach(b => b.onclick = safe(async () => {

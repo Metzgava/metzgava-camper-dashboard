@@ -191,3 +191,13 @@ details summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 .riga-pesata .giorno { flex: 1; color: var(--muted); }
 .riga-pesata b { font-variant-numeric: tabular-nums; }
 .riga-pesata .btn.icon { padding: 2px 6px; }
+/* Il grafico del peso si legge col dito: tocca o trascina in orizzontale.
+   touch-action lascia al browser lo scorrimento verticale della pagina. */
+.grafico-peso { touch-action: pan-y; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.grafico-peso [hidden] { display: none; }
+.grafico-peso .guida-scelta { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 4; }
+.grafico-peso .punto-scelto { fill: var(--accent-2); stroke: var(--surface); stroke-width: 2.5; }
+.peso-scelto { margin-top: 6px; font-size: 14px; color: var(--muted); min-height: 20px; }
+.peso-scelto b { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
+.peso-scelto .in-salita { color: #dc2626; }
+.peso-scelto .in-discesa { color: #16a34a; }
