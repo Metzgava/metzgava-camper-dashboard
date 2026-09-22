@@ -284,10 +284,16 @@ router.put('/legs/:id', wrap(async (req, res) => {
   res.json(leg);
 }));
 router.post('/legs/:id/pois', wrap(async (req, res) => {
-  const cur = (await q('SELECT geometry FROM legs WHERE id=$1', [req.params.id])).rows[0];
-  const p = await poisAlongRoute(cur.geometry);
-  await q('UPDATE legs SET pois=$2 WHERE id=$1', [req.params.id, p]);
-  res.json(p);
+  const cur = (await q('SELECT geometry, to_lat, to_lon FROM legs WHERE id=$1', [req.params.id])).rows[0];
+  if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
+  // Otto chilometri di partenza invece di quattro: un'area sosta a cinque
+  // chilometri dall'arrivo e' vicina per chi guida un camper
+  const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 8000), 50000);
+  const traccia = Array.isArray(cur.geometry) && cur.geometry.length > 1 ? cur.geometry : [[cur.to_lat, cur.to_lon]];
+  const p = await poisAlongRoute(traccia, raggio);
+  const conLink = { ...p, raggio, stops: (p.stops || []).map(x => ({ ...x, park4night: linkPark4night(x.lat, x.lon) })) };
+  await q('UPDATE legs SET pois=$2 WHERE id=$1', [req.params.id, conLink]);
+  res.json(conLink);
 }));
 router.delete('/legs/:id', wrap(async (req, res) => { await q('DELETE FROM legs WHERE id=$1', [req.params.id]); res.json({ ok: true }); }));
 

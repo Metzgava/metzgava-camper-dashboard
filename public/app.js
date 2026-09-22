@@ -364,7 +364,13 @@ async function viewTrip(id) {
   $('#addex')?.addEventListener('click', () => expenseForm(trip, legs));
   $('#legs').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.poi) { let l = legs.find(x => x.id == b.dataset.poi); if (!l.pois) { toast('Cerco aree sosta e borghi…'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); } poiModal(l); }
+    // Una ricerca finita a vuoto non vale come risposta: si rifa'. Per mesi il
+    // servizio ci ha rifiutati e quelle tappe sarebbero rimaste vuote per sempre
+    if (b.dataset.poi) {
+      const l = legs.find(x => x.id == b.dataset.poi);
+      if (!l.pois?.stops?.length) { toast('Cerco aree sosta e borghi\u2026'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); }
+      poiModal(l);
+    }
     if (b.dataset.editLeg) legForm(trip, legs, legs.find(x => x.id == b.dataset.editLeg));
     if (b.dataset.delLeg && await confirmDlg('Eliminare la tappa e la sua spesa gasolio?')) { await api('/legs/' + b.dataset.delLeg, { method: 'DELETE' }); render(); }
   });
@@ -568,11 +574,23 @@ function poiModal(l) {
   const gm = (lat, lon) => `https://maps.apple.com/?daddr=${lat},${lon}`;
   modal(`<h2>Lungo la tappa</h2><div class="muted small">${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}${p.warning ? ' · ⚠️ ' + p.warning : ''}</div>
     <h3 style="margin:14px 0 4px">🅿️ Aree sosta e campeggi (${(p.stops || []).length})</h3>
-    ${(p.stops || []).map(s => `<div class="poi"><div class="k">${s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰'}</div><div class="grow"><b>${esc(s.name)}</b> <span class="muted small">${s.kind.replace('_', ' ')}</span><div class="small muted">${[s.fee && 'tariffa: ' + s.fee, s.capacity && s.capacity + ' posti', s.power && 'corrente', s.drinking_water && 'acqua', s.opening_hours].filter(Boolean).map(esc).join(' · ')}</div>${s.website ? `<a class="small" href="${esc(s.website)}" target="_blank">sito web</a> · ` : ''}<a class="small" href="${gm(s.lat, s.lon)}" target="_blank">naviga</a></div></div>`).join('') || '<div class="muted small">Nessuna area censita su OpenStreetMap nel raggio di 4 km.</div>'}
+    ${(p.stops || []).map(s => `<div class="poi"><div class="k">${s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰'}</div><div class="grow"><b>${esc(s.name)}</b> <span class="muted small">${s.kind.replace('_', ' ')}</span><div class="small muted">${[s.fee && 'tariffa: ' + s.fee, s.capacity && s.capacity + ' posti', s.power && 'corrente', s.drinking_water && 'acqua', s.opening_hours].filter(Boolean).map(esc).join(' · ')}</div>${s.website ? `<a class="small" href="${esc(s.website)}" target="_blank">sito web</a> · ` : ''}<a class="small" href="${gm(s.lat, s.lon)}" target="_blank">naviga</a>${s.park4night ? `<a class="btn ghost sm" href="${esc(s.park4night)}" target="_blank" rel="noopener" title="Apri su park4night">\ud83c\udd7f\ufe0f</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessuna area censita su OpenStreetMap nel raggio di 4 km.</div>'}
     <h3 style="margin:14px 0 4px">🏘️ Borghi e paesi attraversati (${(p.villages || []).length})</h3>
     ${(p.villages || []).map(v => `<div class="poi"><div class="k">${v.historic ? '🏰' : '🏘️'}</div><div class="grow"><b>${esc(v.name)}</b> <span class="muted small">${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}</span>${v.wikipedia ? ` · <a class="small" href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessun borgo trovato.</div>'}
-    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Chiudi</button><button class="btn ghost" data-r>Aggiorna ricerca</button></div>`,
-    (el, close) => { $('[data-x]', el).onclick = close; $('[data-r]', el).onclick = safe(async () => { l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); close(); poiModal(l); }); });
+    <div class="row between" style="margin-top:14px"><div class="row" style="gap:8px;align-items:center">
+        <label class="small muted">Raggio</label>
+        <select id="poi-raggio" style="width:auto">${[4, 8, 15, 25].map(k => `<option value="${k * 1000}" ${k * 1000 === (p.raggio || 8000) ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
+      <div class="row"><button class="btn" data-x>Chiudi</button><button class="btn ghost" data-r>Cerca di nuovo</button></div></div>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      const rifai = safe(async () => {
+        toast('Cerco\u2026');
+        l.pois = await api(`/legs/${l.id}/pois?raggio=${$('#poi-raggio', el).value}`, { method: 'POST' });
+        close(); poiModal(l);
+      });
+      $('[data-r]', el).onclick = rifai;
+      $('#poi-raggio', el).onchange = rifai;
+    });
 }
 
 // ---------- Allenamenti ----------
