@@ -429,13 +429,10 @@ const dislivelloOrario = w => (w.elevation_up_m > 0 && w.duration_s > 0)
 const numeriRiga = w => `<b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}${mediaKmh(w) ? ' · ' + num(mediaKmh(w)) + ' km/h' : ''}<br>
   <span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm ' : ''}${w.calories ? '🔥 ' + w.calories + ' ' : ''}${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' + (dislivelloOrario(w) ? ' · ' + num(dislivelloOrario(w), 0) + ' m/h' : '') : ''}${pesoRiga(w)}</span>`;
 
-// Peso del giorno dell'allenamento. Se quel giorno non c'e' stata pesata si
-// mostra l'ultima delle precedenti, con la tilde, e la data vera nel suggerimento
-const pesoRiga = w => {
-  if (w.peso_kg == null) return '';
-  const stesso = w.peso_giorno && w.peso_giorno === iso(w.started_at);
-  return ` <span title="${stesso ? 'Pesata di quel giorno' : 'Pesata del ' + fdate(w.peso_giorno)}">\u2696\ufe0f ${stesso ? '' : '~'}${num(w.peso_kg, 1)} kg</span>`;
-};
+// Peso di quella giornata. Se quel giorno non ci si e' pesati non compare nulla:
+// un peso preso in prestito da un altro giorno racconterebbe una cosa non vera
+const pesoRiga = w => w.peso_kg == null ? ''
+  : ` <span title="Pesata di quel giorno">\u2696\ufe0f ${num(w.peso_kg, 1)} kg</span>`;
 
 // Andamento del peso: una spezzata disegnata a mano in SVG, senza librerie.
 // Le coordinate stanno in un viewBox fisso e il foglio di stile la fa scalare,
@@ -496,10 +493,8 @@ function graficoPeso(pesi) {
 // Modifica dei dati di un allenamento, con la media che si aggiorna mentre scrivi
 function modificaWorkout(w, dopo) {
   // Il peso non appartiene all'allenamento ma alla giornata: si modifica da qui
-  // per comodita', e finisce nell'archivio delle pesate come una scritta a mano.
-  // Se il numero mostrato veniva da un giorno precedente, il campo parte vuoto:
-  // altrimenti si copierebbe quella pesata su una data che non le appartiene.
-  const pesoDelGiorno = (w.peso_kg != null && w.peso_giorno === iso(w.started_at)) ? +w.peso_kg : '';
+  // per comodita', e finisce nell'archivio delle pesate come una scritta a mano
+  const pesoDelGiorno = w.peso_kg != null ? +w.peso_kg : '';
   const campo = (id, etichetta, valore, passo, suffisso) =>
     `<div class="field"><label class="f">${etichetta}</label><input type="number" step="${passo}" min="0" id="${id}" value="${valore ?? ''}" placeholder="${suffisso}"></div>`;
   modal(`<h2>Dati dell\u2019allenamento</h2>
@@ -515,9 +510,7 @@ function modificaWorkout(w, dopo) {
     </div>
     <div class="row">
       ${campo('m-peso', 'Peso del giorno (kg)', pesoDelGiorno, '0.1', 'kg')}
-      <div class="field grow"><label class="f">&nbsp;</label><div class="small muted">${w.peso_kg != null && w.peso_giorno !== iso(w.started_at)
-        ? `Qui c\u2019\u00e8 la pesata del ${fdate(w.peso_giorno)}: se la cambi diventa una pesata del ${fdate(w.started_at)}.`
-        : 'Vale per l\u2019intera giornata, quindi anche per gli altri allenamenti dello stesso giorno. Svuota il campo per togliere la pesata.'}</div></div>
+      <div class="field grow"><label class="f">&nbsp;</label><div class="small muted">Vale per l\u2019intera giornata, quindi anche per gli altri allenamenti dello stesso giorno. Svuota il campo per togliere la pesata.</div></div>
     </div>
     <div class="tiles" style="margin-top:12px">
       <div class="tile"><div class="label">Media oraria</div><div class="value" id="m-media" style="font-size:22px">\u2014</div><div class="sub">da distanza e durata</div></div>
@@ -807,7 +800,7 @@ async function viewWorkout(id) {
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
   $('#app').innerHTML = layout(`<a href="${tornaAllenamenti(w)}" class="small">← Allenamenti ${esc(w.athlete || '')}</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
-    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}${w.peso_kg != null ? stat('Peso', `${num(w.peso_kg, 1)} kg<div class="sub">${w.peso_giorno === iso(w.started_at) ? 'pesata del giorno' : 'pesata del ' + fdate(w.peso_giorno)}</div>`) : ''}</div>
+    <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}${w.peso_kg != null ? stat('Peso', `${num(w.peso_kg, 1)} kg<div class="sub">pesata del giorno</div>`) : ''}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
       <select id="trip">

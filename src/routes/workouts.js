@@ -308,19 +308,14 @@ router.get('/workouts', wrap(async (req, res) => {
     if (pezzi.length) conds.push('(' + pezzi.join(' OR ') + ')');
   }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
-  // Il peso della giornata accanto all'allenamento. Nessuno sale sulla bilancia
-  // ogni mattina, quindi se quel giorno manca si prende l'ultima pesata dei
-  // sette giorni precedenti: peso_giorno dice a quando risale davvero.
+  // Il peso di quella giornata, e solo di quella: se sulla bilancia non ci si e'
+  // saliti, accanto all'allenamento non compare nulla. Meglio il vuoto di un
+  // numero preso in prestito da un altro giorno.
   const rows = (await q(`SELECT w.id,w.user_id,w.trip_id,w.source,w.sport,w.name,w.started_at,w.duration_s,w.distance_m,w.elevation_up_m,w.calories,w.hr_avg,w.hr_max,w.speed_avg_kmh,w.meta,(w.track IS NOT NULL) AS has_track,u.name AS athlete,t.title AS trip_title,
       p.kg AS peso_kg, p.day AS peso_giorno
     FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id
-    LEFT JOIN LATERAL (
-      SELECT pe.kg, pe.day FROM weights pe
-      WHERE pe.user_id = w.user_id
-        AND pe.day <= (w.started_at AT TIME ZONE 'Europe/Rome')::date
-        AND pe.day >  (w.started_at AT TIME ZONE 'Europe/Rome')::date - 7
-      ORDER BY pe.day DESC LIMIT 1
-    ) p ON true
+    LEFT JOIN weights p ON p.user_id = w.user_id
+      AND p.day = (w.started_at AT TIME ZONE 'Europe/Rome')::date
     ${where} ORDER BY started_at DESC LIMIT $${params.length + 1}`, [...params, tetto])).rows;
   res.json(rows);
 }));
@@ -589,13 +584,8 @@ router.delete('/workouts/esclusi/:id', wrap(async (req, res) => {
 router.get('/workouts/:id', wrap(async (req, res) => {
   const r = (await q(`SELECT w.*, u.name AS athlete, t.title AS trip_title, p.kg AS peso_kg, p.day AS peso_giorno
     FROM workouts w JOIN users u ON u.id=w.user_id LEFT JOIN trips t ON t.id=w.trip_id
-    LEFT JOIN LATERAL (
-      SELECT pe.kg, pe.day FROM weights pe
-      WHERE pe.user_id = w.user_id
-        AND pe.day <= (w.started_at AT TIME ZONE 'Europe/Rome')::date
-        AND pe.day >  (w.started_at AT TIME ZONE 'Europe/Rome')::date - 7
-      ORDER BY pe.day DESC LIMIT 1
-    ) p ON true
+    LEFT JOIN weights p ON p.user_id = w.user_id
+      AND p.day = (w.started_at AT TIME ZONE 'Europe/Rome')::date
     WHERE w.id=$1`, [req.params.id])).rows[0];
   r ? res.json(r) : res.status(404).json({ error: 'Non trovato' });
 }));
