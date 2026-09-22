@@ -287,7 +287,7 @@ async function viewTrip(id) {
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove ci fermiamo</h2>${'<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udf19 Dove dormiamo e ci fermiamo</h2>${'<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
         ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">
           <a class="btn sm" href="${mapsIndicazioni({ lat: legs[0].from_lat, lon: legs[0].from_lon }, { lat: legs[legs.length - 1].to_lat, lon: legs[legs.length - 1].to_lon }, legs.slice(0, -1).map(l => ({ lat: l.to_lat, lon: l.to_lon })))}" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Tutto il percorso su Maps</a>
           ${legs.length > MAX_TAPPE_MAPS + 1 ? `<span class="small muted"> \u00b7 Google accetta ${MAX_TAPPE_MAPS} punti intermedi: le tappe oltre restano fuori</span>` : ''}
@@ -295,7 +295,7 @@ async function viewTrip(id) {
           ${[{ n: legs[0].from_name, lat: legs[0].from_lat, lon: legs[0].from_lon }, ...legs.map(l => ({ n: l.to_name, lat: l.to_lat, lon: l.to_lon }))]
             .filter(x => x.lat != null)
             .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div></div>` : ''}
-        <div class="list">${soste.length ? soste.map(sostaRiga).join('') : '<div class="empty">Nessuna sosta segnata. Cercale lungo il percorso, oppure aggiungile a mano: puoi indicare se \u00e8 una sosta di passaggio o un pernotto, e i giorni in cui ci fermate.</div>'}</div></div>
+        <div class="list">${soste.length ? soste.map(sostaRiga).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
 
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2><button class="btn primary sm" id="addex">＋ Spesa</button></div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
@@ -451,6 +451,20 @@ async function viewTrip(id) {
 }
 
 // Una sosta segnata: che tipo e', quando ci si sta, e la porta verso park4night
+// Dove ci si ferma, secondo chi gira in camper: la sosta breve di passaggio,
+// l'infratto — il posto tranquillo trovato per strada — l'area attrezzata, il
+// camping, l'appartamento, e «altro» col nome che si vuole.
+const TIPI_SOSTA = {
+  sosta: ['\u23f8\ufe0f', 'Sosta'],
+  infratto: ['\ud83c\udf32', 'Infratto'],
+  area_sosta: ['\ud83c\udd7f\ufe0f', 'Area sosta'],
+  camping: ['\u26fa', 'Camping'],
+  appartamento: ['\ud83c\udfe0', 'Appartamento'],
+  altro: ['\ud83d\udccd', 'Altro'],
+};
+const tipoIco = k => (TIPI_SOSTA[k] || TIPI_SOSTA.altro)[0];
+const tipoNome = s => s.kind === 'altro' && s.kind_label ? s.kind_label : (TIPI_SOSTA[s.kind] || TIPI_SOSTA.altro)[1];
+
 // Quante notti separano due date: e' il numero che si guarda davvero
 const notti = (da, a) => (da && a) ? Math.max(0, Math.round((new Date(a) - new Date(da)) / 86400000)) : 0;
 const stelline = n => n ? '\u2605'.repeat(n) + '\u2606'.repeat(5 - n) : '';
@@ -464,9 +478,9 @@ const sostaRiga = s => {
       + (s.to_date && s.to_date !== s.from_date ? ` \u2192 ${fdate(s.to_date)}${s.departure_time ? ` alle ${s.departure_time}` : ''}` : (s.departure_time ? ` \u2192 ${s.departure_time}` : ''))
       + (n ? ` \u00b7 ${n} ${n === 1 ? 'notte' : 'notti'}` : '');
   return `<div class="item"><div class="item-main" style="cursor:default">
-    <div class="sport-ico">${s.kind === 'pernotto' ? '\ud83c\udf19' : '\u23f8\ufe0f'}</div>
+    <div class="sport-ico">${tipoIco(s.kind)}</div>
     <div class="grow"><div class="title">${esc(s.name)}${s.stars ? ` <span class="stelle" title="${s.stars} su 5">${stelline(s.stars)}</span>` : ''}</div>
-      <div class="meta"><span class="badge ${s.kind === 'pernotto' ? 'ok' : ''}">${s.kind === 'pernotto' ? 'pernotto' : 'sosta'}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.meta?.spesa_id ? ' \u00b7 <span class="badge ok">nelle spese</span>' : ''}</div>
+      <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.meta?.spesa_id ? ' \u00b7 <span class="badge ok">nelle spese</span>' : ''}</div>
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
   <div class="item-actions">${s.cost > 0 && !s.meta?.spesa_id ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Aggiungi il costo alle spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
@@ -481,9 +495,8 @@ function sostaForm(trip, s = null, preimpostato = null) {
   const stella = n => `<button type="button" class="stella ${n <= stelle ? 'accesa' : ''}" data-stella="${n}" title="${n} su 5">\u2605</button>`;
   modal(`<h2>${s ? 'Modifica sosta' : 'Nuova sosta'}</h2><form id="f" class="stack" style="margin-top:14px">
     <div><label class="f">Posto</label><input id="luogo" required value="${esc(s?.name || preimpostato?.name || '')}" placeholder="Cerca area sosta, campeggio, paese\u2026" autocomplete="off"></div>
-    <div><label class="f">Tipo</label><select name="kind">
-      <option value="pernotto" ${s?.kind !== 'sosta' ? 'selected' : ''}>\ud83c\udf19 Pernotto</option>
-      <option value="sosta" ${s?.kind === 'sosta' ? 'selected' : ''}>\u23f8\ufe0f Sosta di passaggio</option></select></div>
+    <div><label class="f">Tipo</label><select name="kind" id="tipo">${Object.entries(TIPI_SOSTA).map(([k, [ico, nome]]) => `<option value="${k}" ${k === (s?.kind || 'area_sosta') ? 'selected' : ''}>${ico} ${nome}</option>`).join('')}</select></div>
+    <div id="riga-altro" ${s?.kind === 'altro' ? '' : 'hidden'}><label class="f">Che cos\u2019\u00e8</label><input name="kind_label" value="${esc(s?.kind_label || '')}" placeholder="Es. agriturismo, parcheggio del rifugio, casa di amici"></div>
     <div class="form-grid">
       <div><label class="f">Arrivo</label><input type="date" name="from_date" value="${s?.from_date ? iso(s.from_date) : (trip.start_date ? iso(trip.start_date) : '')}"></div>
       <div><label class="f">Ora</label><input type="time" name="arrival_time" value="${esc(s?.arrival_time || '')}"></div>
@@ -507,6 +520,11 @@ function sostaForm(trip, s = null, preimpostato = null) {
     (el, close) => {
       $('[data-x]', el).onclick = close;
       geoInput($('#luogo', el), r => luogo = r);
+      // Il nome scritto a mano serve solo ad «altro»: altrimenti sta nascosto
+      const tipo = $('#tipo', el);
+      const mostraAltro = () => { $('#riga-altro', el).hidden = tipo.value !== 'altro'; };
+      tipo.onchange = mostraAltro;
+      mostraAltro();
 
       // Date e notti dicono la stessa cosa: chi tocca l'una aggiorna l'altra
       const dal = $('[name=from_date]', el), al = $('[name=to_date]', el), quante = $('#notti', el);

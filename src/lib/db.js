@@ -184,6 +184,12 @@ export async function migrate() {
   -- e' costata a luglio, anche se la corona poi si muove.
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'EUR';
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS rate NUMERIC(12,6) NOT NULL DEFAULT 1;
+
+  -- I tipi di sosta di chi gira in camper: sosta breve, infratto (il posto
+  -- tranquillo trovato per strada), area attrezzata, camping, appartamento, e
+  -- «altro» con il nome che si vuole. «Pernotto» era il vecchio tutto-insieme.
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS kind_label TEXT;
+  UPDATE stops SET kind='area_sosta' WHERE kind='pernotto';
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'EUR';
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS rate NUMERIC(12,6) NOT NULL DEFAULT 1;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS fuel_currency TEXT NOT NULL DEFAULT 'EUR';

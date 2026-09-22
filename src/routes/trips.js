@@ -240,6 +240,11 @@ router.get('/trips/:id/soste', wrap(async (req, res) => {
 }));
 
 // Un'ora deve esistere davvero: 25:99 passava il controllo sulla forma
+// I tipi di sosta. «altro» porta con se' il nome scritto a mano, gli altri no:
+// se si cambia tipo, l'etichetta libera se ne va con lui.
+const TIPI_SOSTA = ['sosta', 'infratto', 'area_sosta', 'camping', 'appartamento', 'altro'];
+const tipoSosta = v => TIPI_SOSTA.includes(String(v || '')) ? String(v) : 'area_sosta';
+
 const oraValida = v => {
   const m = String(v || '').match(/^(\d{1,2}):(\d{2})$/);
   if (!m || +m[1] > 23 || +m[2] > 59) return null;
@@ -249,7 +254,8 @@ const datiSosta = b => ({
   name: String(b?.name || '').trim().slice(0, 200),
   lat: b?.lat != null && b.lat !== '' ? num(b.lat) : null,
   lon: b?.lon != null && b.lon !== '' ? num(b.lon) : null,
-  kind: b?.kind === 'sosta' ? 'sosta' : 'pernotto',
+  kind: tipoSosta(b?.kind),
+  kind_label: tipoSosta(b?.kind) === 'altro' ? (String(b?.kind_label || '').trim().slice(0, 60) || null) : null,
   from_date: b?.from_date || null,
   to_date: b?.to_date || null,
   arrival_time: oraValida(b?.arrival_time),
@@ -270,9 +276,9 @@ router.post('/trips/:id/soste', wrap(async (req, res) => {
   // Il collegamento a park4night si costruisce da se' quando ci sono le coordinate
   const link = d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null);
   const c = await cambioPerSpesa({ currency: d.currency, rate: req.body?.rate, date: d.from_date });
-  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,from_date,to_date,arrival_time,departure_time,stars,cost,currency,rate,notes,link,source)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
-    [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date,
+  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,kind_label,from_date,to_date,arrival_time,departure_time,stars,cost,currency,rate,notes,link,source)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+    [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.kind_label, d.from_date, d.to_date,
       d.arrival_time, d.departure_time, d.stars, d.cost, c.currency, c.rate ?? 1, d.notes, link, d.source])).rows[0];
   res.json(r);
 }));
@@ -284,9 +290,9 @@ router.put('/soste/:id', wrap(async (req, res) => {
   if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
   const rifare = d.currency !== cur.currency || String(d.from_date || '') !== String(cur.from_date || '').slice(0, 10);
   const c = rifare ? await cambioPerSpesa({ currency: d.currency, rate: req.body?.rate, date: d.from_date }) : { currency: cur.currency, rate: cur.rate };
-  const r = (await q(`UPDATE stops SET name=$2, lat=$3, lon=$4, kind=$5, from_date=$6, to_date=$7,
-      arrival_time=$8, departure_time=$9, stars=$10, cost=$11, currency=$12, rate=$13, notes=$14, link=$15 WHERE id=$1 RETURNING *`,
-    [cur.id, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.arrival_time, d.departure_time, d.stars, d.cost,
+  const r = (await q(`UPDATE stops SET name=$2, lat=$3, lon=$4, kind=$5, kind_label=$6, from_date=$7, to_date=$8,
+      arrival_time=$9, departure_time=$10, stars=$11, cost=$12, currency=$13, rate=$14, notes=$15, link=$16 WHERE id=$1 RETURNING *`,
+    [cur.id, d.name, d.lat, d.lon, d.kind, d.kind_label, d.from_date, d.to_date, d.arrival_time, d.departure_time, d.stars, d.cost,
       c.currency, c.rate ?? 1, d.notes,
       d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null)])).rows[0];
   res.json(r);
@@ -303,7 +309,7 @@ router.post('/soste/:id/spesa', wrap(async (req, res) => {
     const gia = (await q('SELECT id FROM expenses WHERE id=$1', [s.meta.spesa_id])).rows[0];
     if (gia) return res.status(409).json({ error: 'Il costo di questa sosta e\u2019 gia\u2019 fra le spese' });
   }
-  const categoria = s.kind === 'pernotto' ? 'campeggio' : 'area_sosta';
+  const categoria = s.kind === 'camping' ? 'campeggio' : s.kind === 'appartamento' ? 'altro' : 'area_sosta';
   const notti = (s.from_date && s.to_date) ? Math.max(0, Math.round((new Date(s.to_date) - new Date(s.from_date)) / 86400000)) : 0;
   const spesa = (await q(`INSERT INTO expenses(trip_id,date,category,description,amount,currency,rate,auto,edited)
     VALUES($1,$2,$3,$4,$5,$6,$7,false,true) RETURNING *`,
