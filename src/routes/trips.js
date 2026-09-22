@@ -222,7 +222,7 @@ router.delete('/trips/:id', wrap(async (req, res) => {
 // sceglie; per ciascuno si da' l'indirizzo che apre park4night centrato li',
 // perche' le recensioni e le foto stanno la' e non si importano.
 router.get('/trips/:id/vicinanze', wrap(async (req, res) => {
-  const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 20000), 50000);
+  const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 5000), 50000);
   const legs = (await q('SELECT id, to_name, to_lat, to_lon FROM legs WHERE trip_id=$1 ORDER BY position, id', [req.params.id])).rows;
   if (!legs.length) return res.json({ raggio, luoghi: [], avviso: 'Il viaggio non ha ancora tappe' });
   // Le destinazioni, non la strada: ci si ferma dove si arriva. Casa esclusa,
@@ -348,9 +348,9 @@ router.put('/legs/:id', wrap(async (req, res) => {
 router.post('/legs/:id/pois', wrap(async (req, res) => {
   const cur = (await q('SELECT to_name, to_lat, to_lon FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
-  // Otto chilometri di partenza invece di quattro: un'area sosta a cinque
-  // chilometri dall'arrivo e' vicina per chi guida un camper
-  const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 8000), 50000);
+  // Cinque chilometri dall'arrivo: piu' in la' non e' piu' "dove siamo arrivati",
+  // e' un altro posto. Si puo' allargare dalla finestra quando serve.
+  const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 5000), 50000);
   // Solo intorno all'arrivo, non lungo tutta la strada: e' li' che ci si ferma,
   // e una richiesta con un centro solo il servizio la serve sempre
   const casa = nomeCasa(await getSettings());
@@ -360,7 +360,10 @@ router.post('/legs/:id/pois', wrap(async (req, res) => {
     return res.json(vuoto);
   }
   const p = await poisAlongRoute([[cur.to_lat, cur.to_lon]], raggio);
-  const conLink = { ...p, raggio, stops: (p.stops || []).map(x => ({ ...x, park4night: linkPark4night(x.lat, x.lon) })) };
+  // Si segna quando la ricerca e' andata a buon fine: «nessuna sosta qui intorno»
+  // e' una risposta, e non va ripetuta a ogni apertura come se fosse un vuoto
+  const conLink = { ...p, raggio, cercato_il: p.warning ? null : new Date().toISOString(),
+    stops: (p.stops || []).map(x => ({ ...x, park4night: linkPark4night(x.lat, x.lon) })) };
   await q('UPDATE legs SET pois=$2 WHERE id=$1', [req.params.id, conLink]);
   res.json(conLink);
 }));

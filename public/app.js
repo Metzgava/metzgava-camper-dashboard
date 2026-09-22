@@ -361,7 +361,7 @@ async function viewTrip(id) {
   $('#cercasoste')?.addEventListener('click', safe(async () => {
     const finestra = modal(`<h2>\ud83d\udd0e Soste alle destinazioni</h2>
       <div class="row" style="gap:10px;align-items:center;margin-top:8px"><label class="small muted">Raggio</label>
-        <select id="raggio" style="width:auto">${[10, 20, 30, 50].map(k => `<option value="${k * 1000}" ${k === 20 ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
+        <select id="raggio" style="width:auto">${[5, 10, 20, 30].map(k => `<option value="${k * 1000}" ${k === 5 ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
       <div id="vic" style="margin-top:12px"><div class="empty">Cerco\u2026</div></div>
       <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Chiudi</button></div>`,
       (el, close) => {
@@ -390,7 +390,9 @@ async function viewTrip(id) {
     // servizio ci ha rifiutati e quelle tappe sarebbero rimaste vuote per sempre
     if (b.dataset.poi) {
       const l = legs.find(x => x.id == b.dataset.poi);
-      if (!l.pois?.stops?.length) { toast('Cerco aree sosta e borghi\u2026'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); }
+      // Si cerca se non si e' mai cercato davvero. Un elenco vuoto dopo una
+      // ricerca riuscita e' una risposta: qui intorno non c'e' niente.
+      if (!l.pois?.cercato_il) { toast('Cerco aree sosta e borghi\u2026'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); }
       poiModal(l);
     }
     if (b.dataset.editLeg) legForm(trip, legs, legs.find(x => x.id == b.dataset.editLeg));
@@ -719,7 +721,7 @@ function poiModal(l) {
     ${(p.villages || []).map(v => `<div class="poi"><div class="k">${v.historic ? '🏰' : '🏘️'}</div><div class="grow"><b>${esc(v.name)}</b> <span class="muted small">${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}</span>${v.wikipedia ? ` · <a class="small" href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessun borgo trovato.</div>'}
     <div class="row between" style="margin-top:14px"><div class="row" style="gap:8px;align-items:center">
         <label class="small muted">Raggio</label>
-        <select id="poi-raggio" style="width:auto">${[4, 8, 15, 25].map(k => `<option value="${k * 1000}" ${k * 1000 === (p.raggio || 8000) ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
+        <select id="poi-raggio" style="width:auto">${[5, 10, 15, 25].map(k => `<option value="${k * 1000}" ${k * 1000 === (p.raggio || 5000) ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
       <div class="row"><button class="btn" data-x>Chiudi</button><button class="btn ghost" data-r>Cerca di nuovo</button></div></div>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;
