@@ -285,7 +285,7 @@ async function viewTrip(id) {
         <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${photos.length && !closed ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
+      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${photos.length ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
         <div class="card barra-selezione" id="barra-foto" hidden style="margin-top:10px;padding:10px 12px">
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
