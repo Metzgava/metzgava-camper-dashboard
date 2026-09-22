@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
-import { wrap, encrypt, decrypt, num } from '../lib/util.js';
+import { wrap, encrypt, decrypt, num, samplePoints } from '../lib/util.js';
 import { parseGpx } from '../lib/gpx.js';
 import * as komoot from '../lib/komoot.js';
 import * as strava from '../lib/strava.js';
@@ -108,13 +108,17 @@ function healthDistance(d) {
 }
 
 // I punti della traccia arrivano come lat/lon oppure latitude/longitude secondo la versione di HAE
+// Salute manda un punto al secondo: una camminata di tre ore ne porta
+// diecimila, e sulla mappa se ne distinguono seicento. Komoot e Strava
+// arrivano gia' ridotti, e tenere le tracce leggere alleggerisce ogni cosa che
+// le rilegge — la pulizia dei doppioni per prima.
 function healthTrack(route) {
   if (!Array.isArray(route)) return null;
   const pts = route
     .map(p => [Number(p?.lat ?? p?.latitude), Number(p?.lon ?? p?.longitude)])
     .filter(([la, lo]) => Number.isFinite(la) && Number.isFinite(lo))
     .map(([la, lo]) => [+la.toFixed(5), +lo.toFixed(5)]);
-  return pts.length ? pts : null;
+  return pts.length ? samplePoints(pts, 600) : null;
 }
 
 // Ogni sorgente chiama gli sport a modo suo: Salute traduce alla lettera ("Interno
@@ -516,8 +520,11 @@ export async function normalizzaNomiEsistenti() {
 
 export async function rimuoviDoppioniAutomatici(userId = null) {
   const dove = userId ? 'WHERE w.user_id=$1' : '';
+  // La traccia non si legge qui: pesa quanto tutto il resto messo insieme e
+  // questa pulizia gira dopo ogni invio dal telefono. Serve solo sapere se c'e',
+  // e il contenuto si va a prendere per il singolo record che lo deve cedere.
   const rows = (await q(`SELECT w.id, w.user_id, w.source, w.sport, w.started_at, w.distance_m, w.duration_s,
-      w.elevation_up_m, w.calories, w.hr_avg, w.hr_max, w.speed_avg_kmh, w.trip_id, w.track, (w.track IS NOT NULL) AS has_track
+      w.elevation_up_m, w.calories, w.hr_avg, w.hr_max, w.speed_avg_kmh, w.trip_id, (w.track IS NOT NULL) AS has_track
     FROM workouts w ${dove} ORDER BY w.started_at`, userId ? [userId] : [])).rows;
 
   const visti = new Set();
@@ -546,9 +553,18 @@ export async function rimuoviDoppioniAutomatici(userId = null) {
 
     const mancanti = {};
     for (const campo of CAMPI_DA_TRAVASARE) {
+      if (campo === 'track') continue;                       // la traccia ha una strada sua, qui sotto
       if (tenuto[campo] != null) continue;
       const donatore = scartati.find(x => x[campo] != null);
       if (donatore) mancanti[campo] = donatore[campo];
+    }
+    // La traccia si va a prendere solo se al superstite manca e qualcuno ce l'ha
+    if (!tenuto.has_track) {
+      const donatore = scartati.find(x => x.has_track);
+      if (donatore) {
+        const t = (await q('SELECT track FROM workouts WHERE id=$1', [donatore.id])).rows[0]?.track;
+        if (t) mancanti.track = t;
+      }
     }
     const chiavi = Object.keys(mancanti);
     if (chiavi.length) {
