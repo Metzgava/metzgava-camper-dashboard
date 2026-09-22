@@ -183,13 +183,16 @@ function pesiDaPacchetto(body) {
 
 // Di una giornata resta l'ultima pesata: chi sale due volte sulla bilancia
 // ha di solito l'ultima come quella buona, e il grafico vuole un punto al giorno.
+// La pesata corretta a mano vince su Salute: altrimenti il primo invio del
+// telefono cancellerebbe la correzione appena fatta.
 async function archiviaPesi(userId, pesi) {
   let salvate = 0;
   for (const p of pesi) {
     const r = await q(`INSERT INTO weights(user_id, day, kg, measured_at, source)
                        VALUES($1, ($2::timestamptz AT TIME ZONE 'Europe/Rome')::date, $3, $2, 'health')
                        ON CONFLICT (user_id, day) DO UPDATE SET kg = EXCLUDED.kg, measured_at = EXCLUDED.measured_at
-                       WHERE weights.measured_at IS NULL OR EXCLUDED.measured_at >= weights.measured_at
+                       WHERE weights.source <> 'manual'
+                         AND (weights.measured_at IS NULL OR EXCLUDED.measured_at >= weights.measured_at)
                        RETURNING id`, [userId, p.measured_at, p.kg]);
     if (r.rowCount) salvate++;
   }
@@ -369,13 +372,45 @@ router.post('/workouts/copy', wrap(async (req, res) => {
 }));
 
 // Anni in cui esiste almeno un allenamento, per il selettore del periodo
+// Chi puo' scrivere nell'archivio di un altro: solo l'amministratore, come
+// per i dispositivi e per l'importazione dei file
+async function archivioDi(req, res) {
+  const chiesto = req.body?.user_id ?? req.query?.user_id;
+  if (chiesto == null || +chiesto === req.user.id) return req.user.id;
+  if (req.user.role !== 'admin') { res.status(403).json({ error: 'Solo amministratore' }); return null; }
+  const u = (await q('SELECT id FROM users WHERE id=$1', [+chiesto])).rows[0];
+  if (!u) { res.status(404).json({ error: 'Utente non trovato' }); return null; }
+  return u.id;
+}
+
+// Pesata inserita o corretta a mano: vale per la giornata e prende il posto di
+// quella di Salute, che non tornera' a sovrascriverla
+router.post('/weights', wrap(async (req, res) => {
+  const chi = await archivioDi(req, res); if (chi == null) return;
+  const giorno = String(req.body?.day || '').slice(0, 10);
+  const kg = Math.round(num(req.body?.kg) * 100) / 100;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(giorno) || isNaN(new Date(giorno))) return res.status(400).json({ error: 'Data non valida' });
+  if (giorno > new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })) return res.status(400).json({ error: 'Non si puo\u2019 pesare un giorno futuro' });
+  if (!Number.isFinite(kg) || kg < 20 || kg > 400) return res.status(400).json({ error: 'Peso fuori misura: sono ammessi da 20 a 400 kg' });
+  const r = (await q(`INSERT INTO weights(user_id, day, kg, measured_at, source) VALUES($1,$2,$3,NULL,'manual')
+                      ON CONFLICT (user_id, day) DO UPDATE SET kg = EXCLUDED.kg, measured_at = NULL, source = 'manual'
+                      RETURNING to_char(day,'YYYY-MM-DD') AS day, kg::float AS kg, source`, [chi, giorno, kg])).rows[0];
+  res.json(r);
+}));
+
+router.delete('/weights/:day', wrap(async (req, res) => {
+  const chi = await archivioDi(req, res); if (chi == null) return;
+  const r = await q('DELETE FROM weights WHERE user_id=$1 AND day=$2', [chi, String(req.params.day).slice(0, 10)]);
+  r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Nessuna pesata quel giorno' });
+}));
+
 // Le pesate di un atleta, per il grafico dell'andamento nel tempo
 router.get('/weights', wrap(async (req, res) => {
   const chi = req.query.user_id ? +req.query.user_id : req.user.id;
   const conds = ['user_id = $1'], params = [chi];
   if (req.query.from) { params.push(req.query.from); conds.push(`day >= $${params.length}`); }
   if (req.query.to) { params.push(req.query.to); conds.push(`day <= $${params.length}`); }
-  const rows = (await q(`SELECT to_char(day,'YYYY-MM-DD') AS day, kg::float AS kg FROM weights
+  const rows = (await q(`SELECT to_char(day,'YYYY-MM-DD') AS day, kg::float AS kg, source FROM weights
                          WHERE ${conds.join(' AND ')} ORDER BY day`, params)).rows;
   res.json(rows);
 }));

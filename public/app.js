@@ -604,9 +604,14 @@ async function viewWorkouts(idAtleta) {
       </div>
     </div>
     <div class="tiles" style="margin-bottom:16px"><div class="tile accent"><div class="label">Attività</div><div class="value">${ws.length}</div><div class="sub">${!da && !a ? 'tutto l\u2019archivio' : da && a && da === a ? fdate(da) : (da ? 'dal ' + fdate(da) : 'fino al') + (a && da ? ' al ' + fdate(a) : a ? ' ' + fdate(a) : '')}</div></div><div class="tile"><div class="label">Distanza</div><div class="value">${num(tot.km)} km</div></div><div class="tile"><div class="label">Tempo</div><div class="value">${dur(tot.s)}</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(tot.kcal, 0)}</div></div></div>
-    <div class="card" style="margin-bottom:16px"><div class="row between"><h2>⚖️ Peso nel tempo</h2></div>
+    <div class="card" style="margin-bottom:16px"><div class="row between"><h2>⚖️ Peso nel tempo</h2><button class="btn sm" id="peso-nuovo">＋ Pesata</button></div>
       ${graficoPeso(pesi)}
-      ${pesi.length ? '' : '<p class="small muted" style="margin-top:8px">Il peso arriva dalle metriche di Salute: nell’esportazione di Health Auto Export includi anche <span class="code">weight_body_mass</span>.</p>'}</div>
+      ${pesi.length ? `<details class="pesate"><summary>Tutte le pesate (${pesi.length})</summary><div class="pesate-corpo">${[...pesi].reverse().map(p => `<div class="riga-pesata">
+        <span class="giorno">${fdate(p.day)}</span><b>${num(p.kg, 1)} kg</b>
+        <span class="badge ${p.source === 'manual' ? '' : 'ok'}">${p.source === 'manual' ? 'a mano' : 'Salute'}</span>
+        <button class="btn ghost icon" data-peso-mod="${p.day}" data-kg="${p.kg}" title="Correggi">✏️</button>
+        <button class="btn ghost danger icon" data-peso-del="${p.day}" title="Elimina">🗑</button></div>`).join('')}</div></details>`
+        : '<p class="small muted" style="margin-top:8px">Il peso arriva dalle metriche di Salute — nell’esportazione includi anche <span class="code">weight_body_mass</span> — oppure lo aggiungi a mano con «＋ Pesata».</p>'}</div>
     ${!k.connected ? '<div class="card small" style="margin-bottom:14px">💡 Collega Komoot in <a href="#/impostazioni">Impostazioni</a> per scaricare i percorsi automaticamente, e aggiungi i tuoi iPhone per battito e calorie.</div>' : ''}
     ${altri.length ? `<div class="card" id="barra-scelta" hidden style="margin-bottom:12px">
       <div class="row between"><div><b id="quanti-scelti">0</b> selezionati</div>
@@ -616,6 +621,29 @@ async function viewWorkouts(idAtleta) {
       <div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · <span class="badge">${w.source}</span>${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div></div>
       <div class="right small nowrap">${numeriRiga(w)}</div></a>
       <div class="item-actions"><button class="btn ghost icon" data-ren="${w.id}" data-name="${esc(w.name || w.sport || 'Allenamento')}" title="Rinomina">✏️</button><button class="btn ghost danger icon" data-del="${w.id}" title="Elimina">🗑</button></div></div>`).join('') || (elenco.periodo === 'tutto' && !elenco.trips.length ? '<div class="empty">Nessun allenamento ancora. Collega Komoot o carica un file GPX.</div>' : '<div class="empty">Nessun allenamento con questi filtri.</div>')}</div>`);
+  // Pesata scritta a mano: vale per la giornata e prende il posto di quella di
+  // Salute, che non tornera' a sovrascriverla
+  const finestraPesata = (giorno, kg) => modal(`<h2>${giorno ? 'Correggi la pesata' : 'Nuova pesata'}</h2>
+    <form id="fp" class="stack" style="margin-top:12px">
+      <div class="field"><label class="f">Giorno</label><input type="date" name="day" value="${giorno || today()}" max="${today()}" required></div>
+      <div class="field"><label class="f">Peso in chili</label><input type="text" inputmode="decimal" name="kg" value="${kg ?? ''}" placeholder="es. 69,4" required></div>
+      <button class="btn primary">Salva</button></form>`,
+    (el, close) => {
+      $('[name=kg]', el).focus();
+      $('#fp', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const d = Object.fromEntries(new FormData(e.target));
+        await api('/weights', { method: 'POST', body: { day: d.day, kg: +String(d.kg).replace(',', '.'), user_id: idAtleta } });
+        close(); toast('Pesata salvata'); render();
+      });
+    });
+  $('#peso-nuovo').onclick = () => finestraPesata(null, null);
+  $$('[data-peso-mod]').forEach(b => b.onclick = () => finestraPesata(b.dataset.pesoMod, b.dataset.kg));
+  $$('[data-peso-del]').forEach(b => b.onclick = safe(async () => {
+    if (!await confirmDlg('Eliminare la pesata del ' + fdate(b.dataset.pesoDel) + '?')) return;
+    await api(`/weights/${b.dataset.pesoDel}?user_id=${idAtleta}`, { method: 'DELETE' });
+    toast('Pesata eliminata'); render();
+  }));
   $('#sync').onclick = safe(async () => { toast('Sincronizzazione…'); const r = await api('/komoot/sync', { method: 'POST', body: {} }); toast(`Importati ${r.imported} nuovi tour`); render(); });
   $('#gpx').onchange = safe(async e => { const fd = new FormData(); fd.append('file', e.target.files[0]); await api('/workouts/gpx', { method: 'POST', body: fd }); toast('GPX importato'); render(); });
   $('#hjson').onchange = safe(async e => {
