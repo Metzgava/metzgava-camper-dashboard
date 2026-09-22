@@ -216,3 +216,7 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .photos figure.scelta { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: 10px; }
 .photos figure.scelta::after { content: '\2713'; position: absolute; top: 6px; left: 6px; width: 22px; height: 22px;
   border-radius: 50%; background: var(--accent); color: #fff; font-size: 14px; line-height: 22px; text-align: center; }
+/* I punti del viaggio da aprire su park4night: stanno in riga e vanno a capo */
+.p4n-punto { display: inline-block; margin: 3px 4px 0 0; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font-size: 13px; text-decoration: none; }
+.p4n-punto:hover { border-color: var(--accent-2); }

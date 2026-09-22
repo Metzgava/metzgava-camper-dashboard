@@ -260,7 +260,7 @@ async function viewTrip(id) {
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
-      <div class="row" style="margin-top:6px"><button class="btn sm" data-poi="${l.id}">Soste & borghi</button>${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a><button class="btn sm ghost" data-poi="${l.id}">Soste & borghi</button>${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${eur(e.amount)}</b></td>
     <td class="num">${closed ? '' : `<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
   $('#app').innerHTML = layout(`
@@ -278,6 +278,10 @@ async function viewTrip(id) {
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : `<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove ci fermiamo</h2>${closed ? '' : '<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi lungo il percorso">\ud83d\udd0e Lungo il percorso</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
+        ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">Apri park4night sui punti del viaggio:
+          ${[{ n: legs[0].from_name, lat: legs[0].from_lat, lon: legs[0].from_lon }, ...legs.map(l => ({ n: l.to_name, lat: l.to_lat, lon: l.to_lon }))]
+            .filter(x => x.lat != null)
+            .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div>` : ''}
         <div class="list">${soste.length ? soste.map(sostaRiga).join('') : '<div class="empty">Nessuna sosta segnata. Cercale lungo il percorso, oppure aggiungile a mano: puoi indicare se \u00e8 una sosta di passaggio o un pernotto, e i giorni in cui ci fermate.</div>'}</div></div>
 
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2>${closed ? '' : '<button class="btn primary sm" id="addex">＋ Spesa</button>'}</div>
@@ -568,6 +572,11 @@ function expenseForm(trip, legs, ex = null) {
     (el, close) => { $('[data-x]', el).onclick = close; $('#f', el).onsubmit = safe(async e => { e.preventDefault(); const body = Object.fromEntries(new FormData(e.target));
       if (ex) await api('/expenses/' + ex.id, { method: 'PUT', body }); else await api(`/trips/${trip.id}/expenses`, { method: 'POST', body }); close(); render(); }); });
 }
+
+// L'indirizzo che apre park4night centrato su un punto. Sul telefono, se l'app
+// e' installata, iOS e Android la aprono al posto del sito. Non serve chiedere
+// niente a nessun servizio: e' un indirizzo, ed e' immediato.
+const p4n = (lat, lon, zoom = 14) => `https://park4night.com/it/search?lat=${(+lat).toFixed(5)}&lng=${(+lon).toFixed(5)}&z=${zoom}`;
 
 function poiModal(l) {
   const p = l.pois || {};
