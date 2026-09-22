@@ -74,6 +74,7 @@ async function percorsoOrs(from, to, evitare = []) {
   const corpo = {
     coordinates: [[from.lon, from.lat], [to.lon, to.lat]],
     units: 'km',
+    extra_info: ['tollways'],
     ...(evitare.length ? { options: { avoid_features: evitare } } : {}),
   };
   const data = await fetchJson(`${ORS}/v2/directions/driving-car/geojson`, {
@@ -85,9 +86,16 @@ async function percorsoOrs(from, to, evitare = []) {
   if (!f) throw new Error('nessun percorso');
   const s = f.properties.summary || {};
   if (!s.distance) throw new Error('percorso senza distanza');
+  // I tratti a pedaggio arrivano come intervalli marcati 1: sommando le loro
+  // distanze si sa quanti chilometri si pagano. Il prezzo no: quello nessun
+  // servizio gratuito lo pubblica, e si stima a tariffa chilometrica.
+  const pedaggio = (f.properties.extras?.tollways?.summary || [])
+    .filter(x => x.value === 1)
+    .reduce((t, x) => t + (x.distance || 0), 0);
   return {
     distance_km: +s.distance.toFixed(1),
     duration_min: Math.round(s.duration / 60 * 1.15),   // il camper va piu' piano
+    pedaggio_km: +(pedaggio / 1000).toFixed(1),         // l'extra e' in metri anche con units=km
     geometry: samplePoints(f.geometry.coordinates.map(([lon, lat]) => [+lat.toFixed(5), +lon.toFixed(5)]), 600),
     source: 'openrouteservice',
   };
@@ -135,6 +143,8 @@ export async function percorsiConTappe(punti) {
       evita_pedaggi: chiave === 'senza_pedaggi',
       distance_km: +scelte.reduce((a, t) => a + t.distance_km, 0).toFixed(1),
       duration_min: scelte.reduce((a, t) => a + t.duration_min, 0),
+      pedaggio_km: scelte.some(t => t.pedaggio_km != null)
+        ? +scelte.reduce((a, t) => a + (t.pedaggio_km || 0), 0).toFixed(1) : null,
       stimato: scelte.some(t => t.source === 'stima'),
       tratte: scelte,
     };

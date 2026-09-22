@@ -227,8 +227,13 @@ function tripForm(t = null) {
           $('#p-esiti', el).innerHTML = varianti.map(x => `<div class="variante" data-variante="${x.chiave}">
               <div class="row between"><b>${esc(x.nome)}</b><b>${num(x.distance_km)} km</b></div>
               <div class="small muted">${dur(x.duration_min * 60)} di guida \u00b7 ${num(x.litri)} l \u00b7 <b>${eur(x.gasolio)}</b> di gasolio${x.stimato ? ' \u00b7 \u26a0\ufe0f distanza stimata' : ''}</div>
+              ${x.pedaggio_km == null ? '' : x.pedaggio_km > 0
+                ? `<div class="small muted">\ud83d\udee3\ufe0f ${num(x.pedaggio_km)} km a pedaggio \u00b7 <b>${eur(x.pedaggio)}</b> stimati \u00b7 totale <b>${eur(x.gasolio + x.pedaggio)}</b></div>`
+                : '<div class="small muted">\ud83d\udee3\ufe0f nessun tratto a pedaggio</div>'}
             </div>`).join('')
-            + (r.pedaggi_evitabili ? '' : '<p class="small muted" style="margin-top:8px">La variante senza pedaggi richiede una chiave OpenRouteService: senza, resta il solo percorso pi\u00f9 rapido.</p>');
+            + (r.pedaggi_evitabili
+              ? `<p class="small muted" style="margin-top:8px">I chilometri a pedaggio sono quelli veri del percorso; il costo \u00e8 una stima a ${eur(r.toll_per_km)} al km, che cambi nelle impostazioni del mezzo. Quando arriva il conto vero, correggi la spesa e non viene pi\u00f9 ricalcolata.</p>`
+              : '<p class="small muted" style="margin-top:8px">La variante senza pedaggi richiede una chiave OpenRouteService: senza, resta il solo percorso pi\u00f9 rapido.</p>');
           $$('[data-variante]', el).forEach(c => c.onclick = () => { scelta = varianti.find(x => x.chiave === c.dataset.variante); mostraScelta(); });
           mostraScelta();
         });
@@ -1173,7 +1178,7 @@ async function viewSettings() {
   const endpoint = location.origin + '/api/ingest/health';
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Impostazioni</h1>
     <div class="grid cols-2">
-    <div class="card"><h2>🚐 Camper</h2><form id="veh" class="form-grid" style="margin-top:12px"><div><label class="f">Lunghezza (m)</label><input type="number" step="0.1" name="length_m" value="${v.length_m ?? 6}"></div><div><label class="f">Consumo (km/l)</label><input type="number" step="0.1" name="km_per_liter" value="${v.km_per_liter ?? 10}"></div><div><label class="f">Prezzo gasolio predefinito (€/l)</label><input type="number" step="0.001" name="fuel_price" value="${v.fuel_price ?? 1.75}"></div><div style="align-self:end"><button class="btn primary" style="width:100%">Salva</button></div></form>
+    <div class="card"><h2>🚐 Camper</h2><form id="veh" class="form-grid" style="margin-top:12px"><div><label class="f">Lunghezza (m)</label><input type="number" step="0.1" name="length_m" value="${v.length_m ?? 6}"></div><div><label class="f">Consumo (km/l)</label><input type="number" step="0.1" name="km_per_liter" value="${v.km_per_liter ?? 10}"></div><div><label class="f">Prezzo gasolio predefinito (€/l)</label><input type="number" step="0.001" name="fuel_price" value="${v.fuel_price ?? 1.75}"></div><div><label class="f">Pedaggio stimato (€/km)</label><input type="number" step="0.001" name="toll_per_km" value="${v.toll_per_km ?? 0.09}" title="In Italia un camper sta in classe B: circa nove centesimi al chilometro"></div><div style="align-self:end"><button class="btn primary" style="width:100%">Salva</button></div></form>
       <p class="small muted" style="margin:10px 0 0">Il prezzo si può cambiare per ogni viaggio e per ogni singola tappa. Le spese gasolio si ricalcolano finché non le modifichi a mano.</p></div>
     <div class="card"><h2>🗺️ Komoot</h2>${k.connected ? `<p>Collegato (utente ${esc(k.external_user_id)})${k.last_sync_at ? ' · ultima sincronizzazione ' + fdt(k.last_sync_at) : ''}. I tour registrati vengono scaricati ogni 6 ore e quando premi «Sincronizza».</p><div class="row"><button class="btn" id="ksync">Sincronizza ora</button><button class="btn" id="kfull">Importa tutto lo storico</button><button class="btn ghost danger" id="kdel">Scollega</button></div>`
       : `<p class="small muted">Komoot non ha un'API pubblica: la dashboard usa lo stesso accesso del sito. La password serve solo una volta per ottenere un token, che viene salvato cifrato; la password non viene mai memorizzata.</p><form id="kf" class="stack"><input name="email" type="email" placeholder="Email Komoot" required autocomplete="off"><input name="password" type="password" placeholder="Password Komoot" required autocomplete="off"><button class="btn primary">Collega Komoot</button></form>`}</div>

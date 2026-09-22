@@ -46,7 +46,11 @@ async function tripTotals(tripId) {
 router.get('/settings', wrap(async (req, res) => res.json(await getSettings())));
 router.put('/settings/vehicle', wrap(async (req, res) => {
   const cur = (await getSettings()).vehicle || {};
-  const v = { ...cur, length_m: num(req.body.length_m, cur.length_m || 6), km_per_liter: num(req.body.km_per_liter, 10) || 10, fuel_price: num(req.body.fuel_price, cur.fuel_price || 1.75) };
+  const v = { ...cur, length_m: num(req.body.length_m, cur.length_m || 6), km_per_liter: num(req.body.km_per_liter, 10) || 10,
+    fuel_price: num(req.body.fuel_price, cur.fuel_price || 1.75),
+    // Tariffa autostradale al chilometro: un camper in Italia sta in classe B,
+    // intorno ai nove centesimi. E' una stima, e resta modificabile
+    toll_per_km: num(req.body.toll_per_km, cur.toll_per_km ?? 0.09) };
   await q(`INSERT INTO settings(key,value) VALUES('vehicle',$1) ON CONFLICT(key) DO UPDATE SET value=$1`, [v]);
   res.json(v);
 }));
@@ -67,12 +71,15 @@ router.post('/route/opzioni', wrap(async (req, res) => {
   const s = await getSettings();
   const kmL = num(req.body?.km_per_liter, s.vehicle?.km_per_liter || 10) || 10;
   const prezzo = num(req.body?.fuel_price, s.vehicle?.fuel_price || 1.75);
+  const tariffa = num(req.body?.toll_per_km, s.vehicle?.toll_per_km ?? 0.09);
   const varianti = (await percorsiConTappe(punti)).map(v => ({
     ...v,
     litri: +(v.distance_km / kmL).toFixed(1),
     gasolio: +(v.distance_km / kmL * prezzo).toFixed(2),
+    // Dei pedaggi si conoscono i chilometri, non la tariffa: il costo e' una stima
+    pedaggio: v.pedaggio_km != null ? +(v.pedaggio_km * tariffa).toFixed(2) : null,
   }));
-  res.json({ varianti, km_per_liter: kmL, fuel_price: prezzo, pedaggi_evitabili: sannoEvitareIPedaggi() });
+  res.json({ varianti, km_per_liter: kmL, fuel_price: prezzo, toll_per_km: tariffa, pedaggi_evitabili: sannoEvitareIPedaggi() });
 }));
 
 // ---- viaggi ----
@@ -123,7 +130,16 @@ router.post('/trips', wrap(async (req, res) => {
     await syncFuelExpense(leg.id);
     if (leg.geometry) poisAlongRoute(leg.geometry).then(x => q('UPDATE legs SET pois=$2 WHERE id=$1', [leg.id, x])).catch(() => {});
   }
-  if (tratte.length) console.log(`viaggio ${row.id}: create ${pos} tappe dal percorso «${b.percorso?.nome || '?'}»`);
+  // Il pedaggio stimato nasce come spesa automatica, come il gasolio: quando
+  // arriva il conto vero basta modificarla e non viene piu' ricalcolata
+  const pedaggio = num(b.percorso?.pedaggio);
+  if (tratte.length && pedaggio > 0) {
+    await q(`INSERT INTO expenses(trip_id,date,category,description,amount,auto,meta)
+             VALUES($1,$2,'pedaggi',$3,$4,true,$5)`,
+      [row.id, row.start_date || new Date(), `Pedaggi stimati su ${num(b.percorso?.pedaggio_km)} km di autostrada`, pedaggio,
+        JSON.stringify({ stimato: true, pedaggio_km: num(b.percorso?.pedaggio_km) })]);
+  }
+  if (tratte.length) console.log(`viaggio ${row.id}: create ${pos} tappe dal percorso \u00ab${b.percorso?.nome || '?'}\u00bb`);
   await agganciaAllenamenti();
   res.json({ ...row, tappe_create: pos });
 }));
