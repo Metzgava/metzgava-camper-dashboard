@@ -147,7 +147,7 @@ export function normalizzaSport(valore) {
 // ---------- arrivo dei dati da iPhone ----------
 // Ricava gli allenamenti dal pacchetto: sia il formato di "Health Auto Export"
 // (data.workouts[]) sia quello semplice dei Comandi Rapidi
-function itemsDaPacchetto(body, origine) {
+export function itemsDaPacchetto(body, origine) {
   if (Array.isArray(body.data?.workouts)) {
     return body.data.workouts.map(w => ({
       source: 'health', external_id: w.id || `${w.name}-${w.start}`, sport: w.name, name: w.name,
@@ -175,7 +175,7 @@ function itemsDaPacchetto(body, origine) {
   }));
 }
 // Salva gli allenamenti, fondendo quelli senza GPS con l'attivita' Komoot/GPX corrispondente
-async function archivia(userId, items) {
+export async function archivia(userId, items) {
   const saved = [], merged = [];
   let scartati = 0;
   for (const w of items) {
@@ -210,7 +210,7 @@ const inChili = (valore, unita) => {
 const nomiMetriche = body => (Array.isArray(body?.data?.metrics) ? body.data.metrics : [])
   .map(m => `${String(m?.name || '?')}[${Array.isArray(m?.data) ? m.data.length : 0}]`);
 
-function pesiDaPacchetto(body) {
+export function pesiDaPacchetto(body) {
   const metriche = body?.data?.metrics;
   if (!Array.isArray(metriche)) return [];
   const fuori = [];
@@ -240,7 +240,7 @@ function pesiDaPacchetto(body) {
 // Il confronto non guarda l'ordine di arrivo: lo stesso file ricaricato, o gli
 // stessi invii in ordine diverso, portano sempre allo stesso risultato.
 const E_MATTINO = ora => `coalesce(extract(hour FROM ${ora} AT TIME ZONE 'Europe/Rome') < 12, false)`;
-async function archiviaPesi(userId, pesi) {
+export async function archiviaPesi(userId, pesi) {
   // Si contano le giornate, non le letture: due pesate dello stesso giorno
   // valgono per una, altrimenti il riepilogo direbbe numeri gonfiati
   const giornate = new Set();
