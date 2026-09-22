@@ -57,6 +57,13 @@ export async function route(from, to) {
   }
 }
 
+// park4night non ha un'API pubblica: non si importa nulla da loro. Quello che si
+// puo' fare, e che basta, e' aprire la loro mappa gia' centrata sul posto —
+// l'elenco dei luoghi arriva da OpenStreetMap, che di aree sosta ne conosce
+// parecchie, e chi guarda decide confrontando le due cose.
+export const linkPark4night = (lat, lon, zoom = 14) =>
+  `https://park4night.com/it/search?lat=${(+lat).toFixed(5)}&lng=${(+lon).toFixed(5)}&z=${zoom}`;
+
 // ---------- varianti di percorso ----------
 // OSRM sa dare solo la strada piu' veloce. Per avere anche quella che evita i
 // pedaggi serve OpenRouteService: gratuito, stessi dati OpenStreetMap, ma vuole
@@ -152,24 +159,40 @@ export async function percorsiConTappe(punti) {
 }
 
 // POI lungo il percorso: aree sosta camper, campeggi e borghi/paesi attraversati
-export async function poisAlongRoute(geometry, radiusM = 4000) {
+export async function poisAlongRoute(geometry, radiusM = 4000, { conBorghi = true } = {}) {
   if (!geometry || geometry.length < 2) return { stops: [], villages: [] };
-  // Un corridoio di pochi punti per limitare il carico su Overpass
-  const pts = samplePoints(geometry, 25);
+  // Quanti centri servono lo decide la lunghezza della strada, non un numero
+  // fisso: cerchi da venti chilometri piazzati ogni trenta coprono tutto senza
+  // sovrapporsi, e una richiesta con pochi cerchi Overpass la serve; con troppi
+  // risponde 504 e non si capisce perche'.
+  const lunghezzaKm = geometry.reduce((t, p, i) => i ? t + haversineKm(geometry[i - 1], p) : 0, 0);
+  const passoKm = Math.max(3, (radiusM / 1000) * 1.5);
+  const quanti = Math.min(25, Math.max(2, Math.round(lunghezzaKm / passoKm) + 1));
+  const pts = samplePoints(geometry, quanti);
   const around = pts.map(([lat, lon]) => `${lat},${lon}`).join(',');
-  const query = `[out:json][timeout:25];
+  // Il tempo massimo lo decide la richiesta stessa: se scade, Overpass non da'
+  // errore ma una risposta vuota con un commento, ed e' peggio di un errore
+  const query = `[out:json][timeout:90];
 (
   nwr["tourism"="caravan_site"](around:${radiusM},${around});
   nwr["tourism"="camp_site"]["caravans"!="no"](around:${radiusM},${around});
   nwr["amenity"="sanitary_dump_station"](around:${radiusM},${around});
-  node["place"~"^(town|village)$"](around:${Math.max(radiusM, 5000)},${around});
+${conBorghi ? `  node["place"~"^(town|village)$"](around:${Math.max(radiusM, 5000)},${around});` : ''}
 );
-out center tags 120;`;
+out center tags 150;`;
   let data;
   try {
-    data = await fetchJson(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(query), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 40000);
+    // Senza un User-Agent che dica chi siamo, Overpass risponde 406 e rifiuta
+    // tutto: e' scritto nelle loro regole d'uso, e per noi era un servizio muto
+    data = await fetchJson(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(query),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA } }, 40000);
   } catch (e) {
+    console.warn('POI: Overpass non ha risposto:', String(e.message).slice(0, 160));
     return { stops: [], villages: [], warning: 'Servizio POI momentaneamente non disponibile' };
+  }
+  if (data.remark) {
+    console.warn('POI: Overpass ha troncato la ricerca:', String(data.remark).slice(0, 160));
+    return { stops: [], villages: [], warning: 'Ricerca troppo ampia per il servizio: prova un raggio piu\u2019 stretto' };
   }
   const stops = [], villages = [];
   for (const el of data.elements || []) {

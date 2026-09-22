@@ -152,6 +152,27 @@ export async function migrate() {
     UNIQUE (user_id, provider)
   );
 
+  -- Dove ci fermiamo: soste e pernotti di un viaggio, con i giorni in cui si sta.
+  -- Il posto puo' nascere da una ricerca lungo il percorso o scritto a mano; il
+  -- collegamento a park4night e' un indirizzo, non un dato importato da loro.
+  CREATE TABLE IF NOT EXISTS stops (
+    id SERIAL PRIMARY KEY,
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    leg_id INT REFERENCES legs(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
+    kind TEXT NOT NULL DEFAULT 'pernotto',         -- sosta | pernotto
+    from_date DATE,
+    to_date DATE,
+    notes TEXT,
+    link TEXT,
+    source TEXT NOT NULL DEFAULT 'manuale',        -- manuale | osm
+    meta JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_stops_trip ON stops(trip_id, from_date);
+
   -- Allenamenti cancellati a mano: se ne tiene memoria perche' la prossima
   -- sincronizzazione non li riporti indietro. Si svuota ripristinandoli.
   CREATE TABLE IF NOT EXISTS deleted_workouts (

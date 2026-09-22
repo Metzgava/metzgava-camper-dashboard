@@ -254,6 +254,7 @@ function tripForm(t = null) {
 async function viewTrip(id) {
   const d = await api('/trips/' + id);
   const { trip, legs, expenses, photos, workouts, totals } = d;
+  const soste = d.soste || [];
   const closed = trip.status === 'closed';
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
@@ -276,6 +277,9 @@ async function viewTrip(id) {
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : `<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove ci fermiamo</h2>${closed ? '' : '<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi lungo il percorso">\ud83d\udd0e Lungo il percorso</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
+        <div class="list">${soste.length ? soste.map(sostaRiga).join('') : '<div class="empty">Nessuna sosta segnata. Cercale lungo il percorso, oppure aggiungile a mano: puoi indicare se \u00e8 una sosta di passaggio o un pernotto, e i giorni in cui ci fermate.</div>'}</div></div>
+
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2>${closed ? '' : '<button class="btn primary sm" id="addex">＋ Spesa</button>'}</div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
         <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
@@ -322,6 +326,38 @@ async function viewTrip(id) {
   $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
   $('#carlock')?.addEventListener('click', () => carlockImport({ ...trip, legs }));
   $('#sostituisci')?.addEventListener('click', () => carlockImport({ ...trip, legs }, [], true));
+  $('#addsosta')?.addEventListener('click', () => sostaForm(trip));
+  $$('[data-sosta]').forEach(b => b.onclick = () => sostaForm(trip, soste.find(x => x.id === +b.dataset.sosta)));
+  $$('[data-delsosta]').forEach(b => b.onclick = safe(async () => {
+    if (!await confirmDlg('Togliere questa sosta?')) return;
+    await api('/soste/' + b.dataset.delsosta, { method: 'DELETE' }); render();
+  }));
+  // Lungo il percorso: i posti arrivano da OpenStreetMap, i giudizi da park4night
+  $('#cercasoste')?.addEventListener('click', safe(async () => {
+    const finestra = modal(`<h2>\ud83d\udd0e Lungo il percorso</h2>
+      <div class="row" style="gap:10px;align-items:center;margin-top:8px"><label class="small muted">Raggio</label>
+        <select id="raggio" style="width:auto">${[10, 20, 30, 50].map(k => `<option value="${k * 1000}" ${k === 20 ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
+      <div id="vic" style="margin-top:12px"><div class="empty">Cerco\u2026</div></div>
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Chiudi</button></div>`,
+      (el, close) => {
+        $('[data-x]', el).onclick = close;
+        const cerca = safe(async () => {
+          $('#vic', el).innerHTML = '<div class="empty">Cerco\u2026</div>';
+          const r = await api(`/trips/${trip.id}/vicinanze?raggio=${$('#raggio', el).value}`);
+          $('#vic', el).innerHTML = r.avviso ? `<div class="empty">${esc(r.avviso)}</div>`
+            : !r.luoghi.length ? '<div class="empty">Nessuna area sosta o campeggio in questo raggio. Prova ad allargarlo, oppure aprilo su park4night: loro ne conoscono di piu\u2019.</div>'
+            : `<p class="small muted">${r.luoghi.length} posti da OpenStreetMap entro ${r.raggio / 1000} km dal percorso. Il pulsante \ud83c\udd7f\ufe0f apre park4night centrato l\u00ec, dove trovi foto, prezzi e commenti.</p>
+              <div class="list" style="max-height:46vh;overflow:auto;margin-top:8px">${r.luoghi.map((p, i) => `<div class="item"><div class="item-main" style="cursor:default">
+                <div class="sport-ico">${p.kind === 'campeggio' ? '\u26fa' : p.kind === 'camper_service' ? '\ud83d\udeb0' : '\ud83c\udd7f\ufe0f'}</div>
+                <div class="grow"><div class="title">${esc(p.name)}</div><div class="meta">${p.kind === 'campeggio' ? 'campeggio' : p.kind === 'camper_service' ? 'camper service' : 'area sosta'}</div></div></div>
+                <div class="item-actions"><a class="btn ghost icon" href="${esc(p.park4night)}" target="_blank" rel="noopener" title="Apri su park4night">\ud83c\udd7f\ufe0f</a>
+                  <button class="btn sm" data-aggiungi="${i}">Aggiungi</button></div></div>`).join('')}</div>`;
+          $$('[data-aggiungi]', el).forEach(b => b.onclick = () => { const p = r.luoghi[+b.dataset.aggiungi]; close(); sostaForm(trip, null, p); });
+        });
+        $('#raggio', el).onchange = cerca;
+        cerca();
+      });
+  }));
   $('#addex')?.addEventListener('click', () => expenseForm(trip, legs));
   $('#legs').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -343,6 +379,48 @@ async function viewTrip(id) {
   $('#photos').onclick = safe(async e => { const b = e.target.closest('[data-del-ph]'); if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); } });
   // aggiorna quando i POI arrivano in background
   if (legs.some(l => !l.pois)) setTimeout(() => { if (location.hash === '#/trip/' + id) render(); }, 12000);
+}
+
+// Una sosta segnata: che tipo e', quando ci si sta, e la porta verso park4night
+const sostaRiga = s => `<div class="item"><div class="item-main" style="cursor:default">
+    <div class="sport-ico">${s.kind === 'pernotto' ? '\ud83c\udf19' : '\u23f8\ufe0f'}</div>
+    <div class="grow"><div class="title">${esc(s.name)}</div>
+      <div class="meta"><span class="badge ${s.kind === 'pernotto' ? 'ok' : ''}">${s.kind === 'pernotto' ? 'pernotto' : 'sosta'}</span>
+        ${s.from_date ? ' \u00b7 ' + fdate(s.from_date) + (s.to_date && s.to_date !== s.from_date ? ' \u2192 ' + fdate(s.to_date) : '') : ' \u00b7 <i>giorni da decidere</i>'}
+        ${s.notes ? ' \u00b7 ' + esc(s.notes) : ''}</div></div></div>
+  <div class="item-actions">${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri su park4night">\ud83c\udd7f\ufe0f</a>` : ''}
+    <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
+    <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div></div>`;
+
+// Scheda di una sosta: il posto si cerca come ogni altro luogo, il tipo dice se
+// e' un passaggio o una notte, e le date sono i giorni in cui ci si ferma
+function sostaForm(trip, s = null, preimpostato = null) {
+  let luogo = s?.lat != null ? { name: s.name, lat: s.lat, lon: s.lon } : preimpostato;
+  modal(`<h2>${s ? 'Modifica sosta' : 'Nuova sosta'}</h2><form id="f" class="stack" style="margin-top:14px">
+    <div><label class="f">Posto</label><input id="luogo" required value="${esc(s?.name || preimpostato?.name || '')}" placeholder="Cerca area sosta, campeggio, paese\u2026" autocomplete="off"></div>
+    <div class="form-grid">
+      <div><label class="f">Tipo</label><select name="kind">
+        <option value="pernotto" ${s?.kind !== 'sosta' ? 'selected' : ''}>\ud83c\udf19 Pernotto</option>
+        <option value="sosta" ${s?.kind === 'sosta' ? 'selected' : ''}>\u23f8\ufe0f Sosta di passaggio</option></select></div>
+      <div><label class="f">Dal</label><input type="date" name="from_date" value="${s?.from_date ? iso(s.from_date) : (trip.start_date ? iso(trip.start_date) : '')}"></div>
+      <div><label class="f">Al</label><input type="date" name="to_date" value="${s?.to_date ? iso(s.to_date) : ''}"></div>
+    </div>
+    <div><label class="f">Note</label><input name="notes" value="${esc(s?.notes || '')}" placeholder="Es. carico acqua, 12 \u20ac a notte"></div>
+    <div class="small muted">Se il posto ha una posizione, il pulsante \ud83c\udd7f\ufe0f nell\u2019elenco apre park4night centrato l\u00ec: foto, prezzi e commenti stanno da loro.</div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${s ? 'Salva' : 'Aggiungi'}</button></div></form>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      geoInput($('#luogo', el), r => luogo = r);
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        const corpo = { ...fd, name: $('#luogo', el).value.trim() || luogo?.name, lat: luogo?.lat ?? s?.lat ?? null, lon: luogo?.lon ?? s?.lon ?? null,
+          source: preimpostato ? 'osm' : (s?.source || 'manuale'), link: preimpostato?.park4night || s?.link || null };
+        if (s) await api('/soste/' + s.id, { method: 'PUT', body: corpo });
+        else await api(`/trips/${trip.id}/soste`, { method: 'POST', body: corpo });
+        close(); render();
+      });
+    });
 }
 
 function legForm(trip, legs, leg = null) {

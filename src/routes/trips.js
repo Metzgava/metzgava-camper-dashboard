@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
-import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute } from '../lib/geo.js';
+import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName } from '../lib/carlock.js';
 import { requireAuth } from './auth.js';
 
@@ -168,7 +168,8 @@ router.get('/trips/:id', wrap(async (req, res) => {
   // contarle o mostrarle qui raddoppierebbe attivita' e chilometri del viaggio
   const workouts = (await q(`SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id
     WHERE w.trip_id=$1 AND w.meta->'copiato_da' IS NULL ORDER BY started_at DESC`, [trip.id])).rows;
-  res.json({ trip, legs, expenses, photos, workouts, totals: await tripTotals(trip.id) });
+  const soste = (await q('SELECT * FROM stops WHERE trip_id=$1 ORDER BY from_date NULLS LAST, id', [trip.id])).rows;
+  res.json({ trip, legs, expenses, photos, workouts, soste, totals: await tripTotals(trip.id) });
 }));
 router.put('/trips/:id', wrap(async (req, res) => {
   const b = req.body || {};
@@ -193,6 +194,67 @@ router.delete('/trips/:id', wrap(async (req, res) => {
 }));
 
 // ---- tappe ----
+// ---------- dove ci fermiamo ----------
+// I luoghi lungo il percorso arrivano da OpenStreetMap in un raggio che si
+// sceglie; per ciascuno si da' l'indirizzo che apre park4night centrato li',
+// perche' le recensioni e le foto stanno la' e non si importano.
+router.get('/trips/:id/vicinanze', wrap(async (req, res) => {
+  const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 20000), 50000);
+  const legs = (await q('SELECT id, to_name, to_lat, to_lon, geometry FROM legs WHERE trip_id=$1 ORDER BY position, id', [req.params.id])).rows;
+  if (!legs.length) return res.json({ raggio, luoghi: [], avviso: 'Il viaggio non ha ancora tappe' });
+  // Un punto ogni tappa piu' i suoi arrivi: basta a coprire la strada senza
+  // chiedere a Overpass un corridoio lunghissimo
+  const traccia = legs.flatMap(l => Array.isArray(l.geometry) ? l.geometry : []);
+  // Senza borghi: qui si cercano posti dove fermarsi, e i paesi raddoppierebbero
+  // il peso della richiesta per poi non servire
+  const r = await poisAlongRoute(traccia.length > 1 ? traccia : legs.map(l => [l.to_lat, l.to_lon]), raggio, { conBorghi: false });
+  const luoghi = (r.stops || []).map(p => ({ ...p, park4night: linkPark4night(p.lat, p.lon) }));
+  res.json({ raggio, luoghi, borghi: r.villages || [], avviso: r.warning || null });
+}));
+
+router.get('/trips/:id/soste', wrap(async (req, res) => {
+  res.json((await q('SELECT * FROM stops WHERE trip_id=$1 ORDER BY from_date NULLS LAST, id', [req.params.id])).rows);
+}));
+
+const datiSosta = b => ({
+  name: String(b?.name || '').trim().slice(0, 200),
+  lat: b?.lat != null && b.lat !== '' ? num(b.lat) : null,
+  lon: b?.lon != null && b.lon !== '' ? num(b.lon) : null,
+  kind: b?.kind === 'sosta' ? 'sosta' : 'pernotto',
+  from_date: b?.from_date || null,
+  to_date: b?.to_date || null,
+  notes: b?.notes || null,
+  link: b?.link || null,
+  source: b?.source === 'osm' ? 'osm' : 'manuale',
+});
+
+router.post('/trips/:id/soste', wrap(async (req, res) => {
+  const d = datiSosta(req.body);
+  if (!d.name) return res.status(400).json({ error: 'Serve il nome del posto' });
+  if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
+  // Il collegamento a park4night si costruisce da se' quando ci sono le coordinate
+  const link = d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null);
+  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,from_date,to_date,notes,link,source)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.notes, link, d.source])).rows[0];
+  res.json(r);
+}));
+
+router.put('/soste/:id', wrap(async (req, res) => {
+  const cur = (await q('SELECT * FROM stops WHERE id=$1', [req.params.id])).rows[0];
+  if (!cur) return res.status(404).json({ error: 'Sosta non trovata' });
+  const d = datiSosta({ ...cur, ...req.body });
+  if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
+  const r = (await q(`UPDATE stops SET name=$2, lat=$3, lon=$4, kind=$5, from_date=$6, to_date=$7, notes=$8, link=$9 WHERE id=$1 RETURNING *`,
+    [cur.id, d.name, d.lat, d.lon, d.kind, d.from_date, d.to_date, d.notes,
+      d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null)])).rows[0];
+  res.json(r);
+}));
+
+router.delete('/soste/:id', wrap(async (req, res) => {
+  await q('DELETE FROM stops WHERE id=$1', [req.params.id]); res.json({ ok: true });
+}));
+
 router.post('/trips/:id/legs', wrap(async (req, res) => {
   const b = req.body || {};
   const from = b.from, to = b.to;
