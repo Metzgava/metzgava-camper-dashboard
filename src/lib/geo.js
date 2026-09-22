@@ -159,12 +159,15 @@ export async function percorsiConTappe(punti) {
 }
 
 // POI lungo il percorso: aree sosta camper, campeggi e borghi/paesi attraversati
+// Con un punto solo si cerca intorno a quello: e' il caso della destinazione di
+// una tappa, che e' dove si dorme. Con una traccia si copre tutta la strada.
 export async function poisAlongRoute(geometry, radiusM = 4000, { conBorghi = true } = {}) {
-  if (!geometry || geometry.length < 2) return { stops: [], villages: [] };
+  if (!geometry || !geometry.length) return { stops: [], villages: [] };
   // Quanti centri servono lo decide la lunghezza della strada, non un numero
   // fisso: cerchi piazzati a una volta e mezza il raggio coprono tutto senza
   // sovrapporsi. Con troppi, la richiesta scade dopo novanta secondi.
-  const lunghezzaKm = geometry.reduce((t, p, i) => i ? t + haversineKm(geometry[i - 1], p) : 0, 0);
+  const lunghezzaKm = geometry.length < 2 ? 0
+    : geometry.reduce((t, p, i) => i ? t + haversineKm(geometry[i - 1], p) : 0, 0);
   const passoKm = Math.max(3, (radiusM / 1000) * 1.5);
   const quanti = Math.min(15, Math.max(2, Math.round(lunghezzaKm / passoKm) + 1));
   const around = samplePoints(geometry, quanti).map(([lat, lon]) => `${lat},${lon}`).join(',');

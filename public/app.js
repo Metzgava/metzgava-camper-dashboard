@@ -261,7 +261,7 @@ async function viewTrip(id) {
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
-      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a><button class="btn sm ghost" data-poi="${l.id}">Soste & borghi</button>${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : '<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>'}${closed ? '' : `<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button>`}</div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${eur(e.amount)}</b></td>
     <td class="num">${closed ? '' : `<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
   $('#app').innerHTML = layout(`
@@ -278,7 +278,7 @@ async function viewTrip(id) {
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${closed ? '' : `<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove ci fermiamo</h2>${closed ? '' : '<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi lungo il percorso">\ud83d\udd0e Lungo il percorso</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove ci fermiamo</h2>${closed ? '' : '<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
         ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">
           <a class="btn sm" href="${mapsIndicazioni({ lat: legs[0].from_lat, lon: legs[0].from_lon }, { lat: legs[legs.length - 1].to_lat, lon: legs[legs.length - 1].to_lon }, legs.slice(0, -1).map(l => ({ lat: l.to_lat, lon: l.to_lon })))}" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Tutto il percorso su Maps</a>
           ${legs.length > MAX_TAPPE_MAPS + 1 ? `<span class="small muted"> \u00b7 Google accetta ${MAX_TAPPE_MAPS} punti intermedi: le tappe oltre restano fuori</span>` : ''}
@@ -345,7 +345,7 @@ async function viewTrip(id) {
   }));
   // Lungo il percorso: i posti arrivano da OpenStreetMap, i giudizi da park4night
   $('#cercasoste')?.addEventListener('click', safe(async () => {
-    const finestra = modal(`<h2>\ud83d\udd0e Lungo il percorso</h2>
+    const finestra = modal(`<h2>\ud83d\udd0e Soste alle destinazioni</h2>
       <div class="row" style="gap:10px;align-items:center;margin-top:8px"><label class="small muted">Raggio</label>
         <select id="raggio" style="width:auto">${[10, 20, 30, 50].map(k => `<option value="${k * 1000}" ${k === 20 ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
       <div id="vic" style="margin-top:12px"><div class="empty">Cerco\u2026</div></div>
@@ -357,7 +357,7 @@ async function viewTrip(id) {
           const r = await api(`/trips/${trip.id}/vicinanze?raggio=${$('#raggio', el).value}`);
           $('#vic', el).innerHTML = r.avviso ? `<div class="empty">${esc(r.avviso)}</div>`
             : !r.luoghi.length ? '<div class="empty">Nessuna area sosta o campeggio in questo raggio. Prova ad allargarlo, oppure aprilo su park4night: loro ne conoscono di piu\u2019.</div>'
-            : `<p class="small muted">${r.luoghi.length} posti da OpenStreetMap entro ${r.raggio / 1000} km dal percorso. Il pulsante \ud83c\udd7f\ufe0f apre park4night centrato l\u00ec, dove trovi foto, prezzi e commenti.</p>
+            : `<p class="small muted">${r.luoghi.length} posti da OpenStreetMap entro ${r.raggio / 1000} km dalle destinazioni delle tappe. Il pulsante \ud83c\udd7f\ufe0f apre park4night centrato l\u00ec, dove trovi foto, prezzi e commenti.</p>
               <div class="list" style="max-height:46vh;overflow:auto;margin-top:8px">${r.luoghi.map((p, i) => `<div class="item"><div class="item-main" style="cursor:default">
                 <div class="sport-ico">${p.kind === 'campeggio' ? '\u26fa' : p.kind === 'camper_service' ? '\ud83d\udeb0' : '\ud83c\udd7f\ufe0f'}</div>
                 <div class="grow"><div class="title">${esc(p.name)}</div><div class="meta">${p.kind === 'campeggio' ? 'campeggio' : p.kind === 'camper_service' ? 'camper service' : 'area sosta'}</div></div></div>
@@ -613,12 +613,16 @@ function mapsIndicazioni(da, a, intermedie = []) {
 // L'indirizzo che apre park4night centrato su un punto. Sul telefono, se l'app
 // e' installata, iOS e Android la aprono al posto del sito. Non serve chiedere
 // niente a nessun servizio: e' un indirizzo, ed e' immediato.
+// Casa: intorno non si cercano soste, e il nome si cambia nelle impostazioni
+const casaNome = () => String(settings.casa || 'Susegana').trim();
+const eCasa = nome => !!nome && String(nome).toLowerCase().includes(casaNome().toLowerCase());
+
 const p4n = (lat, lon, zoom = 14) => `https://park4night.com/it/search?lat=${(+lat).toFixed(5)}&lng=${(+lon).toFixed(5)}&z=${zoom}`;
 
 function poiModal(l) {
   const p = l.pois || {};
   const gm = (lat, lon) => `https://maps.apple.com/?daddr=${lat},${lon}`;
-  modal(`<h2>Lungo la tappa</h2><div class="muted small">${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}${p.warning ? ' · ⚠️ ' + p.warning : ''}</div>
+  modal(`<h2>All\u2019arrivo a ${esc(l.to_name.split(',')[0])}</h2><div class="muted small">Cercati intorno alla destinazione${p.warning ? ' · ⚠️ ' + p.warning : ''}</div>
     <h3 style="margin:14px 0 4px">🅿️ Aree sosta e campeggi (${(p.stops || []).length})</h3>
     ${(p.stops || []).map(s => `<div class="poi"><div class="k">${s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰'}</div><div class="grow"><b>${esc(s.name)}</b> <span class="muted small">${s.kind.replace('_', ' ')}</span><div class="small muted">${[s.fee && 'tariffa: ' + s.fee, s.capacity && s.capacity + ' posti', s.power && 'corrente', s.drinking_water && 'acqua', s.opening_hours].filter(Boolean).map(esc).join(' · ')}</div>${s.website ? `<a class="small" href="${esc(s.website)}" target="_blank">sito web</a> · ` : ''}<a class="small" href="${gm(s.lat, s.lon)}" target="_blank">naviga</a>${s.park4night ? `<a class="btn ghost sm" href="${esc(s.park4night)}" target="_blank" rel="noopener" title="Apri su park4night">\ud83c\udd7f\ufe0f</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessuna area censita su OpenStreetMap nel raggio di 4 km.</div>'}
     <h3 style="margin:14px 0 4px">🏘️ Borghi e paesi attraversati (${(p.villages || []).length})</h3>
@@ -1359,7 +1363,7 @@ async function viewSettings() {
   const endpoint = location.origin + '/api/ingest/health';
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Impostazioni</h1>
     <div class="grid cols-2">
-    <div class="card"><h2>🚐 Camper</h2><form id="veh" class="form-grid" style="margin-top:12px"><div><label class="f">Lunghezza (m)</label><input type="number" step="0.1" name="length_m" value="${v.length_m ?? 6}"></div><div><label class="f">Consumo (km/l)</label><input type="number" step="0.1" name="km_per_liter" value="${v.km_per_liter ?? 10}"></div><div><label class="f">Prezzo gasolio predefinito (€/l)</label><input type="number" step="0.001" name="fuel_price" value="${v.fuel_price ?? 1.75}"></div><div><label class="f">Pedaggio stimato (€/km)</label><input type="number" step="0.001" name="toll_per_km" value="${v.toll_per_km ?? 0.09}" title="In Italia un camper sta in classe B: circa nove centesimi al chilometro"></div><div style="align-self:end"><button class="btn primary" style="width:100%">Salva</button></div></form>
+    <div class="card"><h2>🚐 Camper</h2><form id="veh" class="form-grid" style="margin-top:12px"><div><label class="f">Lunghezza (m)</label><input type="number" step="0.1" name="length_m" value="${v.length_m ?? 6}"></div><div><label class="f">Consumo (km/l)</label><input type="number" step="0.1" name="km_per_liter" value="${v.km_per_liter ?? 10}"></div><div><label class="f">Prezzo gasolio predefinito (€/l)</label><input type="number" step="0.001" name="fuel_price" value="${v.fuel_price ?? 1.75}"></div><div><label class="f">Pedaggio stimato (€/km)</label><input type="number" step="0.001" name="toll_per_km" value="${v.toll_per_km ?? 0.09}" title="In Italia un camper sta in classe B: circa nove centesimi al chilometro"></div><div><label class="f">Casa</label><input name="casa" value="${esc(settings.casa || 'Susegana')}" title="Intorno a casa non si cercano aree sosta"></div><div style="align-self:end"><button class="btn primary" style="width:100%">Salva</button></div></form>
       <p class="small muted" style="margin:10px 0 0">Il prezzo si può cambiare per ogni viaggio e per ogni singola tappa. Le spese gasolio si ricalcolano finché non le modifichi a mano.</p></div>
     <div class="card"><h2>🗺️ Komoot</h2>${k.connected ? `<p>Collegato (utente ${esc(k.external_user_id)})${k.last_sync_at ? ' · ultima sincronizzazione ' + fdt(k.last_sync_at) : ''}. I tour registrati vengono scaricati ogni 6 ore e quando premi «Sincronizza».</p><div class="row"><button class="btn" id="ksync">Sincronizza ora</button><button class="btn" id="kfull">Importa tutto lo storico</button><button class="btn ghost danger" id="kdel">Scollega</button></div>`
       : `<p class="small muted">Komoot non ha un'API pubblica: la dashboard usa lo stesso accesso del sito. La password serve solo una volta per ottenere un token, che viene salvato cifrato; la password non viene mai memorizzata.</p><form id="kf" class="stack"><input name="email" type="email" placeholder="Email Komoot" required autocomplete="off"><input name="password" type="password" placeholder="Password Komoot" required autocomplete="off"><button class="btn primary">Collega Komoot</button></form>`}</div>
@@ -1393,7 +1397,15 @@ async function viewSettings() {
       <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th></th></tr></thead><tbody>${adm.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="small">${esc(u.email)}</td><td>${u.role}</td><td>${u.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="num">${u.id !== user.id ? `<button class="btn sm" data-uappr="${u.id}" data-v="${!u.approved}">${u.approved ? 'Sospendi' : 'Autorizza'}</button><button class="btn sm" data-upwd="${u.id}" data-uname="${esc(u.name)}">Reimposta password</button><button class="btn sm ghost danger" data-udel="${u.id}">Elimina</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
       ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).length ? `<div class="small" style="margin-top:10px">Inviti attivi: ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).map(i => `<span class="code">${i.code}</span>`).join(' ')}</div>` : ''}</div>` : ''}
     <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta e borghi da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
-  $('#veh').onsubmit = safe(async e => { e.preventDefault(); settings.vehicle = await api('/settings/vehicle', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) }); toast('Salvato'); });
+  $('#veh').onsubmit = safe(async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    // La casa non e' un dato del mezzo: viaggia per conto suo
+    const { casa, ...mezzo } = d;
+    settings.vehicle = await api('/settings/vehicle', { method: 'PUT', body: mezzo });
+    settings.casa = (await api('/settings/casa', { method: 'PUT', body: { casa } })).casa;
+    toast('Salvato');
+  });
   $('#ssync')?.addEventListener('click', safe(async () => { toast('Sincronizzazione\u2026'); const r = await api('/strava/sync', { method: 'POST', body: {} }); toast(`Importate ${r.imported} attivit\u00e0`); render(); }));
   $('#sfull')?.addEventListener('click', safe(async () => { toast('Importazione storico\u2026 pu\u00f2 richiedere un minuto'); const r = await api('/strava/sync', { method: 'POST', body: { full: true } }); toast(`Importate ${r.imported} attivit\u00e0`); render(); }));
   $('#sdel')?.addEventListener('click', safe(async () => { if (await confirmDlg('Scollegare Strava? Gli allenamenti gi\u00e0 importati restano.')) { await api('/strava', { method: 'DELETE' }); toast('Strava scollegato'); render(); } }));

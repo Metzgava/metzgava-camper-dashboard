@@ -46,6 +46,18 @@ async function tripTotals(tripId) {
 // Impronta di cio' che esiste: la pagina la richiede ogni tanto e si ridisegna
 // solo quando e' cambiata qualcosa, invece di rifare tutto a vuoto o di aspettare
 // che sia l'utente a ricaricare. Sono conteggi su tabelle piccole: costa nulla.
+// Casa non e' un posto dove si cerca dove dormire: le soste intorno a casa non
+// servono a nessuno. Il nome e' modificabile, cosi' vale anche se traslocate.
+const CASA_PREDEFINITA = 'Susegana';
+const nomeCasa = s => String(s?.casa || CASA_PREDEFINITA).trim();
+const eCasa = (nome, casa) => !!nome && !!casa && String(nome).toLowerCase().includes(casa.toLowerCase());
+
+router.put('/settings/casa', wrap(async (req, res) => {
+  const casa = String(req.body?.casa || '').trim().slice(0, 80) || CASA_PREDEFINITA;
+  await q(`INSERT INTO settings(key,value) VALUES('casa',$1) ON CONFLICT(key) DO UPDATE SET value=$1`, [JSON.stringify(casa)]);
+  res.json({ casa });
+}));
+
 router.get('/stato', wrap(async (req, res) => {
   const r = (await q(`SELECT
       (SELECT count(*) FROM workouts)::int AS allenamenti,
@@ -200,14 +212,14 @@ router.delete('/trips/:id', wrap(async (req, res) => {
 // perche' le recensioni e le foto stanno la' e non si importano.
 router.get('/trips/:id/vicinanze', wrap(async (req, res) => {
   const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 20000), 50000);
-  const legs = (await q('SELECT id, to_name, to_lat, to_lon, geometry FROM legs WHERE trip_id=$1 ORDER BY position, id', [req.params.id])).rows;
+  const legs = (await q('SELECT id, to_name, to_lat, to_lon FROM legs WHERE trip_id=$1 ORDER BY position, id', [req.params.id])).rows;
   if (!legs.length) return res.json({ raggio, luoghi: [], avviso: 'Il viaggio non ha ancora tappe' });
-  // Un punto ogni tappa piu' i suoi arrivi: basta a coprire la strada senza
-  // chiedere a Overpass un corridoio lunghissimo
-  const traccia = legs.flatMap(l => Array.isArray(l.geometry) ? l.geometry : []);
-  // Senza borghi: qui si cercano posti dove fermarsi, e i paesi raddoppierebbero
-  // il peso della richiesta per poi non servire
-  const r = await poisAlongRoute(traccia.length > 1 ? traccia : legs.map(l => [l.to_lat, l.to_lon]), raggio, { conBorghi: false });
+  // Le destinazioni, non la strada: ci si ferma dove si arriva. Casa esclusa,
+  // che di aree sosta non ne serve. Niente borghi: qui si cerca dove dormire.
+  const casa = nomeCasa(await getSettings());
+  const mete = legs.filter(l => !eCasa(l.to_name, casa) && l.to_lat != null).map(l => [l.to_lat, l.to_lon]);
+  if (!mete.length) return res.json({ raggio, luoghi: [], avviso: `Le tappe arrivano tutte a ${casa}: non c\u2019e\u2019 niente da cercare` });
+  const r = await poisAlongRoute(mete, raggio, { conBorghi: false });
   const luoghi = (r.stops || []).map(p => ({ ...p, park4night: linkPark4night(p.lat, p.lon) }));
   res.json({ raggio, luoghi, borghi: r.villages || [], avviso: r.warning || null });
 }));
@@ -284,13 +296,20 @@ router.put('/legs/:id', wrap(async (req, res) => {
   res.json(leg);
 }));
 router.post('/legs/:id/pois', wrap(async (req, res) => {
-  const cur = (await q('SELECT geometry, to_lat, to_lon FROM legs WHERE id=$1', [req.params.id])).rows[0];
+  const cur = (await q('SELECT to_name, to_lat, to_lon FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
   // Otto chilometri di partenza invece di quattro: un'area sosta a cinque
   // chilometri dall'arrivo e' vicina per chi guida un camper
   const raggio = Math.min(Math.max(1000, Number(req.query.raggio) || 8000), 50000);
-  const traccia = Array.isArray(cur.geometry) && cur.geometry.length > 1 ? cur.geometry : [[cur.to_lat, cur.to_lon]];
-  const p = await poisAlongRoute(traccia, raggio);
+  // Solo intorno all'arrivo, non lungo tutta la strada: e' li' che ci si ferma,
+  // e una richiesta con un centro solo il servizio la serve sempre
+  const casa = nomeCasa(await getSettings());
+  if (eCasa(cur.to_name, casa)) {
+    const vuoto = { stops: [], villages: [], raggio, casa: true };
+    await q('UPDATE legs SET pois=$2 WHERE id=$1', [req.params.id, vuoto]);
+    return res.json(vuoto);
+  }
+  const p = await poisAlongRoute([[cur.to_lat, cur.to_lon]], raggio);
   const conLink = { ...p, raggio, stops: (p.stops || []).map(x => ({ ...x, park4night: linkPark4night(x.lat, x.lon) })) };
   await q('UPDATE legs SET pois=$2 WHERE id=$1', [req.params.id, conLink]);
   res.json(conLink);
