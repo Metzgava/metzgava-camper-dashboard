@@ -247,7 +247,7 @@ const E_MATTINO = ora => `coalesce(extract(hour FROM ${ora} AT TIME ZONE 'Europe
 export async function archiviaPesi(userId, pesi) {
   // Si contano le giornate, non le letture: due pesate dello stesso giorno
   // valgono per una, altrimenti il riepilogo direbbe numeri gonfiati
-  const giornate = new Set();
+  const giornate = new Set(), respinte = [];
   for (const p of pesi) {
     const r = await q(`INSERT INTO weights(user_id, day, kg, measured_at, source)
                        VALUES($1, ($2::timestamptz AT TIME ZONE 'Europe/Rome')::date, $3, $2, 'health')
@@ -257,8 +257,18 @@ export async function archiviaPesi(userId, pesi) {
                          OR (${E_MATTINO('EXCLUDED.measured_at')} = ${E_MATTINO('weights.measured_at')}
                              AND EXCLUDED.kg < weights.kg))
                        RETURNING to_char(day,'YYYY-MM-DD') AS day`, [userId, p.measured_at, p.kg]);
-    if (r.rowCount) giornate.add(r.rows[0].day);
+    if (r.rowCount) { giornate.add(r.rows[0].day); continue; }
+    // Una lettura che non entra ha sempre un motivo: dirlo evita di dover
+    // indovinare perche' «la pesata di oggi non si vede»
+    const ora = new Date(p.measured_at);
+    const giorno = ora.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+    const attuale = (await q('SELECT kg::float AS kg, source, measured_at FROM weights WHERE user_id=$1 AND day=$2', [userId, giorno])).rows[0];
+    respinte.push(`${giorno} ${ora.toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' })}: `
+      + (!attuale ? 'non inserita'
+        : attuale.source === 'manual' ? 'quel giorno ha una pesata scritta a mano'
+        : 'non batte quella gia\u2019 registrata'));
   }
+  if (respinte.length) console.log(`pesate non entrate (${respinte.length}): ${respinte.slice(0, 6).join(' | ')}`);
   return giornate.size;
 }
 
