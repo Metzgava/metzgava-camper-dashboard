@@ -89,6 +89,7 @@ function makeMap(el, opts = {}) {
   return map;
 }
 const pin = (color, label) => L.divIcon({ className: '', html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:grid;place-items:center"><span style="transform:rotate(45deg);font-size:12px;color:#fff;font-weight:700">${label || ''}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 26], popupAnchor: [0, -24] });
+const fotoIcon = src => L.divIcon({ className: '', html: `<div class="pin-foto"><img src="${src}" alt="" loading="lazy"></div>`, iconSize: [46, 46], iconAnchor: [23, 23], popupAnchor: [0, -24] });
 const dotIcon = (color, emoji) => L.divIcon({ className: '', html: `<div style="width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid ${color};display:grid;place-items:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.3)">${emoji}</div>`, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12] });
 
 // ---------- Geocoder autocomplete ----------
@@ -380,7 +381,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v9';
+const VERSIONE = 'v10';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -474,10 +475,12 @@ async function viewTrip(id) {
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${(() => {
         const discipline = [...new Set(workouts.filter(w => w.has_track || w.track).map(w => w.sport).filter(Boolean))].sort();
-        if (!legs.length && !discipline.length) return '';
+        const conPosto = photos.filter(p => p.lat != null).length;
+        if (!legs.length && !discipline.length && !conPosto) return '';
         return `<div class="legenda-mappa">
           ${legs.length ? `<span class="voce"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
           ${discipline.map(d => `<span class="voce"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
+          ${conPosto ? `<span class="voce">\ud83d\udcf7 ${conPosto} fot${conPosto === 1 ? 'o' : 'o'} nel punto dello scatto</span>` : ''}
         </div>`;
       })()}</div>
     <div class="grid due" style="margin-top:14px">
@@ -526,7 +529,18 @@ async function viewTrip(id) {
     const passo = Math.max(1, Math.floor(w.track.length / 20));
     for (let i = 0; i < w.track.length; i += passo) bounds.push([w.track[i][0], w.track[i][1]]);
   });
-  photos.filter(p => p.lat).forEach(p => { L.marker([p.lat, p.lon], { icon: dotIcon('#0ea5e9', '\ud83d\udcf7') }).addTo(map).bindPopup(`<img src="/uploads/${p.filename}" style="width:180px;border-radius:8px"><br>${esc(p.caption || '')}`); bounds.push([p.lat, p.lon]); });
+  // Una foto che porta con se' le coordinate sta sulla mappa nel punto esatto in
+  // cui e' stata scattata, e ci sta con la propria faccia: un puntino uguale a
+  // tutti gli altri non direbbe quale foto e'.
+  const nomeSostaDi = p => soste.find(x => x.id === p.stop_id)?.name;
+  photos.filter(p => p.lat != null && p.lon != null).forEach(p => {
+    const dove = nomeSostaDi(p);
+    L.marker([p.lat, p.lon], { icon: fotoIcon(`/uploads/${p.filename}`), zIndexOffset: 500 })
+      .addTo(map)
+      .bindPopup(`<a href="/uploads/${p.filename}" target="_blank" rel="noopener"><img src="/uploads/${p.filename}" style="width:220px;border-radius:8px;display:block"></a>
+        ${p.caption ? `<b>${esc(p.caption)}</b><br>` : ''}${p.taken_at ? fdt(p.taken_at) : ''}${dove ? `<br>\ud83c\udd7f\ufe0f ${esc(dove)}` : ''}`);
+    bounds.push([p.lat, p.lon]);
+  });
   if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
 
   // Azioni

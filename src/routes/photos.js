@@ -29,6 +29,34 @@ const upload = multer({
   },
 });
 
+// La posizione non e' un'etichetta scritta nel file: e' un calcolo su gradi,
+// minuti e secondi che stanno in un blocco a parte. Chiedendo «latitude» in un
+// elenco di etichette da leggere, quel blocco non viene nemmeno aperto e le
+// coordinate non arrivano mai — ed e' quello che succedeva qui, in silenzio, a
+// ogni foto caricata.
+const leggiExif = percorso => exifr.parse(percorso, { gps: true });
+
+// Le foto caricate finche' le coordinate non arrivavano sono ancora sul disco,
+// e dentro ce le hanno. Si rileggono all'avvio: chi ha gia' caricato non deve
+// ricaricare niente per vedersele comparire sulla mappa.
+export async function completaExifMancanti() {
+  const mancanti = (await q('SELECT id, filename FROM photos WHERE lat IS NULL ORDER BY id DESC LIMIT 500')).rows;
+  if (!mancanti.length) return 0;
+  let trovate = 0, senza = 0, perse = 0;
+  for (const p of mancanti) {
+    const percorso = path.join(UPLOAD_DIR, p.filename);
+    if (!fs.existsSync(percorso)) { perse++; continue; }
+    let e = null;
+    try { e = await leggiExif(percorso); } catch { }
+    if (!e?.latitude) { senza++; continue; }
+    await q('UPDATE photos SET lat=$2, lon=$3, taken_at=coalesce(taken_at,$4) WHERE id=$1',
+      [p.id, e.latitude, e.longitude, e.DateTimeOriginal || null]);
+    trovate++;
+  }
+  console.log(`foto: coordinate recuperate in ${trovate} su ${mancanti.length} (${senza} senza posizione, ${perse} senza file)`);
+  return trovate;
+}
+
 export const router = Router();
 router.use(requireAuth);
 
@@ -54,7 +82,7 @@ router.post('/trips/:id/photos', upload.array('photos', 20), wrap(async (req, re
   const out = [];
   for (const f of req.files || []) {
     let exif = {};
-    try { exif = (await exifr.parse(f.path, { gps: true, pick: ['DateTimeOriginal', 'latitude', 'longitude'] })) || {}; } catch { }
+    try { exif = (await leggiExif(f.path)) || {}; } catch { }
     const row = (await q('INSERT INTO photos(user_id,trip_id,leg_id,stop_id,filename,caption,taken_at,lat,lon) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
       [req.user.id, req.params.id, req.body.leg_id || null, req.body.stop_id || null, f.filename, req.body.caption || null, exif.DateTimeOriginal || null, exif.latitude || null, exif.longitude || null])).rows[0];
     out.push(row);

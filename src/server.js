@@ -7,7 +7,7 @@ import { SECRET } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti } from './routes/workouts.js';
-import { router as photos, UPLOAD_DIR } from './routes/photos.js';
+import { router as photos, UPLOAD_DIR, completaExifMancanti } from './routes/photos.js';
 import { sannoEvitareIPedaggi } from './lib/geo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -69,6 +69,7 @@ migrate().then(async () => {
   // perche' il viaggio e' stato creato dopo averli importati
   await agganciaAllenamenti().catch(e => console.warn('aggancio allenamenti fallito:', e.message));
   await normalizzaNomiEsistenti().catch(e => console.warn('uniformazione nomi fallita:', e.message));
+  await completaExifMancanti().catch(e => console.warn('lettura exif fallita:', e.message));
   // Ripulisce anche i doppioni gia' in archivio, non solo quelli che arriveranno
   await rimuoviDoppioniAutomatici().catch(e => console.warn('pulizia doppioni fallita:', e.message));
   app.listen(port, () => console.log(`Camper dashboard su porta ${port}`));
