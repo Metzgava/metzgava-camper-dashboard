@@ -190,6 +190,10 @@ export async function migrate() {
   -- «altro» con il nome che si vuole. «Pernotto» era il vecchio tutto-insieme.
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS kind_label TEXT;
   UPDATE stops SET kind='area_sosta' WHERE kind='pernotto';
+  -- Le foto di una sosta stanno sotto la sosta. Se la sosta viene tolta, le sue
+  -- foto restano al viaggio: sono del posto dove si e' stati, non della riga.
+  ALTER TABLE photos ADD COLUMN IF NOT EXISTS stop_id INT REFERENCES stops(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_photos_stop ON photos(stop_id);
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'EUR';
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS rate NUMERIC(12,6) NOT NULL DEFAULT 1;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS fuel_currency TEXT NOT NULL DEFAULT 'EUR';

@@ -380,7 +380,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v8';
+const VERSIONE = 'v9';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -396,7 +396,7 @@ const dettagli = dt => ({
 
 const DA_FOTO = 'Se le hai trascinate dall\u2019app Foto, prova con \u00ab\ud83d\udcf7 Carica\u00bb: nel pannello, la libreria sta nella colonna di sinistra sotto \u00abMedia\u00bb.';
 
-async function caricaFoto(tripId, elenco) {
+async function caricaFoto(tripId, elenco, extra = {}) {
   const arrivati = [...(elenco || [])];
   const foto = arrivati.filter(paionoFoto);
   if (!foto.length) {
@@ -419,6 +419,7 @@ async function caricaFoto(tripId, elenco) {
     const fd = new FormData();
     gruppo.forEach(f => fd.append('photos', f));
     if (didascalia) fd.append('caption', didascalia);
+    for (const [k, v] of Object.entries(extra)) if (v != null) fd.append(k, v);
     toast(foto.length > FOTO_PER_VOLTA ? `Carico ${i + gruppo.length} di ${foto.length}\u2026` : 'Caricamento foto\u2026');
     try {
       caricate += (await api(`/trips/${tripId}/photos`, { method: 'POST', body: fd })).length;
@@ -446,6 +447,12 @@ async function viewTrip(id) {
   const d = await api('/trips/' + id);
   const { trip, legs, expenses, photos, workouts, totals } = d;
   const soste = d.soste || [];
+  // Una foto sta in un posto solo: se e' di una sosta, sta sotto la sosta e non
+  // anche nella raccolta del viaggio, che sarebbe la stessa foto due volte
+  const fotoSosta = new Map();
+  soste.forEach(x => fotoSosta.set(x.id, []));
+  photos.forEach(p => { if (p.stop_id && fotoSosta.has(p.stop_id)) fotoSosta.get(p.stop_id).push(p); });
+  const fotoViaggio = photos.filter(p => !p.stop_id || !fotoSosta.has(p.stop_id));
   const closed = trip.status === 'closed';
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
@@ -484,19 +491,19 @@ async function viewTrip(id) {
           ${[{ n: legs[0].from_name, lat: legs[0].from_lat, lon: legs[0].from_lon }, ...legs.map(l => ({ n: l.to_name, lat: l.to_lat, lon: l.to_lon }))]
             .filter(x => x.lat != null)
             .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div></div>` : ''}
-        <div class="list">${soste.length ? soste.map(sostaRiga).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
+        <div class="list" id="soste">${soste.length ? soste.map(s => sostaRiga(s, fotoSosta.get(s.id))).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
 
       <div class="card pad-0" style="grid-column:1/-1"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2><button class="btn primary sm" id="addex">＋ Spesa</button></div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
         <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${photos.length ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}${SU_MAC ? '<a class="btn sm" id="apri-foto" href="photos://" title="Apre l\u2019app Foto: da l\u00ec trascina gli scatti qui dentro">\ud83c\udf3a App Foto</a>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
+      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${fotoViaggio.length ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}${SU_MAC ? '<a class="btn sm" id="apri-foto" href="photos://" title="Apre l\u2019app Foto: da l\u00ec trascina gli scatti qui dentro">\ud83c\udf3a App Foto</a>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
         <div class="card barra-selezione" id="barra-foto" hidden style="margin-top:10px;padding:10px 12px">
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
         ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
-        <div class="photos${photos.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${photos.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || '<div class="muted small">Nessuna foto. Le foto con GPS vengono posizionate sulla mappa.</div>'}</div></div>
+        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
       <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
     </div>`);
 
@@ -548,6 +555,15 @@ async function viewTrip(id) {
     const r = await api(`/soste/${b.dataset.sostaspesa}/spesa`, { method: 'POST' });
     toast(`Aggiunta alle spese: ${importoConValuta(r.amount, r.currency, r.rate).replace(/<[^>]+>/g, '')}`);
     render();
+  }));
+  // Le foto di una sosta: si caricano dal suo pulsante, e si tolgono dal loro \u2715
+  $$('[data-fotososta]').forEach(inp => inp.onchange = safe(async e => {
+    await caricaFoto(id, e.target.files, { stop_id: inp.dataset.fotososta });
+    e.target.value = '';
+  }));
+  $('#soste')?.addEventListener('click', safe(async e => {
+    const b = e.target.closest('[data-del-ph]');
+    if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); }
   }));
   $$('[data-delsosta]').forEach(b => b.onclick = safe(async () => {
     if (!await confirmDlg('Togliere questa sosta?')) return;
@@ -667,20 +683,22 @@ const stelline = n => n ? '\u2605'.repeat(n) + '\u2606'.repeat(5 - n) : '';
 
 // Una sosta segnata: quando si arriva e si riparte, quanto e' piaciuta, quanto
 // e' costata, e la porta verso park4night o qualunque altro indirizzo
-const sostaRiga = s => {
+const sostaRiga = (s, foto = []) => {
   const n = notti(s.from_date, s.to_date);
   const quando = !s.from_date ? '<i>giorni da decidere</i>'
     : fdate(s.from_date) + (s.arrival_time ? ` alle ${s.arrival_time}` : '')
       + (s.to_date && s.to_date !== s.from_date ? ` \u2192 ${fdate(s.to_date)}${s.departure_time ? ` alle ${s.departure_time}` : ''}` : (s.departure_time ? ` \u2192 ${s.departure_time}` : ''))
       + (n ? ` \u00b7 ${n} ${n === 1 ? 'notte' : 'notti'}` : '');
-  return `<div class="item"><div class="item-main" style="cursor:default">
+  return `<div class="item sosta" data-sosta-riga="${s.id}"><div class="item-main" style="cursor:default">
     <div class="sport-ico">${tipoIco(s.kind)}</div>
     <div class="grow"><div class="title">${esc(s.name)}${s.stars ? ` <span class="stelle" title="${s.stars} su 5">${stelline(s.stars)}</span>` : ''}</div>
       <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.meta?.spesa_id ? ' \u00b7 <span class="badge ok">nelle spese</span>' : ''}</div>
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
   <div class="item-actions">${s.cost > 0 && !s.meta?.spesa_id ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Aggiungi il costo alle spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
-    <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div></div>`;
+    <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
+  <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" target="_blank" rel="noopener" title="${esc(p.caption || 'Apri la foto')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a><button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
+    <label class="btn sm ghost" title="Foto di questa sosta">\ud83d\udcf7 ${foto.length ? 'Aggiungi' : 'Foto'}<input type="file" data-fotososta="${s.id}" accept="image/*" multiple hidden></label></div></div>`;
 };
 
 // Scheda di una sosta: il posto si cerca come ogni altro luogo, il tipo dice se
@@ -1891,20 +1909,37 @@ const viaggioAperto = () => { const m = (location.hash || '').match(/^#\/trip\/(
 // acceso o mai piu'. Si accende quando il trascinamento passa, e si spegne da
 // solo quando smette di passare.
 let spegniVelo = null;
-const nascondiVelo = () => { clearTimeout(spegniVelo); spegniVelo = null; veloFoto.remove(); };
-function mostraVelo() {
-  if (!veloFoto.isConnected) {
-    const id = viaggioAperto();
-    veloFoto.classList.toggle('senza-viaggio', !id);
-    veloFoto.querySelector('b').textContent = id ? 'Lascia qui le foto' : 'Apri prima un viaggio';
-    veloFoto.querySelector('span').textContent = id ? 'finiscono nel viaggio aperto' : 'le foto stanno dentro a un viaggio';
-    document.body.appendChild(veloFoto);
-  }
+// La riga della sosta sotto il cursore si accende: cosi' si vede dove la foto
+// andra' a finire prima di lasciarla, e non dopo
+let sostaMirata = null;
+const miraSosta = riga => {
+  if (riga === sostaMirata) return;
+  sostaMirata?.classList.remove('bersaglio');
+  riga?.classList.add('bersaglio');
+  sostaMirata = riga;
+};
+const nascondiVelo = () => { clearTimeout(spegniVelo); spegniVelo = null; veloFoto.remove(); miraSosta(null); };
+const nomeSosta = riga => riga?.querySelector('.title')?.firstChild?.textContent?.trim();
+function mostraVelo(riga) {
+  const id = viaggioAperto();
+  if (!veloFoto.isConnected) { veloFoto.classList.toggle('senza-viaggio', !id); document.body.appendChild(veloFoto); }
+  const nome = nomeSosta(riga);
+  veloFoto.querySelector('b').textContent = id ? 'Lascia qui le foto' : 'Apri prima un viaggio';
+  veloFoto.querySelector('span').textContent = !id ? 'le foto stanno dentro a un viaggio'
+    : nome ? `finiscono sotto \u00ab${nome}\u00bb` : 'finiscono nel viaggio aperto';
   clearTimeout(spegniVelo);
   spegniVelo = setTimeout(nascondiVelo, 900);
 }
 window.addEventListener('dragenter', e => { if (!conFile(e)) return; e.preventDefault(); if (!document.querySelector('.modal-bg')) mostraVelo(); });
-window.addEventListener('dragover', e => { if (!conFile(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = viaggioAperto() ? 'copy' : 'none'; if (!document.querySelector('.modal-bg')) mostraVelo(); });
+window.addEventListener('dragover', e => {
+  if (!conFile(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = viaggioAperto() ? 'copy' : 'none';
+  if (document.querySelector('.modal-bg')) return;
+  const riga = e.target?.closest?.('[data-sosta-riga]');
+  miraSosta(riga);
+  mostraVelo(riga);
+});
 window.addEventListener('dragend', nascondiVelo);
 // Un errore che nessuno raccoglie muore nella console di chi l'ha visto
 window.addEventListener('error', e => segnala('errore', `${e.message} \u2014 ${e.filename || '?'}:${e.lineno || 0}`));
@@ -1922,7 +1957,9 @@ window.addEventListener('drop', safe(async e => {
   // un modulo a mezzo, e lasciare che il browser apra la foto lo butterebbe via
   if (document.querySelector('.modal-bg')) return toast('Chiudi prima il pannello aperto, poi trascina le foto', true);
   if (!id) return toast('Apri il viaggio dove vuoi mettere le foto, poi trascinale qui', true);
-  await caricaFoto(id, e.dataTransfer.files);
+  // Lasciate sopra una sosta, sono foto di quella sosta
+  const sosta = e.target?.closest?.('[data-sosta-riga]')?.dataset.sostaRiga;
+  await caricaFoto(id, e.dataTransfer.files, sosta ? { stop_id: sosta } : {});
 }));
 
 // Uno scatto copiato dall'app Foto si incolla qui: \u2318V sulla pagina di un

@@ -55,15 +55,16 @@ router.post('/trips/:id/photos', upload.array('photos', 20), wrap(async (req, re
   for (const f of req.files || []) {
     let exif = {};
     try { exif = (await exifr.parse(f.path, { gps: true, pick: ['DateTimeOriginal', 'latitude', 'longitude'] })) || {}; } catch { }
-    const row = (await q('INSERT INTO photos(user_id,trip_id,leg_id,filename,caption,taken_at,lat,lon) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-      [req.user.id, req.params.id, req.body.leg_id || null, f.filename, req.body.caption || null, exif.DateTimeOriginal || null, exif.latitude || null, exif.longitude || null])).rows[0];
+    const row = (await q('INSERT INTO photos(user_id,trip_id,leg_id,stop_id,filename,caption,taken_at,lat,lon) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+      [req.user.id, req.params.id, req.body.leg_id || null, req.body.stop_id || null, f.filename, req.body.caption || null, exif.DateTimeOriginal || null, exif.latitude || null, exif.longitude || null])).rows[0];
     out.push(row);
   }
   res.json(out);
 }));
 router.put('/photos/:id', wrap(async (req, res) => {
   const b = req.body || {};
-  res.json((await q('UPDATE photos SET caption=$2, leg_id=$3 WHERE id=$1 RETURNING *', [req.params.id, b.caption ?? null, b.leg_id || null])).rows[0]);
+  res.json((await q('UPDATE photos SET caption=$2, leg_id=$3, stop_id=$4 WHERE id=$1 RETURNING *',
+    [req.params.id, b.caption ?? null, b.leg_id || null, b.stop_id || null])).rows[0]);
 }));
 // Piu' foto in una volta: con venti scatti da togliere, venti richieste e venti
 // conferme sono venti occasioni di sbagliare. I file spariscono dal disco solo
