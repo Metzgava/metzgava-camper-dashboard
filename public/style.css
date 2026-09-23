@@ -274,3 +274,10 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .anno { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 2px 9px; }
 .anno span { font-weight: 500; text-transform: none; letter-spacing: 0; }
 @media (prefers-reduced-motion: reduce) { .viaggio, .viaggio .copertina img { transition: none; } .viaggio:hover { transform: none; } .viaggio:hover .copertina img { transform: none; } }
+
+/* Il riquadro delle foto accetta quello che ci si lascia cadere sopra */
+.zona-foto { position: relative; margin-top: 12px; border-radius: 14px; min-height: 60px; }
+.zona-foto.sopra { outline: 2px dashed var(--accent); outline-offset: 7px; }
+.zona-foto .velo { display: none; }
+.zona-foto.sopra .velo { display: block; position: absolute; inset: -4px; z-index: 2; border-radius: 12px; background: color-mix(in srgb, var(--accent-soft) 92%, transparent); color: var(--accent); font-weight: 700; pointer-events: none; }
+.zona-foto.sopra .velo b { position: sticky; top: 42vh; display: block; text-align: center; }
