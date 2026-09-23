@@ -240,3 +240,8 @@ input[type=checkbox], input[type=radio] { width: auto; }
 /* Dentro una griglia le schede sono affiancate: il margine fra schede in colonna
    le disallineerebbe di quattordici pixel */
 .grid > .card + .card { margin-top: 0; }
+/* Legenda sotto la mappa del viaggio: una voce per disciplina presente */
+.legenda-mappa { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 16px 12px; font-size: 13px; color: var(--muted); }
+.legenda-mappa .voce { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legenda-mappa i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
+.legenda-mappa i.tratteggio { height: 0; width: 18px; background: none; border-top: 3px dashed; }

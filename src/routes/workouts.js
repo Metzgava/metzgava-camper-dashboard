@@ -127,7 +127,8 @@ function healthTrack(route) {
 // elenco, filtri e grafici parlano la stessa lingua. Applicata nel salvataggio,
 // quindi vale per tutte le sorgenti; l'originale resta nel campo meta.
 const GIA_NORMALIZZATI = new Set(['bicicletta', 'escursione', 'camminata', 'corsa', 'nuoto',
-  'nuoto in piscina', 'nuoto in acque libere', 'camminata su tapis', 'corsa su tapis']);
+  'nuoto in piscina', 'nuoto in acque libere', 'camminata su tapis', 'corsa su tapis',
+  'scialpinismo', 'sci di fondo', 'sci', 'snowboard']);
 
 export function normalizzaSport(valore) {
   const originale = String(valore || '').trim();
@@ -139,6 +140,12 @@ export function normalizzaSport(valore) {
   if (alChiuso && /camminat|walk/.test(t)) return 'Camminata su tapis';
   if (alChiuso && /cors|run|esegui/.test(t)) return 'Corsa su tapis';
   if (/ciclism|cycl|bicycle|bicicl|bike|mtb|gravel|ebike|ride|spinning/.test(t)) return 'Bicicletta';
+  // La neve prima della montagna: «scialpinismo» contiene «alpinis» e senza
+  // questa riga finirebbe fra le escursioni, che e' un'altra cosa
+  if (/scialpinis|sci.?(di )?alpinis|ski.?tour|skitour/.test(t)) return 'Scialpinismo';
+  if (/sci di fondo|fondo|cross.?country ski|nordic ski/.test(t)) return 'Sci di fondo';
+  if (/snowboard|tavola da neve/.test(t)) return 'Snowboard';
+  if (/^sci\b|sci alpino|downhill ski|alpine ski|[^a-z]ski[^a-z]|^ski$/.test(t)) return 'Sci';
   if (/escursion|hike|hiking|trekking|alpinis|mountaineer/.test(t)) return 'Escursione';
   if (/piscina|pool/.test(t) && /nuot|swim/.test(t)) return 'Nuoto in piscina';
   if (/acqua|acque|open water/.test(t) && /nuot|swim/.test(t)) return 'Nuoto in acque libere';
@@ -307,15 +314,21 @@ const TAPIS = `(
   OR lower(w.sport) ~ '(camminat|esegui|cors|walk|run).*(interno|indoor|coperto)'
   OR lower(w.sport) ~ '(tapis|treadmill)'
 )`;
+// Tutto cio' che si fa sulla neve, in una definizione sola
+const NEVE = `lower(w.sport) ~ '(sci|ski|snowboard|slalom)'`;
 const DISCIPLINE = {
   tapis: TAPIS,
   // all'aperto: le versioni al chiuso sono gia' contate come tapis roulant
   camminata: `(lower(w.sport) ~ '(camminat|walk)' AND NOT ${TAPIS})`,
   corsa: `(lower(w.sport) ~ '(cors|running|[^a-z]run|^run|esegui)' AND NOT ${TAPIS})`,
-  trekking: `lower(w.sport) ~ '(escursion|hike|hiking|trekking|alpinis|mountaineer)'`,
+  // «Scialpinismo» contiene «alpinis»: senza l'esclusione finirebbe anche qui,
+  // contato due volte e in un gruppo che non e' il suo
+  trekking: `(lower(w.sport) ~ '(escursion|hike|hiking|trekking|alpinis|mountaineer)' AND NOT ${NEVE})`,
   nuoto: `lower(w.sport) ~ '(nuot|swim)'`,
   // comprende mtb, gravel, bici da corsa e da cicloturismo
   ciclismo: `lower(w.sport) ~ '(ciclism|cycl|bicycle|bicicl|bike|bici|mtb|gravel|ebike|spinning|ride)'`,
+  // Sci, scialpinismo, fondo e snowboard: tutto cio' che si fa sulla neve
+  neve: NEVE,
 };
 DISCIPLINE.altro = `NOT (${Object.values(DISCIPLINE).join(' OR ')})`;
 const CONDIZIONE_TAPIS = TAPIS;

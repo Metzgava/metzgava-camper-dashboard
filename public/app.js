@@ -31,7 +31,7 @@ const SPORT = { hike: '🥾', hiking: '🥾', escursion: '🥾', trekking: '🥾
   touringbicycle: '🚴', mtb: '🚵', racebike: '🚴', cycling: '🚴', bike: '🚴', ride: '🚴',
   ciclism: '🚴', bicicl: '🚴', gravel: '🚵',
   swimming: '🏊', swim: '🏊', nuoto: '🏊', nuot: '🏊',
-  skitour: '🎿', sci: '🎿', mountaineering: '🧗',
+  scialpinis: '🎿', skitour: '🎿', ski: '🎿', sci: '🎿', snowboard: '🏂', mountaineering: '🧗',
   forza: '🏋️', strength: '🏋️', yoga: '🧘', riscaldamento: '🧘', raffreddamento: '🧘' };
 // Il tapis roulant va riconosciuto prima della camminata: "Interno Camminata" e' entrambe
 const RE_TAPIS = /(interno|indoor|coperto)[\s\S]*(camminat|esegui|cors|walk|run)|(camminat|esegui|cors|walk|run)[\s\S]*(interno|indoor|coperto)|tapis|treadmill/;
@@ -39,6 +39,10 @@ const sportIco = s => {
   const testo = String(s || '').toLowerCase();
   if (RE_TAPIS.test(testo)) return ICO_TAPIS;
   const secco = testo.replace(/[^a-z]/g, '');
+  // La neve prima di tutto: «scialpinismo» contiene «alpinis», e con la sola
+  // ricerca per sottostringa finirebbe con l'icona dell'arrampicata
+  if (/scialpinis|scialpin|skitour|sciditondo|scidifondo|scialpino|^sci|ski/.test(secco)) return secco.includes('snowboard') ? '\ud83c\udfc2' : '\ud83c\udfbf';
+  if (secco.includes('snowboard')) return '\ud83c\udfc2';
   for (const k in SPORT) if (secco.includes(k)) return SPORT[k];
   return '🏅';
 };
@@ -318,7 +322,15 @@ async function viewTrip(id) {
       <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
       <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
     </div>
-    <div class="card pad-0"><div id="map" class="map tall"></div></div>
+    <div class="card pad-0"><div id="map" class="map tall"></div>
+      ${(() => {
+        const discipline = [...new Set(workouts.filter(w => w.has_track || w.track).map(w => w.sport).filter(Boolean))].sort();
+        if (!legs.length && !discipline.length) return '';
+        return `<div class="legenda-mappa">
+          ${legs.length ? `<span class="voce"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
+          ${discipline.map(d => `<span class="voce"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
+        </div>`;
+      })()}</div>
     <div class="grid due" style="margin-top:14px">
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
@@ -357,8 +369,14 @@ async function viewTrip(id) {
     (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(map).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
     (l.pois?.villages || []).slice(0, 12).forEach(v => L.marker([v.lat, v.lon], { icon: dotIcon('#6366f1', '🏘️') }).addTo(map).bindPopup(`<b>${esc(v.name)}</b><br>${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}${v.wikipedia ? `<br><a href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}`));
   });
-  workouts.filter(w => w.track).forEach(w => { L.polyline(w.track.map(p => [p[0], p[1]]), { color: '#ec4899', weight: 3, dashArray: '4 6' }).addTo(map).bindPopup(`${sportIco(w.sport)} ${esc(w.name || '')}`); });
-  photos.filter(p => p.lat).forEach(p => { L.marker([p.lat, p.lon], { icon: dotIcon('#0ea5e9', '📷') }).addTo(map).bindPopup(`<img src="/uploads/${p.filename}" style="width:180px;border-radius:8px"><br>${esc(p.caption || '')}`); bounds.push([p.lat, p.lon]); });
+  workouts.filter(w => w.track).forEach(w => { L.polyline(w.track.map(p => [p[0], p[1]]), { color: coloreSport(w.sport), weight: 3, dashArray: '4 6' }).addTo(map).bindPopup(`${sportIco(w.sport)} ${esc(w.name || '')}`); });
+  // Le tracce delle attivita' contano per l'inquadratura: una camminata fuori
+  // dal tragitto del camper finirebbe fuori schermo
+  workouts.filter(w => w.track?.length).forEach(w => {
+    const passo = Math.max(1, Math.floor(w.track.length / 20));
+    for (let i = 0; i < w.track.length; i += passo) bounds.push([w.track[i][0], w.track[i][1]]);
+  });
+  photos.filter(p => p.lat).forEach(p => { L.marker([p.lat, p.lon], { icon: dotIcon('#0ea5e9', '\ud83d\udcf7') }).addTo(map).bindPopup(`<img src="/uploads/${p.filename}" style="width:180px;border-radius:8px"><br>${esc(p.caption || '')}`); bounds.push([p.lat, p.lon]); });
   if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
 
   // Azioni
@@ -788,7 +806,7 @@ function poiModal(l) {
 // Filtri dell'elenco allenamenti: periodo e viaggio, ricordati fra una schermata e l'altra
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 const DISCIPLINE = [['tapis', '🏃 Tapis roulant'], ['camminata', '🚶 Camminata'], ['corsa', '🏃 Corsa'], ['trekking', '🥾 Trekking'],
-  ['nuoto', '🏊 Nuoto'], ['ciclismo', '🚴 Ciclismo'], ['altro', '🏅 Altro']];
+  ['nuoto', '🏊 Nuoto'], ['ciclismo', '🚴 Ciclismo'], ['neve', '🎿 Sci e neve'], ['altro', '🏅 Altro']];
 const elenco = {
   discipline: [],               // elenco vuoto = tutte
   tendinaDiscipline: false,
@@ -832,6 +850,32 @@ const dislivelloOrario = w => (w.elevation_up_m > 0 && w.duration_s > 0)
 // senza dover aprire la scheda
 const numeriRiga = w => `<b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w.duration_s)}${mediaKmh(w) ? ' · ' + num(mediaKmh(w)) + ' km/h' : ''}<br>
   <span class="muted">${w.hr_avg ? '❤️ ' + w.hr_avg + ' bpm ' : ''}${w.calories ? '🔥 ' + w.calories + ' ' : ''}${w.elevation_up_m ? '⛰️ ' + w.elevation_up_m + ' m' + (dislivelloOrario(w) ? ' · ' + num(dislivelloOrario(w), 0) + ' m/h' : '') : ''}${pesoRiga(w)}</span>`;
+
+// Un colore per disciplina, sulla mappa del viaggio. Quelle che si fanno in
+// camper — le tappe — restano nel verde della dashboard; le attivita' prendono
+// ciascuna il suo, e chi non e' in elenco ne riceve uno stabile ricavato dal
+// nome, cosi' lo scialpinismo non cambia tinta a ogni apertura.
+const COLORE_CAMPER = '#0f766e';
+const COLORI_SPORT = {
+  'Bicicletta': '#2563eb',
+  'Escursione': '#16a34a',
+  'Camminata': '#65a30d',
+  'Corsa': '#f97316',
+  'Nuoto': '#06b6d4',
+  'Nuoto in piscina': '#06b6d4',
+  'Nuoto in acque libere': '#0e7490',
+  'Scialpinismo': '#a855f7',
+  'Sci': '#8b5cf6',
+  'Camminata su tapis': '#94a3b8',
+  'Corsa su tapis': '#64748b',
+};
+const TAVOLOZZA = ['#db2777', '#d97706', '#7c3aed', '#0891b2', '#be123c', '#4d7c0f', '#c026d3', '#0369a1'];
+const coloreSport = nome => {
+  if (COLORI_SPORT[nome]) return COLORI_SPORT[nome];
+  let somma = 0;
+  for (const c of String(nome || '')) somma = (somma + c.codePointAt(0)) % 9973;
+  return TAVOLOZZA[somma % TAVOLOZZA.length];
+};
 
 // Peso di quella giornata. Se quel giorno non ci si e' pesati non compare nulla:
 // un peso preso in prestito da un altro giorno racconterebbe una cosa non vera
