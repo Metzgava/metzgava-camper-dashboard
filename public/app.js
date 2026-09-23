@@ -89,6 +89,7 @@ function makeMap(el, opts = {}) {
   return map;
 }
 const pin = (color, label) => L.divIcon({ className: '', html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:grid;place-items:center"><span style="transform:rotate(45deg);font-size:12px;color:#fff;font-weight:700">${label || ''}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 26], popupAnchor: [0, -24] });
+const pinSport = (sport, circa) => L.divIcon({ className: '', html: `<div class="pin-sport${circa ? ' circa' : ''}" style="border-color:${coloreSport(sport)}">${sportIco(sport)}</div>`, iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -16] });
 const fotoIcon = src => L.divIcon({ className: '', html: `<div class="pin-foto"><img src="${src}" alt="" loading="lazy"></div>`, iconSize: [46, 46], iconAnchor: [23, 23], popupAnchor: [0, -24] });
 const dotIcon = (color, emoji) => L.divIcon({ className: '', html: `<div style="width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid ${color};display:grid;place-items:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.3)">${emoji}</div>`, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12] });
 
@@ -381,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v10';
+const VERSIONE = 'v11';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -476,7 +477,7 @@ async function viewTrip(id) {
       ${(() => {
         const discipline = [...new Set(workouts.filter(w => w.has_track || w.track).map(w => w.sport).filter(Boolean))].sort();
         const conPosto = photos.filter(p => p.lat != null).length;
-        if (!legs.length && !discipline.length && !conPosto) return '';
+        if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
         return `<div class="legenda-mappa">
           ${legs.length ? `<span class="voce"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
           ${discipline.map(d => `<span class="voce"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
@@ -522,13 +523,49 @@ async function viewTrip(id) {
     (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(map).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
     (l.pois?.villages || []).slice(0, 12).forEach(v => L.marker([v.lat, v.lon], { icon: dotIcon('#6366f1', '🏘️') }).addTo(map).bindPopup(`<b>${esc(v.name)}</b><br>${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}${v.wikipedia ? `<br><a href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}`));
   });
-  workouts.filter(w => w.track).forEach(w => { L.polyline(w.track.map(p => [p[0], p[1]]), { color: coloreSport(w.sport), weight: 3, dashArray: '4 6' }).addTo(map).bindPopup(`${sportIco(w.sport)} ${esc(w.name || '')}`); });
-  // Le tracce delle attivita' contano per l'inquadratura: una camminata fuori
-  // dal tragitto del camper finirebbe fuori schermo
-  workouts.filter(w => w.track?.length).forEach(w => {
-    const passo = Math.max(1, Math.floor(w.track.length / 20));
-    for (let i = 0; i < w.track.length; i += passo) bounds.push([w.track[i][0], w.track[i][1]]);
+  // Un allenamento senza traccia \u2014 il nuoto in piscina, la camminata sul tapis
+  // \u2014 non ha coordinate proprie. Il posto dove e' successo pero' si sa: e' dove
+  // si era quel giorno, la sosta in cui si dormiva o l'ultima meta raggiunta.
+  // E' una posizione dedotta, non misurata, e si vede che lo e'.
+  const dovEravamo = w => {
+    const g = iso(new Date(w.started_at));
+    const s = soste.find(x => x.lat != null && x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
+    if (s) return { lat: s.lat, lon: s.lon, dove: s.name };
+    const arrivo = legs.filter(l => l.date && l.to_lat != null && iso(l.date) <= g).pop();
+    return arrivo ? { lat: arrivo.to_lat, lon: arrivo.to_lon, dove: arrivo.to_name.split(',')[0] } : null;
+  };
+  let dedotti = 0;
+  workouts.forEach(w => {
+    const traccia = w.track?.length ? w.track.map(x => [x[0], x[1]]) : null;
+    const colore = coloreSport(w.sport);
+    const km = num((w.distance_m || 0) / 1000);
+    let punto = null, circa = false, dove = '';
+    if (traccia) {
+      L.polyline(traccia, { color: colore, weight: 3, dashArray: '4 6' }).addTo(map)
+        .bindPopup(`<b>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</b><br>${fdt(w.started_at)} \u00b7 ${km} km \u00b7 ${dur(w.duration_s)}<br><a href="#/allenamento/${w.id}">Apri l\u2019allenamento</a>`);
+      // L'icona sta a meta' del giro: sull'attivita', e lontana dai segnaposto
+      // delle tappe, che stanno quasi sempre dove si e' partiti
+      punto = traccia[Math.floor(traccia.length / 2)];
+      // La traccia conta per l'inquadratura: una camminata fuori dal tragitto
+      // del camper finirebbe fuori schermo
+      const passo = Math.max(1, Math.floor(traccia.length / 20));
+      for (let i = 0; i < traccia.length; i += passo) bounds.push(traccia[i]);
+    } else {
+      const l = dovEravamo(w);
+      if (!l) return;
+      punto = [l.lat, l.lon]; circa = true; dove = l.dove; dedotti++;
+    }
+    L.marker(punto, { icon: pinSport(w.sport, circa), zIndexOffset: 300, riseOnHover: true })
+      .addTo(map)
+      .bindTooltip(`<b>${esc(w.name || w.sport || 'Allenamento')}</b><br>${fdt(w.started_at)} \u00b7 ${esc(w.athlete)}${w.distance_m ? ' \u00b7 ' + km + ' km' : ''} \u00b7 ${dur(w.duration_s)}${circa ? `<br><i>senza traccia \u00b7 ${esc(dove)}</i>` : ''}`, { direction: 'top', offset: [0, -14] })
+      .on('click', () => { location.hash = '#/allenamento/' + w.id; });
+    if (circa) bounds.push(punto);
   });
+  // La legenda si scrive prima di sapere quanti allenamenti finiranno in un posto
+  // dedotto: il conto vero si sa solo dopo averli messi, e si aggiunge qui
+  if (dedotti) $('.legenda-mappa')?.insertAdjacentHTML('beforeend',
+    `<span class="voce"><i class="cerchio-circa"></i>${dedotti} senza traccia, ${dedotti === 1 ? 'segnato' : 'segnati'} dove eravate</span>`);
+
   // Una foto che porta con se' le coordinate sta sulla mappa nel punto esatto in
   // cui e' stata scattata, e ci sta con la propria faccia: un puntino uguale a
   // tutti gli altri non direbbe quale foto e'.

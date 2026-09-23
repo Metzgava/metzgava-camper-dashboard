@@ -300,3 +300,10 @@ input[type=checkbox], input[type=radio] { width: auto; }
 /* Sulla mappa, una foto sta col suo viso nel punto dove e' stata scattata */
 .pin-foto { width: 46px; height: 46px; border-radius: 50%; overflow: hidden; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); background: var(--surface-2); }
 .pin-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Il segno di un allenamento sulla mappa: si tocca e apre l'allenamento.
+   Tratteggiato quando la posizione non e' misurata ma dedotta da dove si era. */
+.pin-sport { width: 30px; height: 30px; border-radius: 50%; background: var(--surface); border: 2.5px solid; display: grid; place-items: center; font-size: 15px; box-shadow: 0 1px 5px rgba(0,0,0,.35); cursor: pointer; transition: transform .12s; }
+.pin-sport:hover { transform: scale(1.15); }
+.pin-sport.circa { border-style: dashed; opacity: .9; }
+.legenda-mappa .cerchio-circa { width: 13px; height: 13px; border-radius: 50%; border: 2px dashed var(--muted); background: transparent; }
