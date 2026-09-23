@@ -32,6 +32,24 @@ const upload = multer({
 export const router = Router();
 router.use(requireAuth);
 
+// Quando il caricamento si rompe dalla parte del browser, qui non arriva niente
+// da leggere: il guasto resta sullo schermo di chi ci ha provato, e chi deve
+// aggiustarlo tira a indovinare. Questo e' il filo per farcelo sapere.
+router.post('/diagnostica', wrap(async (req, res) => {
+  const b = req.body || {};
+  const corto = (v, n) => String(v ?? '').slice(0, n);
+  console.warn('browser:', JSON.stringify({
+    chi: req.user?.name,
+    dove: corto(b.dove, 60),
+    esito: corto(b.esito, 300),
+    agente: corto(b.agente, 160),
+    tipi: (Array.isArray(b.tipi) ? b.tipi : []).slice(0, 10).map(t => corto(t, 40)),
+    elementi: (Array.isArray(b.elementi) ? b.elementi : []).slice(0, 10),
+    file: (Array.isArray(b.file) ? b.file : []).slice(0, 10),
+  }));
+  res.json({ ok: true });
+}));
+
 router.post('/trips/:id/photos', upload.array('photos', 20), wrap(async (req, res) => {
   const out = [];
   for (const f of req.files || []) {

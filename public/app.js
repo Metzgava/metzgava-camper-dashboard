@@ -378,15 +378,36 @@ const SU_MAC = /Mac/i.test(navigator.userAgentData?.platform || navigator.platfo
 const FOTO_PER_VOLTA = 20;  // quante ne accetta il servizio in una richiesta sola
 const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif|webp|gif|tiff?)$/i.test(f.name || '');
 
+// Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
+// altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
+let segnalazioni = 0;
+const segnala = (dove, esito, extra = {}) => {
+  // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
+  // stesso: da un guasto solo nascerebbero mille righe di log
+  if (segnalazioni++ > 20) return;
+  try { api('/diagnostica', { method: 'POST', body: { dove, esito, agente: navigator.userAgent, ...extra } }).catch(() => {}); } catch { }
+};
+const dettagli = dt => ({
+  tipi: [...(dt?.types || [])],
+  elementi: [...(dt?.items || [])].map(i => ({ genere: i.kind, tipo: i.type })),
+  file: [...(dt?.files || [])].map(f => ({ nome: f.name, tipo: f.type, byte: f.size })),
+});
+
 const DA_FOTO = 'Se le hai trascinate dall\u2019app Foto, prova con \u00ab\ud83d\udcf7 Carica\u00bb: nel pannello, la libreria sta nella colonna di sinistra sotto \u00abMedia\u00bb.';
 
 async function caricaFoto(tripId, elenco) {
   const arrivati = [...(elenco || [])];
   const foto = arrivati.filter(paionoFoto);
-  if (!foto.length) return toast(arrivati.length ? 'Qui dentro non ci sono immagini' : `Il trascinamento non ha portato nessun file. ${DA_FOTO}`, true);
+  if (!foto.length) {
+    segnala('niente-da-caricare', `${arrivati.length} file, nessuna immagine`, { file: arrivati.map(f => ({ nome: f.name, tipo: f.type, byte: f.size })) });
+    return toast(arrivati.length ? 'Qui dentro non ci sono immagini' : `Il trascinamento non ha portato nessun file. ${DA_FOTO}`, true);
+  }
   // Certi trascinamenti promettono il file e consegnano un guscio vuoto: meglio
   // dirlo qui, che lasciar partire una richiesta destinata a non arrivare
-  if (foto.every(f => !f.size)) return toast(`Le foto sono arrivate vuote. ${DA_FOTO}`, true);
+  if (foto.every(f => !f.size)) {
+    segnala('foto-vuote', `${foto.length} file da zero byte`, { file: foto.map(f => ({ nome: f.name, tipo: f.type, byte: f.size })) });
+    return toast(`Le foto sono arrivate vuote. ${DA_FOTO}`, true);
+  }
 
   const didascalia = prompt(foto.length === 1 ? 'Didascalia (facoltativa)' : `Didascalia per queste ${foto.length} foto (facoltativa)`);
   // A gruppi di venti, che e' quanti ne accetta il servizio in una volta: se ne
@@ -401,10 +422,17 @@ async function caricaFoto(tripId, elenco) {
     try {
       caricate += (await api(`/trips/${tripId}/photos`, { method: 'POST', body: fd })).length;
     } catch (e) {
-      // Il messaggio del browser, da solo, non dice niente a nessuno: quello va
-      // nella console per capirci qualcosa, e a schermo va cosa si puo' fare
-      console.error('foto non caricate:', gruppo.map(f => ({ nome: f.name, tipo: f.type, byte: f.size })), e);
-      throw new Error(`Caricamento non riuscito (${e.message}). ${DA_FOTO}`);
+      const elenco = gruppo.map(f => ({ nome: f.name, tipo: f.type, byte: f.size }));
+      console.error('foto non caricate:', elenco, e);
+      segnala('caricamento', e.message, { file: elenco });
+      // Un avviso che scompare in quattro secondi non si fa leggere: un guasto
+      // si guarda con calma, e si deve poter riferire a qualcuno
+      modal(`<h2>Le foto non sono state caricate</h2>
+        <p class="small">Il servizio ha risposto: <b>${esc(e.message)}</b></p>
+        <p class="small muted">${DA_FOTO}</p>
+        <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary" data-x>Ok</button></div>`,
+        (el, close) => { $('[data-x]', el).onclick = close; });
+      return;
     }
   }
   if (!caricate) toast(`Il servizio non ha accettato ${foto.length === 1 ? 'la foto' : 'nessuna delle foto'}. ${DA_FOTO}`, true);
@@ -1859,12 +1887,18 @@ function mostraVelo() {
 window.addEventListener('dragenter', e => { if (!conFile(e)) return; e.preventDefault(); mostraVelo(); });
 window.addEventListener('dragover', e => { if (!conFile(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = viaggioAperto() ? 'copy' : 'none'; mostraVelo(); });
 window.addEventListener('dragend', nascondiVelo);
+// Un errore che nessuno raccoglie muore nella console di chi l'ha visto
+window.addEventListener('error', e => segnala('errore', `${e.message} \u2014 ${e.filename || '?'}:${e.lineno || 0}`));
+window.addEventListener('unhandledrejection', e => segnala('promessa', String(e.reason?.message || e.reason || '')));
 window.addEventListener('blur', nascondiVelo);
 window.addEventListener('drop', safe(async e => {
   if (!conFile(e)) return;
   e.preventDefault();
   nascondiVelo();
   const id = viaggioAperto();
+  // Di ogni trascinamento resta una riga nei log: quando qualcosa non arriva,
+  // e' li' che si vede se il Mac ha consegnato il file o solo la sua promessa
+  segnala('trascinamento', id ? 'nel viaggio ' + id : 'nessun viaggio aperto', dettagli(e.dataTransfer));
   if (!id) return toast('Apri il viaggio dove vuoi mettere le foto, poi trascinale qui', true);
   await caricaFoto(id, e.dataTransfer.files);
 }));
