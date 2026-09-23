@@ -195,22 +195,89 @@ function dateForm(trip, dopo) {
     });
 }
 
+// La durata in giorni: la prima e l'ultima giornata contano tutt'e due, perche'
+// un viaggio che parte e torna lo stesso giorno e' comunque un giorno.
+const giorniViaggio = t => {
+  if (!t.start_date) return 0;
+  const da = new Date(iso(t.start_date)), a = new Date(iso(t.end_date || t.start_date));
+  const g = Math.round((a - da) / 86400000) + 1;
+  return g > 0 && g < 4000 ? g : 0;
+};
+
+// La forma dell'itinerario disegnata dai punti delle tappe: fa da copertina
+// finche' il viaggio non ha foto. Le longitudini si stringono verso i poli,
+// altrimenti alle nostre latitudini ogni percorso sembrerebbe piu' largo di
+// quanto e'.
+function rottaSvg(punti) {
+  const p = (punti || []).filter(x => Number.isFinite(x?.[0]) && Number.isFinite(x?.[1]));
+  if (p.length < 2) return '';
+  const k = Math.cos(p.reduce((a, x) => a + x[0], 0) / p.length * Math.PI / 180) || 1;
+  const xs = p.map(x => x[1] * k), ys = p.map(x => -x[0]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const L = 100, A = 56, orlo = 12;
+  const larg = x1 - x0, alt = y1 - y0;
+  if (!(larg > 1e-9) && !(alt > 1e-9)) return '';
+  const s = Math.min((L - orlo * 2) / (larg || 1e-9), (A - orlo * 2) / (alt || 1e-9));
+  const dx = (L - larg * s) / 2, dy = (A - alt * s) / 2;
+  const q = xs.map((x, i) => [+((x - x0) * s + dx).toFixed(1), +((ys[i] - y0) * s + dy).toFixed(1)]);
+  return `<svg class="rotta" viewBox="0 0 ${L} ${A}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <polyline points="${q.map(a => a.join(',')).join(' ')}"/>
+    <circle class="via" cx="${q[0][0]}" cy="${q[0][1]}" r="2.4"/>
+    <circle class="meta" cx="${q[q.length - 1][0]}" cy="${q[q.length - 1][1]}" r="2.4"/></svg>`;
+}
+
+// L'itinerario in una riga sola. Il rientro a casa non si scrive: in un giro che
+// parte e torna dallo stesso posto quel nome sta gia' in testa, e lo spazio serve
+// ai posti dove si e' stati davvero. Se restano troppi nomi, si tengono i due
+// capi e in mezzo si dice quanti se ne saltano.
+const itinerario = mete => {
+  if (!mete?.length) return '';
+  const andata = mete.length > 2 && mete[0] === mete[mete.length - 1] ? mete.slice(0, -1) : mete;
+  const m = andata.length > 4 ? [andata[0], `+${andata.length - 2} mete`, andata[andata.length - 1]] : andata;
+  return `<div class="itinerario" title="${esc(mete.join(' \u2192 '))}">${m.map(esc).join(' <i>\u2192</i> ')}</div>`;
+};
+
 async function viewTrips() {
   const trips = await api('/trips');
   const open = trips.filter(t => t.status === 'open'), closed = trips.filter(t => t.status !== 'open');
-  const card = t => `<a class="item" href="#/trip/${t.id}"><span class="dot" style="background:${t.status === 'open' ? 'var(--accent)' : 'var(--muted)'}"></span>
-        <div class="grow"><div class="title">${esc(nomeViaggio(t))}</div><div class="meta">${dateCliccabili(t)} \u00b7 ${t.n_legs} tappe \u00b7 ${num(t.km)} km
-    <div class="right"><div style="font-weight:700">${eur(t.total)}</div><span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div></a>`;
+  const card = t => {
+    const g = giorniViaggio(t);
+    return `<a class="viaggio${t.status === 'open' ? ' in-corso' : ''}" href="#/trip/${t.id}">
+      <div class="copertina">${t.cover ? `<img src="/uploads/${esc(t.cover)}" loading="lazy" alt="">` : rottaSvg(t.rotta) || '<span class="senza">🚐</span>'}
+        <span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div>
+      <div class="corpo">
+        <div class="title">${esc(nomeViaggio(t))}</div>
+        <div class="meta">${dateCliccabili(t)}${g ? ` · ${g} giorn${g === 1 ? 'o' : 'i'}` : ''}</div>
+        ${itinerario(t.mete)}
+        <div class="numeri">
+          <span title="Km in camper">🛣️ ${num(t.km, 0)}</span>
+          <span title="${t.n_legs === 1 ? 'Una tappa' : t.n_legs + ' tappe'}">📍 ${t.n_legs}</span>
+          ${t.n_photos ? `<span title="Foto">📷 ${t.n_photos}</span>` : ''}
+          ${t.n_workouts ? `<span title="Allenamenti">🥾 ${t.n_workouts}</span>` : ''}
+          <b>${eur(t.total)}</b></div></div></a>`;
+  };
+  // I viaggi conclusi si raggruppano per anno: quando saranno tanti, l'anno e'
+  // il primo appiglio per ritrovare quello che si sta cercando
+  const perAnno = new Map();
+  closed.forEach(t => {
+    const anno = (t.start_date || t.created_at || '').slice(0, 4) || '—';
+    if (!perAnno.has(anno)) perAnno.set(anno, []);
+    perAnno.get(anno).push(t);
+  });
   const totKm = trips.reduce((a, t) => a + t.km, 0), totSp = trips.reduce((a, t) => a + t.total, 0);
+  const totGg = trips.reduce((a, t) => a + giorniViaggio(t), 0);
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:16px"><h1>I tuoi viaggi</h1><div class="row"><button class="btn" id="carlock">📡 Importa CarLock</button><button class="btn primary" id="new">＋ Nuovo viaggio</button></div></div>
-    <div class="tiles" style="margin-bottom:16px">
-      <div class="tile accent"><div class="label">Viaggi</div><div class="value">${trips.length}</div><div class="sub">${open.length} in corso</div></div>
+    <div class="tiles" style="margin-bottom:18px">
+      <div class="tile accent"><div class="label">Viaggi</div><div class="value">${trips.length}</div><div class="sub">${open.length ? open.length + ' in corso' : 'nessuno in corso'}</div></div>
+      <div class="tile"><div class="label">Giorni in viaggio</div><div class="value">${num(totGg, 0)}</div><div class="sub">${trips.length ? num(totGg / trips.length, 1) + ' a viaggio' : ''}</div></div>
       <div class="tile"><div class="label">Km in camper</div><div class="value">${num(totKm, 0)}</div><div class="sub">~${num(totKm / (settings.vehicle?.km_per_liter || 10), 0)} litri</div></div>
       <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub">${totKm ? eur(totSp / totKm) + '/km' : ''}</div></div>
     </div>
-    ${open.length ? `<div class="section"><h2 style="margin-bottom:8px">In corso</h2><div class="card pad-0 list">${open.map(card).join('')}</div></div>` : ''}
-    <div class="section"><h2 style="margin-bottom:8px">Conclusi</h2><div class="card pad-0 list">${closed.length ? closed.map(card).join('') : '<div class="empty">Nessun viaggio concluso.<br>Crea il primo viaggio e aggiungi le tappe: distanze e gasolio si calcolano da soli.</div>'}</div></div>`);
+    ${open.length ? `<div class="section"><div class="anno">In corso</div><div class="viaggi">${open.map(card).join('')}</div></div>` : ''}
+    ${closed.length
+      ? [...perAnno.entries()].map(([anno, lista]) => `<div class="section"><div class="anno">${esc(anno)} · <span>${lista.length} viagg${lista.length === 1 ? 'io' : 'i'}</span></div><div class="viaggi">${lista.map(card).join('')}</div></div>`).join('')
+      : open.length ? '' : '<div class="card"><div class="empty">Nessun viaggio.<br>Crea il primo e aggiungi le tappe: distanze, gasolio e pedaggi si calcolano da soli.</div></div>'}`);
   $('#new').onclick = () => tripForm();
   $('#carlock').onclick = () => carlockImport(null, open);
 }

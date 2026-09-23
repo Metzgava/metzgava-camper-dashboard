@@ -146,9 +146,25 @@ router.get('/trips', wrap(async (req, res) => {
       (SELECT coalesce(sum(amount * rate),0)::float FROM expenses WHERE trip_id=t.id) AS total,
       (SELECT count(*)::int FROM legs WHERE trip_id=t.id) AS n_legs,
       (SELECT count(*)::int FROM photos WHERE trip_id=t.id) AS n_photos,
-      (SELECT count(*)::int FROM workouts WHERE trip_id=t.id AND meta->'copiato_da' IS NULL) AS n_workouts
+      (SELECT count(*)::int FROM workouts WHERE trip_id=t.id AND meta->'copiato_da' IS NULL) AS n_workouts,
+      -- La copertina della scheda: la prima foto del viaggio, per data di scatto
+      (SELECT filename FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1) AS cover
     FROM trips t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
-  res.json(trips);
+  // Mete e forma dell'itinerario per la scheda. Si prendono i soli estremi delle
+  // tappe, non le geometrie: quelle di CarLock pesano quanto tutto il resto e
+  // qui basta il profilo del viaggio, non il tracciato metro per metro.
+  const tappe = (await q('SELECT trip_id, from_name, from_lat, from_lon, to_name, to_lat, to_lon FROM legs ORDER BY trip_id, position, id')).rows;
+  const perViaggio = new Map();
+  for (const l of tappe) {
+    if (!perViaggio.has(l.trip_id)) perViaggio.set(l.trip_id, { mete: [], rotta: [] });
+    const v = perViaggio.get(l.trip_id);
+    for (const [nome, lat, lon] of [[l.from_name, l.from_lat, l.from_lon], [l.to_name, l.to_lat, l.to_lon]]) {
+      const breve = String(nome || '').split(',')[0].trim();
+      if (breve && breve !== v.mete[v.mete.length - 1]) v.mete.push(breve);
+      if (lat != null && lon != null) v.rotta.push([lat, lon]);
+    }
+  }
+  res.json(trips.map(t => ({ ...t, ...(perViaggio.get(t.id) || { mete: [], rotta: [] }) })));
 }));
 router.post('/trips', wrap(async (req, res) => {
   const s = await getSettings();
