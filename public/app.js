@@ -380,6 +380,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
+const VERSIONE = 'v8';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1789,7 +1790,16 @@ async function render(opzioni = {}) {
   document.body.onclick = null;
   const eraA = window.scrollY;
   try {
-    if (!user) { const me = await api('/auth/me'); if (me.user?.approved) { user = me.user; [settings, atleti] = await Promise.all([api('/settings'), api('/athletes')]); } else return viewAuth(me.setup); }
+    if (!user) {
+      const me = await api('/auth/me');
+      if (me.user?.approved) {
+        user = me.user; [settings, atleti] = await Promise.all([api('/settings'), api('/athletes')]);
+        // Una riga sola per ogni apertura, con la versione del codice che sta
+        // girando davvero: senza, davanti a un guasto non si sa nemmeno se chi
+        // lo vede ha in mano l'ultima correzione o quella di ieri
+        segnala('avvio', VERSIONE);
+      } else return viewAuth(me.setup);
+    }
     const h = location.hash || '#/';
     const m = h.match(/^#\/(trip|allenamenti|allenamento)\/?(\d+)?/);
     if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
@@ -1864,8 +1874,17 @@ document.addEventListener('click', e => {
 const veloFoto = document.createElement('div');
 veloFoto.className = 'velo-pagina';
 veloFoto.innerHTML = '<div><b></b><span></span></div>';
-const conFile = e => [...(e.dataTransfer?.types || [])].includes('Files')
-  && !document.querySelector('.modal-bg') && !e.target?.closest?.('input[type=file], label');
+// Un file trascinato che la pagina non ferma, il browser lo apre: la dashboard
+// sparisce e al suo posto resta la foto, o un errore suo che non spiega niente.
+// Quindi lo ferma sempre, dovunque cada — anche sopra il pulsante «Carica», che
+// e' proprio dove uno punta, e che da solo non saprebbe prenderlo: il campo che
+// riceve i file li' sotto e' nascosto, e un campo nascosto i file non li piglia.
+// L'unica eccezione e' un campo file in vista, che sa gia' fare da se'.
+const conFile = e => {
+  if (![...(e.dataTransfer?.types || [])].includes('Files')) return false;
+  const campo = e.target?.closest?.('input[type=file]');
+  return !(campo && !campo.hidden && campo.offsetParent !== null);
+};
 const viaggioAperto = () => { const m = (location.hash || '').match(/^#\/trip\/(\d+)/); return m ? +m[1] : null; };
 // Il velo non si conta le entrate e le uscite: un trascinamento che esce dalla
 // finestra senza salutare lascerebbe il conto sbilanciato e il velo o sempre
@@ -1884,8 +1903,8 @@ function mostraVelo() {
   clearTimeout(spegniVelo);
   spegniVelo = setTimeout(nascondiVelo, 900);
 }
-window.addEventListener('dragenter', e => { if (!conFile(e)) return; e.preventDefault(); mostraVelo(); });
-window.addEventListener('dragover', e => { if (!conFile(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = viaggioAperto() ? 'copy' : 'none'; mostraVelo(); });
+window.addEventListener('dragenter', e => { if (!conFile(e)) return; e.preventDefault(); if (!document.querySelector('.modal-bg')) mostraVelo(); });
+window.addEventListener('dragover', e => { if (!conFile(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = viaggioAperto() ? 'copy' : 'none'; if (!document.querySelector('.modal-bg')) mostraVelo(); });
 window.addEventListener('dragend', nascondiVelo);
 // Un errore che nessuno raccoglie muore nella console di chi l'ha visto
 window.addEventListener('error', e => segnala('errore', `${e.message} \u2014 ${e.filename || '?'}:${e.lineno || 0}`));
@@ -1899,6 +1918,9 @@ window.addEventListener('drop', safe(async e => {
   // Di ogni trascinamento resta una riga nei log: quando qualcosa non arriva,
   // e' li' che si vede se il Mac ha consegnato il file o solo la sua promessa
   segnala('trascinamento', id ? 'nel viaggio ' + id : 'nessun viaggio aperto', dettagli(e.dataTransfer));
+  // Con un pannello aperto il file non e' nostro, ma fermarlo si': dentro c'e'
+  // un modulo a mezzo, e lasciare che il browser apra la foto lo butterebbe via
+  if (document.querySelector('.modal-bg')) return toast('Chiudi prima il pannello aperto, poi trascina le foto', true);
   if (!id) return toast('Apri il viaggio dove vuoi mettere le foto, poi trascinale qui', true);
   await caricaFoto(id, e.dataTransfer.files);
 }));
