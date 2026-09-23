@@ -382,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v11';
+const VERSIONE = 'v12';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1496,6 +1496,39 @@ async function viewWorkouts(idAtleta) {
     toast('Allenamento eliminato'); render();
   }));
 }
+// Il battito di un'uscita, minuto per minuto. La media e il massimo sono due
+// numeri; la curva racconta dove si e' spinto e dove si e' tirato il fiato.
+const mmss = s => { const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`; };
+function graficoBattiti(serie) {
+  if (!Array.isArray(serie) || serie.length < 2) return '';
+  const bpm = serie.map(p => p[1]);
+  const minimo = Math.min(...bpm), massimo = Math.max(...bpm);
+  const durata = serie[serie.length - 1][0] || 1;
+  const media = Math.round(serie.reduce((t, p) => t + p[1], 0) / serie.length);
+  const L = 640, A = 210, sx = 40, dx = 10, su = 12, giu = 26;
+  const respiro = Math.max(6, (massimo - minimo) * 0.12);
+  const basso = Math.max(30, minimo - respiro), alto = massimo + respiro;
+  const X = t => sx + (t / durata) * (L - sx - dx);
+  const Y = v => su + (1 - (v - basso) / (alto - basso)) * (A - su - giu);
+  const punti = serie.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`);
+  const base = (A - giu).toFixed(1);
+  const area = `M${punti[0]} L${punti.join(' L')} L${X(durata).toFixed(1)},${base} L${sx},${base} Z`;
+  const tacche = [massimo, media, minimo];
+  const griglia = tacche.map(v => `<line x1="${sx}" y1="${Y(v).toFixed(1)}" x2="${L - dx}" y2="${Y(v).toFixed(1)}" class="griglia"/>
+    <text x="${sx - 6}" y="${(Y(v) + 3.5).toFixed(1)}" class="tacca" text-anchor="end">${v}</text>`).join('');
+  const orari = [0, durata / 2, durata].map((t, i) => `<text x="${X(t).toFixed(1)}" y="${A - 8}" class="tacca" text-anchor="${i === 0 ? 'start' : i === 1 ? 'middle' : 'end'}">${mmss(t)}</text>`).join('');
+  const coordinate = serie.map(p => ({ x: +X(p[0]).toFixed(1), y: +Y(p[1]).toFixed(1), t: p[0], bpm: p[1] }));
+  return `<div class="card" style="margin-top:14px"><div class="row between"><h2>\u2764\ufe0f Battito</h2>
+      <div class="small muted">${serie.length} misure \u00b7 min ${minimo} \u00b7 media ${media} \u00b7 max ${massimo} bpm</div></div>
+    <svg class="grafico-peso grafico-battito" viewBox="0 0 ${L} ${A}" role="img" aria-label="Battito durante l\u2019allenamento"
+        data-larghezza="${L}" data-battiti="${esc(JSON.stringify(coordinate))}">
+      ${griglia}<path d="${area}" class="area"/><polyline points="${punti.join(' ')}" class="linea"/>
+      <line class="guida-scelta" y1="${su}" y2="${base}" x1="0" x2="0" hidden/>
+      <circle class="punto-scelto" r="6" cx="0" cy="0" hidden/>
+      ${orari}<rect class="tocco" x="0" y="0" width="${L}" height="${A}" fill="transparent"/></svg>
+    <div class="peso-scelto" id="battito-scelto">Tocca il grafico per vedere minuto e battito</div></div>`;
+}
+
 async function viewWorkout(id) {
   const w = await api('/workouts/' + id);
   const trips = await api('/trips');
@@ -1504,6 +1537,7 @@ async function viewWorkout(id) {
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
     <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}${w.peso_kg != null ? stat('Peso', `${num(w.peso_kg, 1)} kg<div class="sub">pesata del giorno</div>`) : ''}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
+    ${graficoBattiti(w.hr_track)}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
       <select id="trip">
         <option value="auto" ${w.trip_manual ? '' : 'selected'}>Automatico, in base alle date</option>
@@ -1521,6 +1555,28 @@ async function viewWorkout(id) {
     await api('/workouts/' + id, { method: 'PUT', body: v === 'auto' ? { trip_auto: true } : { trip_id: v || null } });
     toast(v === 'auto' ? 'Torna all\u2019abbinamento automatico' : 'Salvato'); render();
   });
+  // Come per il peso: sul telefono il passaggio del mouse non esiste, e i
+  // suggerimenti del disegno resterebbero muti
+  const disegno = $('.grafico-battito');
+  if (disegno) {
+    const coordinate = JSON.parse(disegno.dataset.battiti);
+    const larghezza = +disegno.dataset.larghezza;
+    const guida = $('.guida-scelta', disegno), segno = $('.punto-scelto', disegno), scritta = $('#battito-scelto');
+    const cerca = e => {
+      const r = disegno.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width * larghezza;
+      let vicino = 0;
+      coordinate.forEach((p, i) => { if (Math.abs(p.x - x) < Math.abs(coordinate[vicino].x - x)) vicino = i; });
+      const p = coordinate[vicino];
+      guida.setAttribute('x1', p.x); guida.setAttribute('x2', p.x); guida.removeAttribute('hidden');
+      segno.setAttribute('cx', p.x); segno.setAttribute('cy', p.y); segno.removeAttribute('hidden');
+      scritta.innerHTML = `<b>${p.bpm} bpm</b> \u00b7 dopo ${mmss(p.t)}`;
+    };
+    let premuto = false;
+    disegno.addEventListener('pointerdown', e => { premuto = true; cerca(e); });
+    disegno.addEventListener('pointermove', e => { if (premuto) cerca(e); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(v => disegno.addEventListener(v, () => { premuto = false; }));
+  }
   $('#mod').onclick = () => modificaWorkout(w, render);
   $('#ren').onclick = () => renameWorkout(id, w.name || w.sport || '', render);
   $('#del').onclick = safe(async () => { if (await confirmDlg('Eliminare l\'allenamento?')) { await api('/workouts/' + id, { method: 'DELETE' }); location.hash = tornaAllenamenti(w); } });

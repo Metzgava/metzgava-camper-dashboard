@@ -307,3 +307,8 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .pin-sport:hover { transform: scale(1.15); }
 .pin-sport.circa { border-style: dashed; opacity: .9; }
 .legenda-mappa .cerchio-circa { width: 13px; height: 13px; border-radius: 50%; border: 2px dashed var(--muted); background: transparent; }
+
+/* La curva del battito usa il disegno del peso, col colore che le compete */
+.grafico-battito .area { fill: #ef4444; opacity: .13; }
+.grafico-battito .linea { stroke: #ef4444; stroke-width: 2.2; }
+.grafico-battito .punto-scelto { fill: #ef4444; }

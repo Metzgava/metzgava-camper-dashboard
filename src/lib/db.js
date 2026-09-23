@@ -194,6 +194,9 @@ export async function migrate() {
   -- foto restano al viaggio: sono del posto dove si e' stati, non della riga.
   ALTER TABLE photos ADD COLUMN IF NOT EXISTS stop_id INT REFERENCES stops(id) ON DELETE SET NULL;
   CREATE INDEX IF NOT EXISTS idx_photos_stop ON photos(stop_id);
+  -- Il battito di un allenamento non e' solo la media e il massimo: e' una curva.
+  -- [[secondi dall'inizio, bpm], ...], campionata come le tracce.
+  ALTER TABLE workouts ADD COLUMN IF NOT EXISTS hr_track JSONB;
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'EUR';
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS rate NUMERIC(12,6) NOT NULL DEFAULT 1;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS fuel_currency TEXT NOT NULL DEFAULT 'EUR';

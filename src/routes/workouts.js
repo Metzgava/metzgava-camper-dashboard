@@ -35,18 +35,19 @@ async function saveWorkout(userId, w, tripId = null, opzioni = {}) {
   const sportNorm = normalizzaSport(w.sport);
   const nomeNorm = (w.name && w.sport && String(w.name).trim() === String(w.sport).trim()) ? sportNorm : w.name;
   w = { ...w, sport: sportNorm, name: nomeNorm };
-  const r = await q(`INSERT INTO workouts(user_id,trip_id,source,external_id,sport,name,started_at,duration_s,distance_m,elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,meta)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+  const r = await q(`INSERT INTO workouts(user_id,trip_id,source,external_id,sport,name,started_at,duration_s,distance_m,elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,hr_track,meta)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
     ON CONFLICT (user_id,source,external_id) DO UPDATE SET
       sport=coalesce(EXCLUDED.sport,workouts.sport), name=coalesce(EXCLUDED.name,workouts.name), duration_s=coalesce(EXCLUDED.duration_s,workouts.duration_s),
       distance_m=coalesce(EXCLUDED.distance_m,workouts.distance_m), elevation_up_m=coalesce(EXCLUDED.elevation_up_m,workouts.elevation_up_m),
       calories=coalesce(EXCLUDED.calories,workouts.calories), hr_avg=coalesce(EXCLUDED.hr_avg,workouts.hr_avg), hr_max=coalesce(EXCLUDED.hr_max,workouts.hr_max),
-      speed_avg_kmh=coalesce(EXCLUDED.speed_avg_kmh,workouts.speed_avg_kmh), track=coalesce(EXCLUDED.track,workouts.track), meta=coalesce(workouts.meta,'{}')::jsonb || coalesce(EXCLUDED.meta,'{}')::jsonb,
+      speed_avg_kmh=coalesce(EXCLUDED.speed_avg_kmh,workouts.speed_avg_kmh), track=coalesce(EXCLUDED.track,workouts.track),
+      hr_track=coalesce(EXCLUDED.hr_track,workouts.hr_track), meta=coalesce(workouts.meta,'{}')::jsonb || coalesce(EXCLUDED.meta,'{}')::jsonb,
       trip_id=coalesce(workouts.trip_id, EXCLUDED.trip_id)
     RETURNING *`,
     [userId, tripId ?? await guessTrip(w.started_at), w.source, idEsterno, w.sport || null, w.name || null, w.started_at,
       w.duration_s ?? null, w.distance_m ?? null, w.elevation_up_m ?? null, w.calories ?? null, w.hr_avg ?? null, w.hr_max ?? null, w.speed_avg_kmh ?? null,
-      w.track ? JSON.stringify(w.track) : null, w.meta ? JSON.stringify(w.meta) : null]);
+      w.track ? JSON.stringify(w.track) : null, w.hr_track ? JSON.stringify(w.hr_track) : null, w.meta ? JSON.stringify(w.meta) : null]);
   return r.rows[0];
 }
 
@@ -63,8 +64,10 @@ async function mergeHealthIntoTrack(userId, w) {
   const r = await q(`SELECT * FROM workouts WHERE user_id=$1 AND source IN ('komoot','gpx','strava') AND abs(extract(epoch FROM (started_at - $2::timestamptz))) < 900 ORDER BY abs(extract(epoch FROM (started_at - $2::timestamptz))) LIMIT 1`, [userId, start]);
   const match = r.rows[0];
   if (!match) return null;
-  await q(`UPDATE workouts SET calories=coalesce($2,calories), hr_avg=coalesce($3,hr_avg), hr_max=coalesce($4,hr_max), meta=coalesce(meta,'{}')::jsonb || $5::jsonb WHERE id=$1`,
-    [match.id, w.calories ?? null, w.hr_avg ?? null, w.hr_max ?? null, JSON.stringify({ health: w.meta || {}, merged_from_health: true })]);
+  await q(`UPDATE workouts SET calories=coalesce($2,calories), hr_avg=coalesce($3,hr_avg), hr_max=coalesce($4,hr_max),
+      hr_track=coalesce($6::jsonb,hr_track), meta=coalesce(meta,'{}')::jsonb || $5::jsonb WHERE id=$1`,
+    [match.id, w.calories ?? null, w.hr_avg ?? null, w.hr_max ?? null, JSON.stringify({ health: w.meta || {}, merged_from_health: true }),
+      w.hr_track ? JSON.stringify(w.hr_track) : null]);
   return match.id;
 }
 
@@ -112,6 +115,24 @@ function healthDistance(d) {
 // diecimila, e sulla mappa se ne distinguono seicento. Komoot e Strava
 // arrivano gia' ridotti, e tenere le tracce leggere alleggerisce ogni cosa che
 // le rilegge — la pulizia dei doppioni per prima.
+// Il battito che arriva da Salute non e' un numero solo: e' una serie di misure
+// con l'ora di ognuna. Qui diventa [[secondi dall'inizio, bpm], ...], che occupa
+// un terzo dello spazio e si disegna uguale. Le misure prima della partenza o
+// dopo l'arrivo restano fuori: sono di un altro momento.
+function serieBattiti(w) {
+  const dati = Array.isArray(w?.heartRateData) ? w.heartRateData : null;
+  if (!dati?.length) return null;
+  const inizio = new Date(w.start).getTime();
+  if (!Number.isFinite(inizio)) return null;
+  const fine = w.end ? new Date(w.end).getTime() : null;
+  const punti = dati
+    .map(x => [new Date(x?.date).getTime(), Math.round(num(x?.qty ?? x?.Avg ?? x?.avg))])
+    .filter(([t, bpm]) => Number.isFinite(t) && bpm > 20 && bpm < 260 && t >= inizio - 60_000 && (!fine || t <= fine + 60_000))
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, bpm]) => [Math.max(0, Math.round((t - inizio) / 1000)), bpm]);
+  return punti.length > 1 ? samplePoints(punti, 400) : null;
+}
+
 function healthTrack(route) {
   if (!Array.isArray(route)) return null;
   const pts = route
@@ -168,7 +189,7 @@ export function itemsDaPacchetto(body, origine) {
       hr_avg: w.avgHeartRate?.qty != null ? Math.round(num(w.avgHeartRate.qty)) : (w.heartRate?.avg?.qty != null ? Math.round(num(w.heartRate.avg.qty)) : null),
       hr_max: w.maxHeartRate?.qty != null ? Math.round(num(w.maxHeartRate.qty)) : (w.heartRate?.max?.qty != null ? Math.round(num(w.heartRate.max.qty)) : null),
       elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
-      track: healthTrack(w.route),
+      track: healthTrack(w.route), hr_track: serieBattiti(w),
       meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null,
         nome_originale: w.name !== normalizzaSport(w.name) ? w.name : undefined,
         energia_da: energiaAllenamento(w).da || undefined,
@@ -396,7 +417,7 @@ function famigliaSport(s) {
 }
 
 // Quanto e' completo un record: a parita' di uscita teniamo quello che dice di piu'
-const ricchezza = w => (w.has_track ? 4 : 0) + (['komoot', 'gpx', 'strava'].includes(w.source) ? 2 : 0)
+const ricchezza = w => (w.has_track ? 4 : 0) + (w.has_hr ? 1 : 0) + (['komoot', 'gpx', 'strava'].includes(w.source) ? 2 : 0)
   + (w.calories ? 1 : 0) + (w.hr_avg ? 1 : 0) + (w.elevation_up_m ? 1 : 0);
 
 // Due record sono lo stesso allenamento se stesso atleta, stessa famiglia di sport,
@@ -446,11 +467,12 @@ router.post('/workouts/copy', wrap(async (req, res) => {
     // L'identificativo della copia e' distinto da quello della sorgente, cosi' un
     // domani un import di Cate non si sovrascrive con questa copia
     const r = await q(`INSERT INTO workouts(user_id,trip_id,trip_manual,source,external_id,sport,name,started_at,duration_s,distance_m,
-        elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,meta)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,hr_track,meta)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       ON CONFLICT (user_id,source,external_id) DO NOTHING RETURNING id`,
       [dest, o.trip_id, o.trip_manual, o.source, `copia-${o.id}`, o.sport, o.name, o.started_at, o.duration_s, o.distance_m,
         o.elevation_up_m, o.calories, o.hr_avg, o.hr_max, o.speed_avg_kmh, o.track ? JSON.stringify(o.track) : null,
+        o.hr_track ? JSON.stringify(o.hr_track) : null,
         JSON.stringify({ ...(o.meta || {}), copiato_da: { id: o.id, atleta: req.user.name } })]);
     if (r.rows[0]) copiati++; else gia++;
   }
@@ -547,7 +569,8 @@ export async function rimuoviDoppioniAutomatici(userId = null) {
   // questa pulizia gira dopo ogni invio dal telefono. Serve solo sapere se c'e',
   // e il contenuto si va a prendere per il singolo record che lo deve cedere.
   const rows = (await q(`SELECT w.id, w.user_id, w.source, w.sport, w.started_at, w.distance_m, w.duration_s,
-      w.elevation_up_m, w.calories, w.hr_avg, w.hr_max, w.speed_avg_kmh, w.trip_id, (w.track IS NOT NULL) AS has_track
+      w.elevation_up_m, w.calories, w.hr_avg, w.hr_max, w.speed_avg_kmh, w.trip_id, (w.track IS NOT NULL) AS has_track,
+      (w.hr_track IS NOT NULL) AS has_hr
     FROM workouts w ${dove} ORDER BY w.started_at`, userId ? [userId] : [])).rows;
 
   const visti = new Set();
@@ -581,19 +604,20 @@ export async function rimuoviDoppioniAutomatici(userId = null) {
       const donatore = scartati.find(x => x[campo] != null);
       if (donatore) mancanti[campo] = donatore[campo];
     }
-    // La traccia si va a prendere solo se al superstite manca e qualcuno ce l'ha
-    if (!tenuto.has_track) {
-      const donatore = scartati.find(x => x.has_track);
-      if (donatore) {
-        const t = (await q('SELECT track FROM workouts WHERE id=$1', [donatore.id])).rows[0]?.track;
-        if (t) mancanti.track = t;
-      }
+    // La traccia e la curva del battito si vanno a prendere solo se al superstite
+    // mancano e qualcuno ce le ha: pesano, e leggerle per tutti sarebbe sprecato
+    for (const [campo, ce] of [['track', 'has_track'], ['hr_track', 'has_hr']]) {
+      if (tenuto[ce]) continue;
+      const donatore = scartati.find(x => x[ce]);
+      if (!donatore) continue;
+      const v = (await q(`SELECT ${campo} AS v FROM workouts WHERE id=$1`, [donatore.id])).rows[0]?.v;
+      if (v) mancanti[campo] = v;
     }
     const chiavi = Object.keys(mancanti);
     if (chiavi.length) {
       const set = chiavi.map((k, n) => `${k}=$${n + 2}`).join(', ');
       await q(`UPDATE workouts SET ${set} WHERE id=$1`,
-        [tenuto.id, ...chiavi.map(k => (k === 'track' ? JSON.stringify(mancanti[k]) : mancanti[k]))]);
+        [tenuto.id, ...chiavi.map(k => (k === 'track' || k === 'hr_track' ? JSON.stringify(mancanti[k]) : mancanti[k]))]);
       travasati++;
     }
     await q('DELETE FROM workouts WHERE id = ANY($1::int[])', [scartati.map(x => x.id)]);
@@ -721,15 +745,22 @@ router.post('/workouts/gruppi/unisci', wrap(async (req, res) => {
     const u = fondiPezzi(righe);
     const tenuto = righe[0];
     const traccia = righe.filter(r => r.track).flatMap(r => r.track);
+    // Le curve del battito dei tronconi si rimettono in fila, ognuna spostata di
+    // quanto e' distante il suo inizio dall'inizio del primo
+    const zero = new Date(righe[0].started_at).getTime();
+    const battiti = righe.filter(r => r.hr_track?.length).flatMap(r => {
+      const scarto = Math.max(0, Math.round((new Date(r.started_at).getTime() - zero) / 1000));
+      return r.hr_track.map(([t, bpm]) => [t + scarto, bpm]);
+    }).sort((a, b) => a[0] - b[0]);
     await q(`UPDATE workouts SET duration_s=$2, distance_m=$3, elevation_up_m=$4, calories=$5, hr_avg=$6, hr_max=$7,
-        speed_avg_kmh=$8, track=$9, trip_id=$10, external_id=$11,
+        speed_avg_kmh=$8, track=$9, hr_track=$14, trip_id=$10, external_id=$11,
         meta = coalesce(meta,'{}')::jsonb || jsonb_build_object('unito_da', $12::jsonb, 'pezzi_uniti', $13::int)
       WHERE id=$1`,
       [tenuto.id, u.duration_s, u.distance_m, u.elevation_up_m, u.calories, u.hr_avg, u.hr_max, u.speed_avg_kmh,
         traccia.length ? JSON.stringify(traccia) : null, u.trip_id, `unione-${tenuto.id}`,
         JSON.stringify(righe.map(r => ({ id: r.id, source: r.source, external_id: r.external_id, started_at: r.started_at,
           duration_s: r.duration_s, distance_m: r.distance_m, calories: r.calories, hr_avg: r.hr_avg }))),
-        righe.length]);
+        righe.length, battiti.length ? JSON.stringify(battiti) : null]);
     // I tronconi non devono tornare col prossimo scarico, nemmeno il primo, che
     // ora vive sotto un altro identificativo
     for (const r of righe) {
