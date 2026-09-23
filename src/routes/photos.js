@@ -11,13 +11,22 @@ import { requireAuth } from './auth.js';
 export const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve('uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+const IMMAGINE = /\.(jpe?g|png|heic|heif|webp|gif|tiff?|avif|bmp)$/i;
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
     filename: (req, file, cb) => cb(null, `${Date.now()}-${randomToken(6)}${path.extname(file.originalname || '.jpg').toLowerCase() || '.jpg'}`),
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+  // Il tipo dichiarato non basta: certi file trascinati arrivano come
+  // application/octet-stream, e scartarli in silenzio significa una foto che
+  // sparisce senza che nessuno sappia perche'
+  fileFilter: (req, file, cb) => {
+    const va = /^image\//.test(file.mimetype) || IMMAGINE.test(file.originalname || '');
+    if (!va) console.warn(`foto rifiutata: ${file.originalname} (${file.mimetype})`);
+    cb(null, va);
+  },
 });
 
 export const router = Router();

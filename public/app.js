@@ -378,21 +378,38 @@ const SU_MAC = /Mac/i.test(navigator.userAgentData?.platform || navigator.platfo
 const FOTO_PER_VOLTA = 20;  // quante ne accetta il servizio in una richiesta sola
 const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif|webp|gif|tiff?)$/i.test(f.name || '');
 
+const DA_FOTO = 'Se le hai trascinate dall\u2019app Foto, prova con \u00ab\ud83d\udcf7 Carica\u00bb: nel pannello, la libreria sta nella colonna di sinistra sotto \u00abMedia\u00bb.';
+
 async function caricaFoto(tripId, elenco) {
-  const foto = [...(elenco || [])].filter(paionoFoto);
-  if (!foto.length) return toast('Qui dentro non ci sono immagini', true);
+  const arrivati = [...(elenco || [])];
+  const foto = arrivati.filter(paionoFoto);
+  if (!foto.length) return toast(arrivati.length ? 'Qui dentro non ci sono immagini' : `Il trascinamento non ha portato nessun file. ${DA_FOTO}`, true);
+  // Certi trascinamenti promettono il file e consegnano un guscio vuoto: meglio
+  // dirlo qui, che lasciar partire una richiesta destinata a non arrivare
+  if (foto.every(f => !f.size)) return toast(`Le foto sono arrivate vuote. ${DA_FOTO}`, true);
+
   const didascalia = prompt(foto.length === 1 ? 'Didascalia (facoltativa)' : `Didascalia per queste ${foto.length} foto (facoltativa)`);
   // A gruppi di venti, che e' quanti ne accetta il servizio in una volta: se ne
   // arrivano quaranta dall'app Foto, non se ne perde nessuna per strada
+  let caricate = 0;
   for (let i = 0; i < foto.length; i += FOTO_PER_VOLTA) {
     const gruppo = foto.slice(i, i + FOTO_PER_VOLTA);
     const fd = new FormData();
     gruppo.forEach(f => fd.append('photos', f));
     if (didascalia) fd.append('caption', didascalia);
     toast(foto.length > FOTO_PER_VOLTA ? `Carico ${i + gruppo.length} di ${foto.length}\u2026` : 'Caricamento foto\u2026');
-    await api(`/trips/${tripId}/photos`, { method: 'POST', body: fd });
+    try {
+      caricate += (await api(`/trips/${tripId}/photos`, { method: 'POST', body: fd })).length;
+    } catch (e) {
+      // Il messaggio del browser, da solo, non dice niente a nessuno: quello va
+      // nella console per capirci qualcosa, e a schermo va cosa si puo' fare
+      console.error('foto non caricate:', gruppo.map(f => ({ nome: f.name, tipo: f.type, byte: f.size })), e);
+      throw new Error(`Caricamento non riuscito (${e.message}). ${DA_FOTO}`);
+    }
   }
-  toast(foto.length === 1 ? 'Foto caricata' : `${foto.length} foto caricate`);
+  if (!caricate) toast(`Il servizio non ha accettato ${foto.length === 1 ? 'la foto' : 'nessuna delle foto'}. ${DA_FOTO}`, true);
+  else if (caricate < foto.length) toast(`Caricate ${caricate} foto su ${foto.length}: le altre non sono state accettate`, true);
+  else toast(foto.length === 1 ? 'Foto caricata' : `${foto.length} foto caricate`);
   render();
 }
 
@@ -449,9 +466,8 @@ async function viewTrip(id) {
         <div class="card barra-selezione" id="barra-foto" hidden style="margin-top:10px;padding:10px 12px">
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
-        ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina qui gli scatti dall\u2019app Foto o dal Finder, oppure copiali e incollali con \u2318V.</div>` : ''}
-        <div class="zona-foto" id="zona-foto"><div class="velo"><b>Lascia qui le foto</b></div>
-        <div class="photos${photos.length ? '' : ' empty-grid'}" id="photos">${photos.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || '<div class="muted small">Nessuna foto. Le foto con GPS vengono posizionate sulla mappa.</div>'}</div></div></div>
+        ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
+        <div class="photos${photos.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${photos.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || '<div class="muted small">Nessuna foto. Le foto con GPS vengono posizionate sulla mappa.</div>'}</div></div>
       <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
     </div>`);
 
@@ -559,22 +575,7 @@ async function viewTrip(id) {
   // Il collegamento apre l'app Foto da se': qui si dice solo cosa farne, perche'
   // aprirla e basta lascerebbe l'utente davanti alla libreria senza sapere come
   // portarne fuori uno scatto
-  $('#apri-foto')?.addEventListener('click', () => toast('Trascina gli scatti dall\u2019app Foto dentro il riquadro'));
-  // Il riquadro delle foto accetta quello che ci si lascia cadere sopra: scatti
-  // trascinati dall'app Foto, file dal Finder, immagini da un'altra finestra
-  const zona = $('#zona-foto');
-  let dentro = 0;
-  const haFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
-  zona.addEventListener('dragenter', e => { if (!haFile(e)) return; e.preventDefault(); if (++dentro === 1) zona.classList.add('sopra'); });
-  zona.addEventListener('dragover', e => { if (!haFile(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
-  zona.addEventListener('dragleave', () => { if (--dentro <= 0) { dentro = 0; zona.classList.remove('sopra'); } });
-  zona.addEventListener('drop', safe(async e => {
-    e.preventDefault(); dentro = 0; zona.classList.remove('sopra');
-    // Certi trascinamenti promettono il file e non lo consegnano. Meglio dirlo
-    // e indicare la strada sicura, che lasciare un riquadro che non fa niente.
-    if (!e.dataTransfer.files.length) return toast('Da qui il trascinamento non porta il file: usa \u00ab\ud83d\udcf7 Carica\u00bb e scegli Foto nella colonna a sinistra, sotto Media', true);
-    await caricaFoto(id, e.dataTransfer.files);
-  }));
+  $('#apri-foto')?.addEventListener('click', () => toast('Trascina gli scatti dall\u2019app Foto su questa pagina'));
   // Le foto si tolgono una per volta col suo \u2715, oppure a gruppi: si entra in
   // selezione, si toccano quelle da togliere e si conferma una volta sola
   const scelteFoto = new Set();
@@ -1826,6 +1827,47 @@ document.addEventListener('click', e => {
   e.preventDefault(); e.stopPropagation();
   dateForm({ id: +d.dataset.date, start_date: d.dataset.da || null, end_date: d.dataset.a || null }, render);
 });
+
+// Un file trascinato sulla pagina, il browser lo aprirebbe al posto della
+// dashboard: il viaggio sparisce e al suo posto resta la foto, o un errore suo
+// che non spiega niente. Qui il trascinamento lo prende la pagina intera, non
+// un riquadro da centrare: le foto cadono dove capita e finiscono nel viaggio
+// aperto.
+const veloFoto = document.createElement('div');
+veloFoto.className = 'velo-pagina';
+veloFoto.innerHTML = '<div><b></b><span></span></div>';
+const conFile = e => [...(e.dataTransfer?.types || [])].includes('Files')
+  && !document.querySelector('.modal-bg') && !e.target?.closest?.('input[type=file], label');
+const viaggioAperto = () => { const m = (location.hash || '').match(/^#\/trip\/(\d+)/); return m ? +m[1] : null; };
+// Il velo non si conta le entrate e le uscite: un trascinamento che esce dalla
+// finestra senza salutare lascerebbe il conto sbilanciato e il velo o sempre
+// acceso o mai piu'. Si accende quando il trascinamento passa, e si spegne da
+// solo quando smette di passare.
+let spegniVelo = null;
+const nascondiVelo = () => { clearTimeout(spegniVelo); spegniVelo = null; veloFoto.remove(); };
+function mostraVelo() {
+  if (!veloFoto.isConnected) {
+    const id = viaggioAperto();
+    veloFoto.classList.toggle('senza-viaggio', !id);
+    veloFoto.querySelector('b').textContent = id ? 'Lascia qui le foto' : 'Apri prima un viaggio';
+    veloFoto.querySelector('span').textContent = id ? 'finiscono nel viaggio aperto' : 'le foto stanno dentro a un viaggio';
+    document.body.appendChild(veloFoto);
+  }
+  clearTimeout(spegniVelo);
+  spegniVelo = setTimeout(nascondiVelo, 900);
+}
+window.addEventListener('dragenter', e => { if (!conFile(e)) return; e.preventDefault(); mostraVelo(); });
+window.addEventListener('dragover', e => { if (!conFile(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = viaggioAperto() ? 'copy' : 'none'; mostraVelo(); });
+window.addEventListener('dragend', nascondiVelo);
+window.addEventListener('blur', nascondiVelo);
+window.addEventListener('drop', safe(async e => {
+  if (!conFile(e)) return;
+  e.preventDefault();
+  nascondiVelo();
+  const id = viaggioAperto();
+  if (!id) return toast('Apri il viaggio dove vuoi mettere le foto, poi trascinale qui', true);
+  await caricaFoto(id, e.dataTransfer.files);
+}));
 
 // Uno scatto copiato dall'app Foto si incolla qui: \u2318V sulla pagina di un
 // viaggio lo carica. Non quando si sta scrivendo da qualche parte, pero': li'

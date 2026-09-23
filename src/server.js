@@ -58,6 +58,7 @@ app.get(/^\/(?!api|uploads).*/, (req, res) => res.set('Cache-Control', 'no-cache
 
 app.use((err, req, res, next) => {
   if (err?.type === 'entity.too.large' || err?.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'File troppo grande' });
+  if (err?.code === 'LIMIT_UNEXPECTED_FILE') return res.status(400).json({ error: 'Troppi file in una volta sola' });
   console.error(err);
   res.status(err.status || 500).json({ error: err.message || 'Errore interno' });
 });
