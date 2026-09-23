@@ -847,11 +847,15 @@ function graficoPeso(pesi) {
   const valori = pesi.map(p => p.kg);
   const minimo = Math.min(...valori), massimo = Math.max(...valori);
   const variazione = ultimo.kg - primo.kg;
+  // Quanti giorni copre il periodo: dirlo accanto al numero di pesate rende
+  // evidenti i giorni in cui non si e' saliti sulla bilancia, che altrimenti
+  // nel grafico sono solo un tratto di linea piu' lungo
+  const giorniCoperti = notti(primo.day, ultimo.day) + 1;
   const riassunto = `<div class="peso-testa">
     <div><span class="peso-ora">${num(ultimo.kg, 1)} kg</span> <span class="small muted">il ${fdate(ultimo.day)}</span></div>
     ${pesi.length > 1 ? `<div class="small ${variazione >= 0.05 ? 'in-salita' : variazione <= -0.05 ? 'in-discesa' : 'muted'}">
       ${variazione >= 0.05 ? '\u25b2 +' + num(variazione, 1) + ' kg' : variazione <= -0.05 ? '\u25bc \u2212' + num(-variazione, 1) + ' kg' : 'stabile'} <span class="muted">dal ${fdate(primo.day)}</span></div>
-    <div class="small muted">min ${num(minimo, 1)} \u00b7 max ${num(massimo, 1)} kg \u00b7 ${pesi.length} pesate</div>` : ''}
+    <div class="small muted">min ${num(minimo, 1)} \u00b7 max ${num(massimo, 1)} kg \u00b7 ${pesi.length} pesate${giorniCoperti > pesi.length ? ` su ${giorniCoperti} giorni` : ''}</div>` : ''}
   </div>`;
   if (pesi.length < 2) return riassunto;
 
@@ -872,8 +876,8 @@ function graficoPeso(pesi) {
   const griglia = tacche.map(v => `<line x1="${sx}" y1="${Y(v).toFixed(1)}" x2="${L - dx}" y2="${Y(v).toFixed(1)}" class="griglia"/>
     <text x="${sx - 6}" y="${(Y(v) + 3.5).toFixed(1)}" class="tacca" text-anchor="end">${num(v, 1)}</text>`).join('');
   // Con tante pesate i pallini diventano una collana illeggibile: restano gli estremi
-  const pallini = pesi.length <= 60
-    ? pesi.map(p => `<circle cx="${X(p.day).toFixed(1)}" cy="${Y(p.kg).toFixed(1)}" r="3" class="punto"><title>${fdate(p.day)}: ${num(p.kg, 1)} kg</title></circle>`).join('')
+  const pallini = pesi.length <= 120
+    ? pesi.map(p => `<circle cx="${X(p.day).toFixed(1)}" cy="${Y(p.kg).toFixed(1)}" r="${pesi.length > 60 ? 2 : 3}" class="punto"><title>${fdate(p.day)}: ${num(p.kg, 1)} kg</title></circle>`).join('')
     : [primo, ultimo].map(p => `<circle cx="${X(p.day).toFixed(1)}" cy="${Y(p.kg).toFixed(1)}" r="3.5" class="punto"><title>${fdate(p.day)}: ${num(p.kg, 1)} kg</title></circle>`).join('');
   // Su pochi mesi il solo mese si ripeterebbe tre volte: li' serve il giorno
   const giorni = (t1 - t0) / 86400000;
