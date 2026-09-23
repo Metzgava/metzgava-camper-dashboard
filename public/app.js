@@ -382,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v12';
+const VERSIONE = 'v13';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1499,7 +1499,7 @@ async function viewWorkouts(idAtleta) {
 // Il battito di un'uscita, minuto per minuto. La media e il massimo sono due
 // numeri; la curva racconta dove si e' spinto e dove si e' tirato il fiato.
 const mmss = s => { const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`; };
-function graficoBattiti(serie) {
+function graficoBattiti(serie, durataAllenamento) {
   if (!Array.isArray(serie) || serie.length < 2) return '';
   const bpm = serie.map(p => p[1]);
   const minimo = Math.min(...bpm), massimo = Math.max(...bpm);
@@ -1519,14 +1519,17 @@ function graficoBattiti(serie) {
   const orari = [0, durata / 2, durata].map((t, i) => `<text x="${X(t).toFixed(1)}" y="${A - 8}" class="tacca" text-anchor="${i === 0 ? 'start' : i === 1 ? 'middle' : 'end'}">${mmss(t)}</text>`).join('');
   const coordinate = serie.map(p => ({ x: +X(p[0]).toFixed(1), y: +Y(p[1]).toFixed(1), t: p[0], bpm: p[1] }));
   return `<div class="card" style="margin-top:14px"><div class="row between"><h2>\u2764\ufe0f Battito</h2>
-      <div class="small muted">${serie.length} misure \u00b7 min ${minimo} \u00b7 media ${media} \u00b7 max ${massimo} bpm</div></div>
+      <div class="small muted">${serie.length} misure in ${mmss(durata)} \u00b7 min ${minimo} \u00b7 media ${media} \u00b7 max ${massimo} bpm</div></div>
     <svg class="grafico-peso grafico-battito" viewBox="0 0 ${L} ${A}" role="img" aria-label="Battito durante l\u2019allenamento"
         data-larghezza="${L}" data-battiti="${esc(JSON.stringify(coordinate))}">
       ${griglia}<path d="${area}" class="area"/><polyline points="${punti.join(' ')}" class="linea"/>
       <line class="guida-scelta" y1="${su}" y2="${base}" x1="0" x2="0" hidden/>
       <circle class="punto-scelto" r="6" cx="0" cy="0" hidden/>
       ${orari}<rect class="tocco" x="0" y="0" width="${L}" height="${A}" fill="transparent"/></svg>
-    <div class="peso-scelto" id="battito-scelto">Tocca il grafico per vedere minuto e battito</div></div>`;
+    <div class="peso-scelto" id="battito-scelto">Tocca il grafico per vedere minuto e battito</div>
+    ${durataAllenamento && durata > durataAllenamento * 1.1 + 300
+      ? `<div class="small muted" style="margin-top:6px">L\u2019orologio ha registrato per ${mmss(durata)}, piu\u2019 della durata segnata dell\u2019uscita (${dur(durataAllenamento)}): la curva copre tutto quello che ha misurato.</div>`
+      : ''}</div>`;
 }
 
 async function viewWorkout(id) {
@@ -1537,7 +1540,7 @@ async function viewWorkout(id) {
     <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
     <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}${w.peso_kg != null ? stat('Peso', `${num(w.peso_kg, 1)} kg<div class="sub">pesata del giorno</div>`) : ''}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
-    ${graficoBattiti(w.hr_track)}
+    ${graficoBattiti(w.hr_track, w.duration_s)}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
       <select id="trip">
         <option value="auto" ${w.trip_manual ? '' : 'selected'}>Automatico, in base alle date</option>
