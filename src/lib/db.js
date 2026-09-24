@@ -20,6 +20,25 @@ export const pool = new Pool({
 
 export const q = (text, params) => pool.query(text, params);
 
+
+// Una sosta che costa e' una spesa del viaggio. Le soste gia' in archivio col
+// loro costo la ricevono qui. Gira a ogni avvio senza rifare niente: salta
+// quelle che una spesa ce l'hanno e quelle a cui e' stata tolta a mano.
+async function spesePerSosteGiaScritte() {
+  const r = await q(`INSERT INTO expenses(trip_id, stop_id, date, category, description, amount, currency, rate, auto)
+    SELECT s.trip_id, s.id, coalesce(s.from_date, current_date),
+      CASE s.kind WHEN 'camping' THEN 'campeggio' WHEN 'appartamento' THEN 'altro' ELSE 'area_sosta' END,
+      s.name || CASE WHEN s.from_date IS NOT NULL AND s.to_date IS NOT NULL AND s.to_date > s.from_date
+        THEN ' (' || (s.to_date - s.from_date) || CASE WHEN s.to_date - s.from_date = 1 THEN ' notte)' ELSE ' notti)' END
+        ELSE '' END,
+      s.cost, s.currency, s.rate, true
+    FROM stops s
+    WHERE s.cost > 0 AND NOT s.senza_spesa
+      AND NOT EXISTS (SELECT 1 FROM expenses e WHERE e.stop_id = s.id)`);
+  if (r.rowCount) console.log(`soste: ${r.rowCount} cost${r.rowCount === 1 ? 'o entrato' : 'i entrati'} fra le spese del viaggio`);
+  return r.rowCount;
+}
+
 export async function migrate() {
   await q(`
   CREATE TABLE IF NOT EXISTS users (
@@ -233,6 +252,17 @@ export async function migrate() {
 
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';   -- manual | carlock
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
+  -- Il costo di una sosta e' una spesa del viaggio: la spesa sa da quale sosta
+  -- viene, e la sosta si ricorda se quella spesa e' stata tolta a mano.
+  ALTER TABLE expenses ADD COLUMN IF NOT EXISTS stop_id INT REFERENCES stops(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_expenses_stop ON expenses(stop_id);
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS senza_spesa BOOLEAN NOT NULL DEFAULT false;
+  -- Le spese nate dal vecchio pulsante «aggiungi alle spese» si riattaccano alla
+  -- loro sosta. Quelle rimaste uguali al costo lo seguiranno da sole; quelle con
+  -- un importo diverso restano come sono: li' qualcuno ha corretto a mano.
+  UPDATE expenses e SET stop_id = s.id, auto = true, edited = (e.amount <> s.cost)
+    FROM stops s WHERE (s.meta->>'spesa_id')::int = e.id AND e.stop_id IS NULL;
+
   -- Chi cancella la spesa del gasolio di una tappa non vuole rivedersela
   -- ricalcolata al primo ritocco: la tappa si ricorda di restarne senza.
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS senza_gasolio BOOLEAN NOT NULL DEFAULT false;
@@ -255,4 +285,6 @@ export async function migrate() {
     ('vehicle', '{"length_m": 6, "km_per_liter": 10, "fuel_price": 1.75}'),
     ('categories', '["gasolio","traghetto","area_sosta","campeggio","pedaggi","vitto","spesa","visite","manutenzione","altro"]')
     ON CONFLICT (key) DO NOTHING`);
+
+  await spesePerSosteGiaScritte();
 }

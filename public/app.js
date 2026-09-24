@@ -382,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v14';
+const VERSIONE = 'v15';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -604,7 +604,7 @@ async function viewTrip(id) {
   $$('[data-sosta]').forEach(b => b.onclick = () => sostaForm(trip, soste.find(x => x.id === +b.dataset.sosta)));
   $$('[data-sostaspesa]').forEach(b => b.onclick = safe(async () => {
     const r = await api(`/soste/${b.dataset.sostaspesa}/spesa`, { method: 'POST' });
-    toast(`Aggiunta alle spese: ${importoConValuta(r.amount, r.currency, r.rate).replace(/<[^>]+>/g, '')}`);
+    toast(`Rimessa fra le spese: ${importoConValuta(r.amount, r.currency, r.rate).replace(/<[^>]+>/g, '')}`);
     render();
   }));
   // Le foto di una sosta: si caricano dal suo pulsante, e si tolgono dal loro \u2715
@@ -617,8 +617,12 @@ async function viewTrip(id) {
     if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); }
   }));
   $$('[data-delsosta]').forEach(b => b.onclick = safe(async () => {
-    if (!await confirmDlg('Togliere questa sosta?')) return;
-    await api('/soste/' + b.dataset.delsosta, { method: 'DELETE' }); render();
+    if (!await confirmDlg('Togliere questa sosta e il suo costo dalle spese?')) return;
+    const r = await api('/soste/' + b.dataset.delsosta, { method: 'DELETE' });
+    toast(r.spese_tenute
+      ? `Sosta tolta \u00b7 ${r.spese_tenute === 1 ? 'una spesa resta' : r.spese_tenute + ' spese restano'} fra quelle del viaggio`
+      : r.spese_tolte ? 'Sosta e sua spesa tolte' : 'Sosta tolta');
+    render();
   }));
   // Lungo il percorso: i posti arrivano da OpenStreetMap, i giudizi da park4night
   $('#cercasoste')?.addEventListener('click', safe(async () => {
@@ -677,7 +681,9 @@ async function viewTrip(id) {
         ? 'Eliminare la spesa? \u00c8 calcolata da sola: la tappa smettera\u2019 di calcolarla, e non torna finche\u2019 non la riaccendi dalla tappa.'
         : 'Eliminare la spesa?')) return;
       const r = await api('/expenses/' + b.dataset.delEx, { method: 'DELETE' });
-      toast(r.calcolo_spento ? 'Spesa eliminata \u00b7 la tappa non calcola piu\u2019 il gasolio' : 'Spesa eliminata');
+      toast(!r.calcolo_spento ? 'Spesa eliminata'
+        : r.da === 'sosta' ? 'Spesa eliminata \u00b7 il costo della sosta resta fuori dalle spese'
+        : 'Spesa eliminata \u00b7 la tappa non calcola piu\u2019 il gasolio');
       render();
     }
   });
@@ -757,9 +763,9 @@ const sostaRiga = (s, foto = []) => {
   return `<div class="item sosta" data-sosta-riga="${s.id}"><div class="item-main" style="cursor:default">
     <div class="sport-ico">${tipoIco(s.kind)}</div>
     <div class="grow"><div class="title">${esc(s.name)}${s.stars ? ` <span class="stelle" title="${s.stars} su 5">${stelline(s.stars)}</span>` : ''}</div>
-      <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.meta?.spesa_id ? ' \u00b7 <span class="badge ok">nelle spese</span>' : ''}</div>
+      <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.cost > 0 ? (s.in_spese ? ' \u00b7 <span class="badge ok" title="Il costo \u00e8 fra le spese del viaggio">nelle spese</span>' : ' \u00b7 <span class="badge warn" title="La spesa l\u2019hai tolta: il tasto \ud83d\udcb6 la rimette">fuori dalle spese</span>') : ''}</div>
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
-  <div class="item-actions">${s.cost > 0 && !s.meta?.spesa_id ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Aggiungi il costo alle spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
+  <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
   <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" target="_blank" rel="noopener" title="${esc(p.caption || 'Apri la foto')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a><button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
@@ -793,6 +799,7 @@ function sostaForm(trip, s = null, preimpostato = null) {
       <div><label class="f">Costo</label><input type="text" inputmode="decimal" name="cost" value="${s?.cost ?? ''}" placeholder="Es. 18,50"></div>
       <div><label class="f">Valuta</label>${scegliValuta('currency', s?.currency)}</div>
     </div>
+    <div class="small muted" style="margin-top:-4px">Il costo entra da solo fra le spese del viaggio, e si aggiorna se lo cambi. Dalle spese lo puoi togliere quando vuoi.</div>
     <div><label class="f">Collegamento</label><input name="link" value="${esc(s?.link || preimpostato?.park4night || '')}" placeholder="park4night, sito del campeggio, qualunque indirizzo"></div>
     <div><label class="f">Commenti</label><textarea name="notes" rows="2" placeholder="Es. carico acqua, silenzioso, ombra la mattina">${esc(s?.notes || '')}</textarea></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${s ? 'Salva' : 'Aggiungi'}</button></div></form>`,

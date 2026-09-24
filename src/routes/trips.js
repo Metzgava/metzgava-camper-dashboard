@@ -207,7 +207,10 @@ router.get('/trips/:id', wrap(async (req, res) => {
   // contarle o mostrarle qui raddoppierebbe attivita' e chilometri del viaggio
   const workouts = (await q(`SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id
     WHERE w.trip_id=$1 AND w.meta->'copiato_da' IS NULL ORDER BY started_at DESC`, [trip.id])).rows;
-  const soste = (await q('SELECT * FROM stops WHERE trip_id=$1 ORDER BY from_date NULLS LAST, id', [trip.id])).rows;
+  // Di una sosta interessa anche se il suo costo e' gia' fra le spese: e' quello
+  // che distingue «costa dieci euro» da «dieci euro nel totale del viaggio»
+  const soste = (await q(`SELECT s.*, EXISTS (SELECT 1 FROM expenses e WHERE e.stop_id = s.id) AS in_spese
+    FROM stops s WHERE s.trip_id=$1 ORDER BY s.from_date NULLS LAST, s.id`, [trip.id])).rows;
   res.json({ trip, legs, expenses, photos, workouts, soste, totals: await tripTotals(trip.id) });
 }));
 router.put('/trips/:id', wrap(async (req, res) => {
@@ -313,6 +316,7 @@ router.post('/trips/:id/soste', wrap(async (req, res) => {
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
     [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.kind_label, d.from_date, d.to_date,
       d.arrival_time, d.departure_time, d.stars, d.cost, c.currency, c.rate ?? 1, d.notes, link, d.source])).rows[0];
+  await syncSostaSpesa(r.id);
   res.json(r);
 }));
 
@@ -328,32 +332,53 @@ router.put('/soste/:id', wrap(async (req, res) => {
     [cur.id, d.name, d.lat, d.lon, d.kind, d.kind_label, d.from_date, d.to_date, d.arrival_time, d.departure_time, d.stars, d.cost,
       c.currency, c.rate ?? 1, d.notes,
       d.link || (d.lat != null && d.lon != null ? linkPark4night(d.lat, d.lon) : null)])).rows[0];
+  await syncSostaSpesa(r.id);
   res.json(r);
 }));
 
-// Il costo di una sosta non entra nei totali finche' non lo si dice: con questo
-// diventa una spesa vera, nella categoria giusta, e la sosta se ne ricorda per
-// non farlo due volte.
+// Il costo di una sosta e' una spesa del viaggio: lo si scrive una volta sola,
+// dove si e' dormito, e fra le spese compare da se'. Cambiando il costo o i
+// giorni, la spesa segue; togliendo il costo, se ne va.
+const CATEGORIA_SOSTA = { camping: 'campeggio', appartamento: 'altro' };
+async function syncSostaSpesa(stopId) {
+  const s = (await q('SELECT * FROM stops WHERE id=$1', [stopId])).rows[0];
+  if (!s) return;
+  const ex = (await q('SELECT * FROM expenses WHERE stop_id=$1 AND auto=true', [stopId])).rows[0];
+  // Senza costo, o con la spesa tolta a mano, non c'e' niente da tenere: sparisce
+  // solo quella automatica intatta, perche' in una corretta a mano c'e' un
+  // importo vero che nessuno ha chiesto di buttare
+  if (!(num(s.cost) > 0) || s.senza_spesa) {
+    if (ex && !ex.edited) await q('DELETE FROM expenses WHERE id=$1', [ex.id]);
+    return;
+  }
+  const categoria = CATEGORIA_SOSTA[s.kind] || 'area_sosta';
+  const notti = (s.from_date && s.to_date) ? Math.max(0, Math.round((new Date(s.to_date) - new Date(s.from_date)) / 86400000)) : 0;
+  const desc = `${s.name}${notti ? ` (${notti} ${notti === 1 ? 'notte' : 'notti'})` : ''}`;
+  if (!ex) await q(`INSERT INTO expenses(trip_id,stop_id,date,category,description,amount,currency,rate,auto)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)`,
+    [s.trip_id, s.id, s.from_date || new Date(), categoria, desc, s.cost, s.currency, s.rate]);
+  else if (!ex.edited) await q(`UPDATE expenses SET trip_id=$2, date=$3, category=$4, description=$5, amount=$6, currency=$7, rate=$8 WHERE id=$1`,
+    [ex.id, s.trip_id, s.from_date || ex.date, categoria, desc, s.cost, s.currency, s.rate]);
+}
+
+// Resta per compatibilita': ora la spesa nasce da sola, questo la rifa' se era
+// stata tolta a mano
 router.post('/soste/:id/spesa', wrap(async (req, res) => {
   const s = (await q('SELECT * FROM stops WHERE id=$1', [req.params.id])).rows[0];
   if (!s) return res.status(404).json({ error: 'Sosta non trovata' });
   if (!(num(s.cost) > 0)) return res.status(400).json({ error: 'Questa sosta non ha un costo' });
-  if (s.meta?.spesa_id) {
-    const gia = (await q('SELECT id FROM expenses WHERE id=$1', [s.meta.spesa_id])).rows[0];
-    if (gia) return res.status(409).json({ error: 'Il costo di questa sosta e\u2019 gia\u2019 fra le spese' });
-  }
-  const categoria = s.kind === 'camping' ? 'campeggio' : s.kind === 'appartamento' ? 'altro' : 'area_sosta';
-  const notti = (s.from_date && s.to_date) ? Math.max(0, Math.round((new Date(s.to_date) - new Date(s.from_date)) / 86400000)) : 0;
-  const spesa = (await q(`INSERT INTO expenses(trip_id,date,category,description,amount,currency,rate,auto,edited)
-    VALUES($1,$2,$3,$4,$5,$6,$7,false,true) RETURNING *`,
-    [s.trip_id, s.from_date || new Date(), categoria,
-      `${s.name}${notti ? ` (${notti} ${notti === 1 ? 'notte' : 'notti'})` : ''}`, s.cost, s.currency, s.rate])).rows[0];
-  await q(`UPDATE stops SET meta = coalesce(meta,'{}')::jsonb || jsonb_build_object('spesa_id', $2::int) WHERE id=$1`, [s.id, spesa.id]);
-  res.json(spesa);
+  await q('UPDATE stops SET senza_spesa=false WHERE id=$1', [s.id]);
+  await syncSostaSpesa(s.id);
+  res.json((await q('SELECT * FROM expenses WHERE stop_id=$1 AND auto=true', [s.id])).rows[0] || { ok: true });
 }));
 
+// La sosta cancellata si porta via la sua spesa, come la tappa il suo gasolio.
+// Quella corretta a mano resta: e' un importo speso davvero.
 router.delete('/soste/:id', wrap(async (req, res) => {
-  await q('DELETE FROM stops WHERE id=$1', [req.params.id]); res.json({ ok: true });
+  const tolte = (await q('DELETE FROM expenses WHERE stop_id=$1 AND auto=true AND edited=false RETURNING id', [req.params.id])).rowCount;
+  const tenute = (await q('SELECT count(*)::int n FROM expenses WHERE stop_id=$1', [req.params.id])).rows[0].n;
+  await q('DELETE FROM stops WHERE id=$1', [req.params.id]);
+  res.json({ ok: true, spese_tolte: tolte, spese_tenute: tenute });
 }));
 
 router.post('/trips/:id/legs', wrap(async (req, res) => {
@@ -589,11 +614,12 @@ router.post('/expenses/:id/reset', wrap(async (req, res) => {
 // il gasolio di una tappa, la tappa se ne ricorda: senza, il primo ritocco alla
 // tappa la farebbe ricomparire, e cancellarla sarebbe una fatica senza fine.
 router.delete('/expenses/:id', wrap(async (req, res) => {
-  const ex = (await q('DELETE FROM expenses WHERE id=$1 RETURNING auto, leg_id, category', [req.params.id])).rows[0];
+  const ex = (await q('DELETE FROM expenses WHERE id=$1 RETURNING auto, leg_id, stop_id, category', [req.params.id])).rows[0];
   if (!ex) return res.status(404).json({ error: 'Spesa non trovata' });
-  const spenta = !!(ex.auto && ex.leg_id);
-  if (spenta) await q('UPDATE legs SET senza_gasolio=true WHERE id=$1', [ex.leg_id]);
-  res.json({ ok: true, calcolo_spento: spenta });
+  const spenta = !!(ex.auto && (ex.leg_id || ex.stop_id));
+  if (ex.auto && ex.leg_id) await q('UPDATE legs SET senza_gasolio=true WHERE id=$1', [ex.leg_id]);
+  if (ex.auto && ex.stop_id) await q('UPDATE stops SET senza_spesa=true WHERE id=$1', [ex.stop_id]);
+  res.json({ ok: true, calcolo_spento: spenta, da: ex.stop_id ? 'sosta' : ex.leg_id ? 'tappa' : null });
 }));
 
 // ---- riepiloghi per periodo ----
