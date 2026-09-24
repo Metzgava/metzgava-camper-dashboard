@@ -354,11 +354,12 @@ async function syncSostaSpesa(stopId) {
   const categoria = CATEGORIA_SOSTA[s.kind] || 'area_sosta';
   const notti = (s.from_date && s.to_date) ? Math.max(0, Math.round((new Date(s.to_date) - new Date(s.from_date)) / 86400000)) : 0;
   const desc = `${s.name}${notti ? ` (${notti} ${notti === 1 ? 'notte' : 'notti'})` : ''}`;
-  if (!ex) await q(`INSERT INTO expenses(trip_id,stop_id,date,category,description,amount,currency,rate,auto)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)`,
-    [s.trip_id, s.id, s.from_date || new Date(), categoria, desc, s.cost, s.currency, s.rate]);
-  else if (!ex.edited) await q(`UPDATE expenses SET trip_id=$2, date=$3, category=$4, description=$5, amount=$6, currency=$7, rate=$8 WHERE id=$1`,
-    [ex.id, s.trip_id, s.from_date || ex.date, categoria, desc, s.cost, s.currency, s.rate]);
+  // Il posto della spesa lo sa gia': e' la sosta stessa
+  if (!ex) await q(`INSERT INTO expenses(trip_id,stop_id,date,category,description,place,amount,currency,rate,auto)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,true)`,
+    [s.trip_id, s.id, s.from_date || new Date(), categoria, desc, s.name, s.cost, s.currency, s.rate]);
+  else if (!ex.edited) await q(`UPDATE expenses SET trip_id=$2, date=$3, category=$4, description=$5, place=$9, amount=$6, currency=$7, rate=$8 WHERE id=$1`,
+    [ex.id, s.trip_id, s.from_date || ex.date, categoria, desc, s.cost, s.currency, s.rate, s.name]);
 }
 
 // Resta per compatibilita': ora la spesa nasce da sola, questo la rifa' se era
@@ -583,9 +584,10 @@ router.post('/trips/:id/expenses', wrap(async (req, res) => {
   // cambio del giorno, ed e' quello a fare i totali
   const c = await cambioPerSpesa({ currency: b.currency, rate: b.rate, date: b.date });
   if (c.rate == null) return res.status(502).json({ error: c.avviso });
-  const row = (await q(`INSERT INTO expenses(trip_id,leg_id,date,category,description,amount,currency,rate,auto,edited)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,false,true) RETURNING *`,
-    [req.params.id, b.leg_id || null, b.date || new Date(), b.category, b.description || null, num(b.amount), c.currency, c.rate])).rows[0];
+  const row = (await q(`INSERT INTO expenses(trip_id,leg_id,date,category,description,place,amount,currency,rate,auto,edited)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,false,true) RETURNING *`,
+    [req.params.id, b.leg_id || null, b.date || new Date(), b.category, b.description || null,
+      (b.place || '').trim() || null, num(b.amount), c.currency, c.rate])).rows[0];
   res.json(row);
 }));
 router.put('/expenses/:id', wrap(async (req, res) => {
@@ -600,8 +602,9 @@ router.put('/expenses/:id', wrap(async (req, res) => {
   const c = rifare ? await cambioPerSpesa({ currency: valuta, rate: b.rate, date: data }) : { currency: cur.currency, rate: cur.rate };
   if (c.rate == null) return res.status(502).json({ error: c.avviso });
   const row = (await q(`UPDATE expenses SET date=coalesce($2,date), category=coalesce($3,category), description=coalesce($4,description),
-      amount=coalesce($5,amount), currency=$6, rate=$7, edited=true WHERE id=$1 RETURNING *`,
-    [req.params.id, b.date || null, b.category || null, b.description ?? null, b.amount != null ? num(b.amount) : null, c.currency, c.rate])).rows[0];
+      place=$8, amount=coalesce($5,amount), currency=$6, rate=$7, edited=true WHERE id=$1 RETURNING *`,
+    [req.params.id, b.date || null, b.category || null, b.description ?? null, b.amount != null ? num(b.amount) : null, c.currency, c.rate,
+      b.place !== undefined ? ((b.place || '').trim() || null) : cur.place])).rows[0];
   res.json(row);
 }));
 // Ripristina il calcolo automatico di una spesa gasolio modificata

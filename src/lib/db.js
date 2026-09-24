@@ -252,6 +252,10 @@ export async function migrate() {
 
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';   -- manual | carlock
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
+  -- Dove e' stata fatta la spesa: il distributore, il supermercato, il ristorante.
+  -- Solo il nome: una spesa si ricorda dal posto, non dalle coordinate.
+  ALTER TABLE expenses ADD COLUMN IF NOT EXISTS place TEXT;
+
   -- Il costo di una sosta e' una spesa del viaggio: la spesa sa da quale sosta
   -- viene, e la sosta si ricorda se quella spesa e' stata tolta a mano.
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS stop_id INT REFERENCES stops(id) ON DELETE SET NULL;

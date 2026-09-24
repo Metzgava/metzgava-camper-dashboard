@@ -382,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v15';
+const VERSIONE = 'v16';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -461,7 +461,7 @@ async function viewTrip(id) {
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
-  const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
+  const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}${e.place ? `<div class="small muted">\ud83d\udccd ${esc(e.place)}</div>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}<button class="btn sm ghost danger" data-del-ex="${e.id}" data-auto-ex="${e.auto ? 1 : 0}" title="Elimina">🗑</button>`}</td></tr>`;
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(nomeViaggio(trip))}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
@@ -650,7 +650,7 @@ async function viewTrip(id) {
         cerca();
       });
   }));
-  $('#addex')?.addEventListener('click', () => expenseForm(trip, legs));
+  $('#addex')?.addEventListener('click', () => expenseForm(trip, legs, null, soste));
   $('#legs').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
     // Una ricerca finita a vuoto non vale come risposta: si rifa'. Per mesi il
@@ -673,7 +673,7 @@ async function viewTrip(id) {
   });
   $('tbody').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.editEx) expenseForm(trip, legs, expenses.find(x => x.id == b.dataset.editEx));
+    if (b.dataset.editEx) expenseForm(trip, legs, expenses.find(x => x.id == b.dataset.editEx), soste);
     if (b.dataset.resetEx) { await api(`/expenses/${b.dataset.resetEx}/reset`, { method: 'POST' }); toast('Calcolo automatico ripristinato'); render(); }
     if (b.dataset.delEx) {
       const auto = b.dataset.autoEx === '1';
@@ -937,8 +937,14 @@ function carlockImport(trip, openTrips = [], sostituisciDefault = false) {
   });
 }
 
-function expenseForm(trip, legs, ex = null) {
+function expenseForm(trip, legs, ex = null, soste = []) {
   const cats = settings.categories || Object.keys(CAT);
+  // I posti del viaggio che si conoscono gia': dove si e' dormito e dove si e'
+  // arrivati. Sono suggerimenti, non una gabbia: il luogo si scrive comunque a mano
+  const luoghiNoti = [...new Set([
+    ...soste.map(x => x.name),
+    ...legs.flatMap(l => [l.to_name, l.from_name]).map(n => String(n || '').split(',')[0].trim()),
+  ].filter(Boolean))].slice(0, 40);
   modal(`<h2>${ex ? 'Modifica spesa' : 'Nuova spesa'}</h2>${ex?.auto ? '<p class="small muted">Spesa calcolata automaticamente: se la modifichi non verrà più ricalcolata (potrai ripristinarla con ↺).</p>' : ''}<form id="f" class="stack" style="margin-top:14px">
     <div class="form-grid"><div><label class="f">Categoria</label><select name="category">${cats.map(c => `<option value="${c}" ${ex?.category === c ? 'selected' : ''}>${catLabel(c)}</option>`).join('')}</select></div>
       <div><label class="f">Importo</label><input type="text" name="amount" required inputmode="decimal" value="${ex?.amount ?? ''}" placeholder="Es. 18,50"></div>
@@ -947,6 +953,8 @@ function expenseForm(trip, legs, ex = null) {
     <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${ex?.date ? iso(ex.date) : today()}"></div>
       <div><label class="f">Tappa (opz.)</label><select name="leg_id"><option value="">—</option>${legs.map((l, i) => `<option value="${l.id}" ${ex?.leg_id === l.id ? 'selected' : ''}>${i + 1}. ${esc(l.to_name.split(',')[0])}</option>`).join('')}</select></div></div>
     <div><label class="f">Descrizione</label><input name="description" value="${esc(ex?.description || '')}" placeholder="Es. Traghetto Piombino–Portoferraio"></div>
+    <div><label class="f">Luogo</label><input name="place" list="luoghi-viaggio" value="${esc(ex?.place || '')}" placeholder="Dove l\u2019hai fatta: distributore, paese, campeggio\u2026" autocomplete="off">
+      <datalist id="luoghi-viaggio">${luoghiNoti.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;
