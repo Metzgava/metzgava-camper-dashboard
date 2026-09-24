@@ -382,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v16';
+const VERSIONE = 'v17';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -442,7 +442,7 @@ async function caricaFoto(tripId, elenco, extra = {}) {
   if (!caricate) toast(`Il servizio non ha accettato ${foto.length === 1 ? 'la foto' : 'nessuna delle foto'}. ${DA_FOTO}`, true);
   else if (caricate < foto.length) toast(`Caricate ${caricate} foto su ${foto.length}: le altre non sono state accettate`, true);
   else toast(foto.length === 1 ? 'Foto caricata' : `${foto.length} foto caricate`);
-  render();
+  restaQui();
 }
 
 async function viewTrip(id) {
@@ -605,7 +605,7 @@ async function viewTrip(id) {
   $$('[data-sostaspesa]').forEach(b => b.onclick = safe(async () => {
     const r = await api(`/soste/${b.dataset.sostaspesa}/spesa`, { method: 'POST' });
     toast(`Rimessa fra le spese: ${importoConValuta(r.amount, r.currency, r.rate).replace(/<[^>]+>/g, '')}`);
-    render();
+    restaQui();
   }));
   // Le foto di una sosta: si caricano dal suo pulsante, e si tolgono dal loro \u2715
   $$('[data-fotososta]').forEach(inp => inp.onchange = safe(async e => {
@@ -614,7 +614,7 @@ async function viewTrip(id) {
   }));
   $('#soste')?.addEventListener('click', safe(async e => {
     const b = e.target.closest('[data-del-ph]');
-    if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); }
+    if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); restaQui(); }
   }));
   $$('[data-delsosta]').forEach(b => b.onclick = safe(async () => {
     if (!await confirmDlg('Togliere questa sosta e il suo costo dalle spese?')) return;
@@ -622,7 +622,7 @@ async function viewTrip(id) {
     toast(r.spese_tenute
       ? `Sosta tolta \u00b7 ${r.spese_tenute === 1 ? 'una spesa resta' : r.spese_tenute + ' spese restano'} fra quelle del viaggio`
       : r.spese_tolte ? 'Sosta e sua spesa tolte' : 'Sosta tolta');
-    render();
+    restaQui();
   }));
   // Lungo il percorso: i posti arrivano da OpenStreetMap, i giudizi da park4night
   $('#cercasoste')?.addEventListener('click', safe(async () => {
@@ -668,13 +668,13 @@ async function viewTrip(id) {
       toast(r.spese_tenute
         ? `Tappa eliminata \u00b7 ${r.spese_tenute === 1 ? 'una spesa resta' : r.spese_tenute + ' spese restano'} fra quelle del viaggio`
         : r.spese_tolte ? 'Tappa e spesa gasolio eliminate' : 'Tappa eliminata');
-      render();
+      restaQui();
     }
   });
   $('tbody').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.editEx) expenseForm(trip, legs, expenses.find(x => x.id == b.dataset.editEx), soste);
-    if (b.dataset.resetEx) { await api(`/expenses/${b.dataset.resetEx}/reset`, { method: 'POST' }); toast('Calcolo automatico ripristinato'); render(); }
+    if (b.dataset.resetEx) { await api(`/expenses/${b.dataset.resetEx}/reset`, { method: 'POST' }); toast('Calcolo automatico ripristinato'); restaQui(); }
     if (b.dataset.delEx) {
       const auto = b.dataset.autoEx === '1';
       if (!await confirmDlg(auto
@@ -684,7 +684,7 @@ async function viewTrip(id) {
       toast(!r.calcolo_spento ? 'Spesa eliminata'
         : r.da === 'sosta' ? 'Spesa eliminata \u00b7 il costo della sosta resta fuori dalle spese'
         : 'Spesa eliminata \u00b7 la tappa non calcola piu\u2019 il gasolio');
-      render();
+      restaQui();
     }
   });
   $('#ph').onchange = safe(async e => { await caricaFoto(id, e.target.files); e.target.value = ''; });
@@ -717,7 +717,7 @@ async function viewTrip(id) {
     if (!await confirmDlg(ids.length === 1 ? 'Eliminare la foto selezionata?' : `Eliminare le ${ids.length} foto selezionate?`)) return;
     const r = await api('/photos/elimina', { method: 'POST', body: { ids } });
     toast(r.eliminate === 1 ? 'Foto eliminata' : `${r.eliminate} foto eliminate`);
-    render();
+    restaQui();
   }));
   $('#photos').onclick = safe(async e => {
     const fig = e.target.closest('figure[data-foto]');
@@ -727,7 +727,7 @@ async function viewTrip(id) {
       return aggiornaBarraFoto();
     }
     const b = e.target.closest('[data-del-ph]');
-    if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); render(); }
+    if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); restaQui(); }
   });
   // aggiorna quando i POI arrivano in background
   if (legs.some(l => !l.pois)) setTimeout(() => { if (location.hash === '#/trip/' + id) render(); }, 12000);
@@ -840,7 +840,7 @@ function sostaForm(trip, s = null, preimpostato = null) {
           source: preimpostato ? 'osm' : (s?.source || 'manuale') };
         if (s) await api('/soste/' + s.id, { method: 'PUT', body: corpo });
         else await api(`/trips/${trip.id}/soste`, { method: 'POST', body: corpo });
-        close(); render();
+        close(); restaQui();
       });
     });
 }
@@ -980,7 +980,7 @@ function expenseForm(trip, legs, ex = null, soste = []) {
         const body = Object.fromEntries(new FormData(e.target));
         if (ex) await api('/expenses/' + ex.id, { method: 'PUT', body });
         else await api(`/trips/${trip.id}/expenses`, { method: 'POST', body });
-        close(); render();
+        close(); restaQui();
       });
     });
 }
@@ -2011,6 +2011,11 @@ async function guardaSeCambiato() {
   if (nuoviAllenamenti > 0) toast(nuoviAllenamenti === 1 ? 'Arrivato un allenamento nuovo' : `Arrivati ${nuoviAllenamenti} allenamenti nuovi`);
   else if (nuovePesate > 0) toast(nuovePesate === 1 ? 'Arrivata una pesata nuova' : `Arrivate ${nuovePesate} pesate nuove`);
 }
+// Dopo aver salvato o tolto qualcosa, la pagina si rifa' ma lo sguardo resta
+// dov'era: chi ha appena scritto una spesa vuole rivedere le spese, non la mappa
+// del viaggio che sta in cima.
+const restaQui = () => render({ mantieniPosizione: true });
+
 setInterval(guardaSeCambiato, 45000);
 // Tornando sulla scheda si controlla subito: e' il momento in cui si guarda
 document.addEventListener('visibilitychange', () => { if (!document.hidden) guardaSeCambiato(); });
