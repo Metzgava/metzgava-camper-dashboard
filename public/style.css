@@ -317,3 +317,9 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .riga-scelta { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; font-size: 14px; cursor: pointer; }
 .riga-scelta input[type=checkbox] { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--accent); }
 .riga-scelta .small { grid-column: 2; }
+
+/* Quali tappe previste lasciano il posto al percorso reale */
+.quali-tappe { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; max-height: 210px; overflow: auto; }
+.quali-tappe[hidden] { display: none; }
+.quali-tappe label { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.quali-tappe input[type=checkbox] { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 1px; padding: 0; accent-color: var(--accent); }

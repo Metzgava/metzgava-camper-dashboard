@@ -506,8 +506,11 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   const minKm = num(req.body.min_km, 3), gapMin = num(req.body.merge_gap_min, 30), onlyDates = req.body.only_trip_dates !== 'false';
   // Con «sostituisci» le tappe previste lasciano il posto a quelle davvero
   // percorse: si tolgono solo quelle pianificate, riconoscibili perche' non
-  // hanno un identificativo CarLock, e con loro il gasolio che era stimato
-  const sostituisci = !isNew && !req.query.preview && (req.body.sostituisci === 'true' || req.body.sostituisci === true);
+  // hanno un identificativo CarLock, e con loro il gasolio che era stimato.
+  // Si possono indicare una per una: un viaggio puo' essere gia' a posto in
+  // gran parte, e sbagliato in una tratta sola.
+  const quali = String(req.body.sostituisci_ids || '').split(',').map(x => parseInt(x, 10)).filter(Number.isInteger);
+  const sostituisci = !isNew && !req.query.preview && (req.body.sostituisci === 'true' || req.body.sostituisci === true || quali.length > 0);
   let rows;
   try { rows = readCarlockFile(req.file.buffer, req.file.originalname); } catch (e) { return res.status(400).json({ error: 'File non leggibile: ' + e.message }); }
   if (!rows.length) return res.status(400).json({ error: 'Nessun tragitto trovato nel file (colonne attese: Data, Orario di inizio, Orario di fine, Posizione di inizio, Posizione di fine, Distanza, Durata)' });
@@ -524,10 +527,15 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
     first_date: legsToAdd[0]?.date || null, last_date: legsToAdd[legsToAdd.length - 1]?.date || null };
   if (req.query.preview) return res.json({ ...summary, legs: legsToAdd.map(l => ({ date: l.date, start: l.start, end: l.end, from: shortName(l.from), to: shortName(l.to), km: l.km, duration_min: l.duration_min, merged: l.merged || 1 })) });
 
-  if (sostituisci) {
+  let sostituite = 0;
+  // Si sostituisce solo se c'e' davvero qualcosa da mettere al posto: con un file
+  // che non porta nessuna tratta, le tappe previste sparirebbero per niente
+  if (sostituisci && legsToAdd.length) {
     // Prima il gasolio stimato di quelle tappe, poi le tappe: al contrario la
     // spesa resterebbe orfana e il totale conterebbe due volte lo stesso viaggio
-    const previste = (await q('SELECT id FROM legs WHERE trip_id=$1 AND external_id IS NULL', [trip.id])).rows.map(r => r.id);
+    const previste = (await q(`SELECT id FROM legs WHERE trip_id=$1 AND external_id IS NULL
+      ${quali.length ? 'AND id = ANY($2::int[])' : ''}`, quali.length ? [trip.id, quali] : [trip.id])).rows.map(r => r.id);
+    sostituite = previste.length;
     if (previste.length) {
       const spese = await q(`DELETE FROM expenses WHERE trip_id=$1 AND leg_id = ANY($2::int[]) AND category='gasolio' AND auto=true AND NOT edited`,
         [trip.id, previste]);
@@ -573,7 +581,7 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   if (errors.size) console.warn('CarLock: errori geocoder', Object.fromEntries(errors));
   let split = null;
   if (req.body.split_home && created.length) split = await splitTripByHome(trip.id, String(req.body.split_home).trim(), req.user.id);
-  res.json({ ...summary, imported: created.length, geocode_failed: [...new Set(failed)], geocode_errors: [...errors.keys()], split, totals: split?.kept === null ? null : await tripTotals(trip.id) });
+  res.json({ ...summary, imported: created.length, sostituite, geocode_failed: [...new Set(failed)], geocode_errors: [...errors.keys()], split, totals: split?.kept === null ? null : await tripTotals(trip.id) });
 }));
 
 // ---- spese ----

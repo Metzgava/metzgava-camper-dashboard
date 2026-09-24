@@ -382,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v17';
+const VERSIONE = 'v18';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -890,15 +890,22 @@ function legForm(trip, legs, leg = null) {
 function carlockImport(trip, openTrips = [], sostituisciDefault = false) {
   // Le tappe previste sono quelle senza identificativo CarLock: se ce ne sono,
   // si puo' scegliere di lasciargli il posto invece di affiancarle
-  const previste = (trip?.legs || []).filter(l => !l.external_id).length;
+  const previste = (trip?.legs || []).filter(l => !l.external_id);
   modal(`<h2>\ud83d\udce1 ${sostituisciDefault ? 'Sostituisci con il percorso reale' : 'Importa da CarLock'}</h2>
     <p class="small muted">Su <b>my.carlock.co</b> → Trips → scegli le date → icona <b>CSV</b> (va bene anche l'XLS). Ogni tragitto diventa una tappa con i km reali percorsi; il gasolio viene calcolato su quelli.</p>
     <form id="f" class="stack">
       <input type="file" name="file" accept=".csv,.xls,.xlsx,text/csv" required>
       ${trip ? '' : `<div><label class="f">In quale viaggio</label><select id="dest"><option value="new">➕ Nuovo viaggio (date prese dal file)</option>${openTrips.map(t => `<option value="${t.id}">${esc(nomeViaggio(t))} (${dateViaggio(t)})</option>`).join('')}</select></div>`}
       <div class="form-grid"><div><label class="f">Ignora tratte sotto (km)</label><input type="number" step="0.5" name="min_km" value="3"></div><div><label class="f">Unisci soste più brevi di (min)</label><input type="number" name="merge_gap_min" value="30"></div></div>
-      ${previste ? `<label class="row small" style="align-items:flex-start;gap:8px;flex-wrap:nowrap"><input type="checkbox" id="sost" ${sostituisciDefault ? 'checked' : ''} style="flex:0 0 auto;margin-top:2px">
-        <span class="grow">Sostituisci le <b>${previste} tappe previste</b> con quelle davvero percorse<br><span class="muted">Le tappe pianificate e il gasolio stimato spariscono; restano le spese che hai scritto tu.</span></span></label>` : ''}
+      ${previste.length ? `<label class="row small" style="align-items:flex-start;gap:8px;flex-wrap:nowrap"><input type="checkbox" id="sost" ${sostituisciDefault ? 'checked' : ''} style="flex:0 0 auto;margin-top:2px">
+        <span class="grow">Sostituisci le <b>tappe previste</b> con quelle davvero percorse<br><span class="muted">Le tappe scelte e il loro gasolio stimato spariscono; restano le spese che hai scritto tu.</span></span></label>
+      <div class="quali-tappe" id="quali" ${sostituisciDefault ? '' : 'hidden'}>
+        <div class="small muted">Quali sostituire \u2014 togli la spunta a quelle che vuoi tenere</div>
+        ${previste.map((l, i) => `<label><input type="checkbox" class="una-tappa" value="${l.id}" checked>
+          <span>${i + 1}. ${esc(String(l.from_name).split(',')[0])} \u2192 ${esc(String(l.to_name).split(',')[0])}
+          <span class="muted">\u00b7 ${l.date ? fdate(l.date) : 'senza data'} \u00b7 ${num(l.distance_km)} km</span></span></label>`).join('')}
+        <div class="row" style="gap:6px"><button type="button" class="btn sm ghost" id="tutte">Tutte</button><button type="button" class="btn sm ghost" id="nessuna">Nessuna</button></div>
+      </div>` : ''}
       <label class="row small" id="datesRow" ${trip ? '' : 'style="display:none"'}><input type="checkbox" name="only_trip_dates" checked style="width:auto"> Solo le date del viaggio${trip ? ` (${trip.start_date ? fdate(trip.start_date) : '…'} → ${trip.end_date ? fdate(trip.end_date) : 'oggi'})` : ''}</label>
       <div class="row"><label class="row small" style="flex:0 0 auto"><input type="checkbox" id="splitChk" ${trip ? '' : 'checked'} style="width:auto"> Dividi in viaggi separati (casa → casa)</label><div class="grow"><input name="split_home" value="Susegana" placeholder="Nome di casa (es. Susegana)"></div></div>
       <div id="prev"></div>
@@ -907,7 +914,11 @@ function carlockImport(trip, openTrips = [], sostituisciDefault = false) {
     $('[data-x]', el).onclick = close;
     const dest = () => trip ? String(trip.id) : $('#dest', el).value;
     $('#dest', el)?.addEventListener('change', () => { $('#datesRow', el).style.display = dest() === 'new' ? 'none' : ''; $('#go', el).disabled = true; });
-    const fd = () => { const f = new FormData($('#f', el)); f.set('only_trip_dates', dest() !== 'new' && $('[name=only_trip_dates]', el).checked ? 'true' : 'false'); if (!$('#splitChk', el).checked) f.delete('split_home'); if ($('#sost', el)?.checked) f.set('sostituisci', 'true'); return f; };
+    // L'elenco delle tappe da sostituire si mostra solo quando serve
+    $('#sost', el)?.addEventListener('change', e => { $('#quali', el).hidden = !e.target.checked; });
+    $('#tutte', el)?.addEventListener('click', () => $$('.una-tappa', el).forEach(c => c.checked = true));
+    $('#nessuna', el)?.addEventListener('click', () => $$('.una-tappa', el).forEach(c => c.checked = false));
+    const fd = () => { const f = new FormData($('#f', el)); f.set('only_trip_dates', dest() !== 'new' && $('[name=only_trip_dates]', el).checked ? 'true' : 'false'); if (!$('#splitChk', el).checked) f.delete('split_home'); if ($('#sost', el)?.checked) f.set('sostituisci_ids', $$('.una-tappa:checked', el).map(c => c.value).join(',')); return f; };
     let last = null;
     // per "nuovo viaggio" l'anteprima usa un viaggio aperto qualsiasi solo per leggere il file (nessun filtro date)
     const previewTrip = () => dest() === 'new' ? 'new' : dest();
@@ -931,7 +942,9 @@ function carlockImport(trip, openTrips = [], sostituisciDefault = false) {
       if (r.split?.created?.length) { toast(`Importate ${r.imported} tappe, divise in ${r.split.created.length} viaggi`); location.hash = '#/'; render(); return; }
       if (!trip) location.hash = '#/trip/' + target;
       if (!r.imported && r.geocode_failed.length) modal(`<h2>Import non riuscito</h2><p>Nessun indirizzo è stato geocodificato (${r.geocode_failed.length} indirizzi).</p>${r.geocode_errors?.length ? `<p class="small muted">Motivo: ${esc(r.geocode_errors.join(' · '))}</p>` : ''}<p class="small">Riprova tra qualche minuto: i servizi di geocodifica gratuiti limitano le richieste.</p><div class="row" style="justify-content:flex-end"><button class="btn primary" data-x>Ok</button></div>`, (el2, close2) => $('[data-x]', el2).onclick = close2);
-      else toast(`Importate ${r.imported} tappe (${num(r.km)} km)` + (r.geocode_failed.length ? ` · ${r.geocode_failed.length} indirizzi non trovati` : ''), !!r.geocode_failed.length);
+      else toast(`Importate ${r.imported} tappe (${num(r.km)} km)`
+        + (r.sostituite ? ` \u00b7 ${r.sostituite === 1 ? 'una prevista sostituita' : r.sostituite + ' previste sostituite'}` : '')
+        + (r.geocode_failed.length ? ` \u00b7 ${r.geocode_failed.length} indirizzi non trovati` : ''), !!r.geocode_failed.length);
       render();
     });
   });
