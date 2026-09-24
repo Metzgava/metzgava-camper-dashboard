@@ -312,3 +312,8 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .grafico-battito .area { fill: #ef4444; opacity: .13; }
 .grafico-battito .linea { stroke: #ef4444; stroke-width: 2.2; }
 .grafico-battito .punto-scelto { fill: #ef4444; }
+
+/* Una scelta con la sua spiegazione sotto, dentro un modulo */
+.riga-scelta { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; font-size: 14px; cursor: pointer; }
+.riga-scelta input[type=checkbox] { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--accent); }
+.riga-scelta .small { grid-column: 2; }

@@ -382,7 +382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v13';
+const VERSIONE = 'v14';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -459,10 +459,10 @@ async function viewTrip(id) {
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
-      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
+      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
-    <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}${e.auto ? '' : `<button class="btn sm ghost danger" data-del-ex="${e.id}">🗑</button>`}`}</td></tr>`;
+    <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}<button class="btn sm ghost danger" data-del-ex="${e.id}" data-auto-ex="${e.auto ? 1 : 0}" title="Elimina">🗑</button>`}</td></tr>`;
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(nomeViaggio(trip))}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
       <div class="muted small">${dateCliccabili(trip)} · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
@@ -659,13 +659,27 @@ async function viewTrip(id) {
       poiModal(l);
     }
     if (b.dataset.editLeg) legForm(trip, legs, legs.find(x => x.id == b.dataset.editLeg));
-    if (b.dataset.delLeg && await confirmDlg('Eliminare la tappa e la sua spesa gasolio?')) { await api('/legs/' + b.dataset.delLeg, { method: 'DELETE' }); render(); }
+    if (b.dataset.delLeg && await confirmDlg('Eliminare la tappa e la sua spesa gasolio?')) {
+      const r = await api('/legs/' + b.dataset.delLeg, { method: 'DELETE' });
+      toast(r.spese_tenute
+        ? `Tappa eliminata \u00b7 ${r.spese_tenute === 1 ? 'una spesa resta' : r.spese_tenute + ' spese restano'} fra quelle del viaggio`
+        : r.spese_tolte ? 'Tappa e spesa gasolio eliminate' : 'Tappa eliminata');
+      render();
+    }
   });
   $('tbody').onclick = safe(async e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.editEx) expenseForm(trip, legs, expenses.find(x => x.id == b.dataset.editEx));
     if (b.dataset.resetEx) { await api(`/expenses/${b.dataset.resetEx}/reset`, { method: 'POST' }); toast('Calcolo automatico ripristinato'); render(); }
-    if (b.dataset.delEx && await confirmDlg('Eliminare la spesa?')) { await api('/expenses/' + b.dataset.delEx, { method: 'DELETE' }); render(); }
+    if (b.dataset.delEx) {
+      const auto = b.dataset.autoEx === '1';
+      if (!await confirmDlg(auto
+        ? 'Eliminare la spesa? \u00c8 calcolata da sola: la tappa smettera\u2019 di calcolarla, e non torna finche\u2019 non la riaccendi dalla tappa.'
+        : 'Eliminare la spesa?')) return;
+      const r = await api('/expenses/' + b.dataset.delEx, { method: 'DELETE' });
+      toast(r.calcolo_spento ? 'Spesa eliminata \u00b7 la tappa non calcola piu\u2019 il gasolio' : 'Spesa eliminata');
+      render();
+    }
   });
   $('#ph').onchange = safe(async e => { await caricaFoto(id, e.target.files); e.target.value = ''; });
   // Il collegamento apre l'app Foto da se': qui si dice solo cosa farne, perche'
@@ -834,6 +848,8 @@ function legForm(trip, legs, leg = null) {
     <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${leg?.date ? iso(leg.date) : (last?.date ? iso(last.date) : (trip.start_date ? iso(trip.start_date) : today()))}"></div>
       <div><label class="f">Gasolio €/l (vuoto = ${trip.fuel_price ?? settings.vehicle?.fuel_price})</label><input type="number" step="0.001" name="fuel_price" value="${leg?.fuel_price ?? ''}" placeholder="${trip.fuel_price ?? settings.vehicle?.fuel_price}"></div></div>
     <div><label class="f">Note</label><input name="notes" value="${esc(leg?.notes || '')}"></div>
+    ${leg ? `<label class="riga-scelta"><input type="checkbox" name="gasolio" ${leg.senza_gasolio ? '' : 'checked'}> Calcola da solo il gasolio di questa tappa
+      <span class="small muted">${leg.senza_gasolio ? 'Ora e\u2019 spento: la spesa l\u2019hai tolta a mano.' : 'La spesa si aggiorna con i chilometri e il prezzo.'}</span></label>` : ''}
     <div id="prev" class="muted small"></div><div id="pmap" class="map sm" style="display:none"></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn" id="pv">Anteprima</button><button class="btn primary">${leg ? 'Salva' : 'Aggiungi'}</button></div></form>`,
     (el, close) => {
@@ -856,6 +872,7 @@ function legForm(trip, legs, leg = null) {
         if (!from?.lat || !to?.lat) return toast('Seleziona partenza e arrivo dai suggerimenti', true);
         const fd = Object.fromEntries(new FormData(e.target));
         const body = { from, to, date: fd.date || null, fuel_price: fd.fuel_price || null, notes: fd.notes };
+        if (leg) body.senza_gasolio = !fd.gasolio;
         const r = leg ? await api('/legs/' + leg.id, { method: 'PUT', body }) : await api(`/trips/${trip.id}/legs`, { method: 'POST', body });
         if (r.routing_warning) toast(r.routing_warning, true);
         close(); render();

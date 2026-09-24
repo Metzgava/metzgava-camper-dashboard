@@ -21,7 +21,7 @@ async function getSettings() {
 // Ricalcola la spesa gasolio automatica di una tappa (se non modificata a mano)
 async function syncFuelExpense(legId) {
   const leg = (await q('SELECT l.*, t.fuel_price AS trip_fuel_price, t.km_per_liter FROM legs l JOIN trips t ON t.id=l.trip_id WHERE l.id=$1', [legId])).rows[0];
-  if (!leg) return;
+  if (!leg || leg.senza_gasolio) return;      // spesa cancellata a mano: non torna
   const s = await getSettings();
   const price = num(leg.fuel_price) || num(leg.trip_fuel_price) || num(s.vehicle?.fuel_price, 1.75);
   const kml = num(leg.km_per_liter, 10) || 10;
@@ -377,9 +377,10 @@ router.put('/legs/:id', wrap(async (req, res) => {
   let geo = { distance_km: b.distance_km != null ? num(b.distance_km) : cur.distance_km, duration_min: cur.duration_min, geometry: cur.geometry };
   const changedPts = b.from?.lat && b.to?.lat && (b.from.lat !== cur.from_lat || b.from.lon !== cur.from_lon || b.to.lat !== cur.to_lat || b.to.lon !== cur.to_lon);
   if (changedPts) { const r = await route(b.from, b.to); geo = r; }
-  const leg = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8, distance_km=$9, duration_min=$10, fuel_price=$11, geometry=$12, notes=$13, position=coalesce($14,position) WHERE id=$1 RETURNING *`,
+  const leg = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8, distance_km=$9, duration_min=$10, fuel_price=$11, geometry=$12, notes=$13, position=coalesce($14,position), senza_gasolio=$15 WHERE id=$1 RETURNING *`,
     [cur.id, b.date ?? cur.date, b.from?.name ?? cur.from_name, b.from?.lat ?? cur.from_lat, b.from?.lon ?? cur.from_lon, b.to?.name ?? cur.to_name, b.to?.lat ?? cur.to_lat, b.to?.lon ?? cur.to_lon,
-      geo.distance_km, geo.duration_min, b.fuel_price != null && b.fuel_price !== '' ? num(b.fuel_price) : null, JSON.stringify(geo.geometry), b.notes ?? cur.notes, b.position])).rows[0];
+      geo.distance_km, geo.duration_min, b.fuel_price != null && b.fuel_price !== '' ? num(b.fuel_price) : null, JSON.stringify(geo.geometry), b.notes ?? cur.notes, b.position,
+      b.senza_gasolio != null ? !!b.senza_gasolio : cur.senza_gasolio])).rows[0];
   await syncFuelExpense(leg.id);
   if (changedPts) cercaSosteArrivo(leg.id, leg.to_name, leg.to_lat, leg.to_lon).catch(e => console.warn('soste all\u2019arrivo:', e.message));
   res.json(leg);
@@ -406,7 +407,16 @@ router.post('/legs/:id/pois', wrap(async (req, res) => {
   await q('UPDATE legs SET pois=$2 WHERE id=$1', [req.params.id, conLink]);
   res.json(conLink);
 }));
-router.delete('/legs/:id', wrap(async (req, res) => { await q('DELETE FROM legs WHERE id=$1', [req.params.id]); res.json({ ok: true }); }));
+// La spesa del gasolio e' della tappa: se la tappa se ne va, se ne va con lei,
+// altrimenti resta nel totale del viaggio senza piu' niente che la spieghi.
+// Quella corretta a mano no: li' dentro c'e' un importo vero, speso davvero, e
+// si stacca dalla tappa invece di sparire.
+router.delete('/legs/:id', wrap(async (req, res) => {
+  const tolte = (await q("DELETE FROM expenses WHERE leg_id=$1 AND auto=true AND edited=false RETURNING id", [req.params.id])).rowCount;
+  const tenute = (await q("SELECT count(*)::int n FROM expenses WHERE leg_id=$1", [req.params.id])).rows[0].n;
+  await q('DELETE FROM legs WHERE id=$1', [req.params.id]);
+  res.json({ ok: true, spese_tolte: tolte, spese_tenute: tenute });
+}));
 
 // ---- suddivisione di un viaggio in viaggi "casa → casa" ----
 const MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
@@ -575,7 +585,16 @@ router.post('/expenses/:id/reset', wrap(async (req, res) => {
   if (ex?.leg_id) await syncFuelExpense(ex.leg_id);
   res.json((await q('SELECT * FROM expenses WHERE id=$1', [req.params.id])).rows[0]);
 }));
-router.delete('/expenses/:id', wrap(async (req, res) => { await q('DELETE FROM expenses WHERE id=$1', [req.params.id]); res.json({ ok: true }); }));
+// Qualsiasi spesa si puo' togliere, anche quella calcolata da sola. E quando e'
+// il gasolio di una tappa, la tappa se ne ricorda: senza, il primo ritocco alla
+// tappa la farebbe ricomparire, e cancellarla sarebbe una fatica senza fine.
+router.delete('/expenses/:id', wrap(async (req, res) => {
+  const ex = (await q('DELETE FROM expenses WHERE id=$1 RETURNING auto, leg_id, category', [req.params.id])).rows[0];
+  if (!ex) return res.status(404).json({ error: 'Spesa non trovata' });
+  const spenta = !!(ex.auto && ex.leg_id);
+  if (spenta) await q('UPDATE legs SET senza_gasolio=true WHERE id=$1', [ex.leg_id]);
+  res.json({ ok: true, calcolo_spento: spenta });
+}));
 
 // ---- riepiloghi per periodo ----
 // GET /api/summary?from=2026-01-01&to=2026-12-31&group=day|week|month|year
