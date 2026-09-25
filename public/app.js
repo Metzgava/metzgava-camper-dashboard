@@ -295,8 +295,8 @@ function tripForm(t = null) {
       <div class="row between"><b class="small">\ud83d\uddfa\ufe0f Percorso</b><span class="small muted">facoltativo</span></div>
       <div class="row" style="gap:6px;align-items:flex-end;margin-top:8px">
         <div class="grow"><label class="f">Arrivi da Google Maps</label><input id="p-link" placeholder="Incolla qui il link delle indicazioni" autocomplete="off"></div>
-        <button type="button" class="btn sm" id="p-leggi">Leggi</button></div>
-      <div id="p-esito-link" class="small muted"></div>
+        <button type="button" class="btn sm" id="p-incolla" title="Prendi quello che hai copiato">\ud83d\udccb Incolla</button></div>
+      <div class="row between small" style="margin-top:4px"><a class="btn sm" href="https://www.google.com/maps" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Apri Google Maps</a><span class="muted" id="p-esito-link"></span></div>
       <div style="margin-top:8px"><label class="f">Si parte da</label><input id="p-da" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
       <div id="p-tappe" style="margin-top:8px"></div>
       <button type="button" class="btn sm" id="p-piu" style="margin-top:8px">\uff0b Tappa intermedia</button>
@@ -327,21 +327,38 @@ function tripForm(t = null) {
         $('#p-piu', el).onclick = () => { punti.tappe.push(null); disegnaTappe(); };
 
         // Un itinerario gia' pensato su Google Maps non si riscrive a mano: si
-        // incolla, e i suoi punti si sistemano da soli nei campi qui sotto
-        $('#p-leggi', el).onclick = safe(async () => {
-          const link = $('#p-link', el).value.trim();
-          if (!link) return toast('Incolla il collegamento di Google Maps', true);
-          $('#p-esito-link', el).textContent = 'Leggo il collegamento\u2026';
-          const r = await api('/maps/percorso', { method: 'POST', body: { url: link } });
-          if (r.punti.length < 2) { $('#p-esito-link', el).textContent = ''; return toast('In quel collegamento c\u2019\u00e8 un punto solo', true); }
+        // incolla, e i suoi punti si sistemano da soli nei campi qui sotto.
+        // Non c'e' un tasto «leggi»: con un collegamento incollato non si puo'
+        // fare altro che leggerlo.
+        const campoLink = $('#p-link', el), esitoLink = $('#p-esito-link', el);
+        let lettoOra = '';
+        const leggiLink = safe(async testo => {
+          const link = linkNelTesto(testo) || String(testo || '').trim();
+          if (!link || link === lettoOra) return;
+          lettoOra = link;
+          esitoLink.textContent = 'leggo\u2026';
+          let r;
+          try { r = await api('/maps/percorso', { method: 'POST', body: { url: link } }); }
+          catch (e) { esitoLink.textContent = e.message; return; }
+          if (r.punti.length < 2) { esitoLink.textContent = 'In quel collegamento c\u2019\u00e8 un punto solo'; return; }
           punti.partenza = r.punti[0];
           punti.arrivo = r.punti[r.punti.length - 1];
           punti.tappe = r.punti.slice(1, -1);
           $('#p-da', el).value = punti.partenza.name;
           $('#p-a', el).value = punti.arrivo.name;
           disegnaTappe();
-          $('#p-esito-link', el).innerHTML = `Trovati <b>${r.punti.length} punti</b>${r.non_trovati.length ? ` \u00b7 non riconosciuti: ${esc(r.non_trovati.join(', '))}` : ''}`;
+          esitoLink.innerHTML = `<b>${r.punti.length} punti</b>${r.non_trovati.length ? ` \u00b7 non riconosciuti: ${esc(r.non_trovati.join(', '))}` : ''}`;
           $('#p-calcola', el).click();
+        });
+        campoLink.addEventListener('paste', () => setTimeout(() => leggiLink(campoLink.value), 0));
+        let attesaLink;
+        campoLink.addEventListener('input', () => { clearTimeout(attesaLink); attesaLink = setTimeout(() => leggiLink(campoLink.value), 700); });
+        $('#p-incolla', el).onclick = safe(async () => {
+          let testo = '';
+          try { testo = await navigator.clipboard.readText(); }
+          catch { return toast('Il browser non mi lascia leggere gli appunti: incolla nel campo con \u2318V', true); }
+          campoLink.value = linkNelTesto(testo) || testo.trim();
+          leggiLink(campoLink.value);
         });
 
         const mostraScelta = () => {
@@ -472,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v21';
+const VERSIONE = 'v22';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -951,37 +968,79 @@ function sostaForm(trip, s = null, preimpostato = null) {
 
 // Un itinerario pensato su Google Maps diventa tappe: ogni tratto fra due punti
 // e' una tappa, con la distanza vera su strada e il gasolio che ne consegue.
+// Da un testo incollato si pesca il primo indirizzo: la condivisione di Maps
+// sul telefono manda il nome del percorso e sotto il link, e chiedere all'utente
+// di ritagliarlo a mano sarebbe fargli fare il lavoro del programma.
+const linkNelTesto = t => (String(t || '').match(/https?:\/\/[^\s<>"']+/) || [])[0] || '';
+
+// Il posto da cui si riparte: l'arrivo dell'ultima tappa, o casa. Serve per
+// aprire Maps gia' al punto giusto invece che su una mappa qualunque.
+const mapsDaCui = legs => {
+  const u = legs?.[legs.length - 1];
+  const dove = u?.to_lat != null ? `${u.to_lat},${u.to_lon}` : '';
+  return dove ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(dove)}` : 'https://www.google.com/maps';
+};
+
+// Un itinerario pensato su Google Maps diventa tappe: ogni tratto fra due punti
+// e' una tappa, con la distanza vera su strada e il gasolio che ne consegue.
+// Si incolla e basta: leggere il collegamento non e' un'altra decisione da
+// prendere, e' l'unica cosa che si puo' fare con un collegamento incollato.
 function tappeDaMaps(trip, legs) {
   const ultima = legs[legs.length - 1];
-  let punti = [];
+  let punti = [], lettoOra = '';
   modal(`<h2>\ud83d\uddfa\ufe0f Tappe da Google Maps</h2>
-    <p class="small muted">Su Google Maps apri le indicazioni, poi <b>Condividi \u2192 Copia link</b>. Va bene anche il link corto. Ogni tratto fra due punti diventa una tappa, con la distanza calcolata su strada.</p>
+    <p class="small muted">Su Maps: <b>Indicazioni</b> \u2192 <b>Condividi</b> \u2192 <b>Copia link</b>. Poi incolla qui \u2014 va bene anche tutto il testo che Maps condivide, e il link corto.</p>
     <form id="f" class="stack">
-      <div><label class="f">Collegamento</label><input name="url" required placeholder="https://www.google.com/maps/dir/\u2026" autocomplete="off"></div>
+      <div class="row" style="gap:6px;align-items:flex-end">
+        <div class="grow"><label class="f">Collegamento</label><input name="url" placeholder="Incolla qui" autocomplete="off"></div>
+        <button type="button" class="btn" id="incolla" title="Prendi quello che hai copiato">\ud83d\udccb Incolla</button>
+      </div>
+      <div class="row between small">
+        <a class="btn sm" href="${mapsDaCui(legs)}" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Apri Google Maps${ultima ? ' da ' + esc(String(ultima.to_name).split(',')[0]) : ''}</a>
+        <span class="muted" id="stato-link"></span>
+      </div>
       <div class="form-grid">
         <div><label class="f">Data della prima tappa</label><input type="date" name="date" value="${ultima?.date ? iso(ultima.date) : (trip.start_date ? iso(trip.start_date) : today())}"></div>
         <div style="align-self:end"><label class="riga-scelta"><input type="checkbox" name="un_giorno"> Un giorno per tappa</label></div>
       </div>
       <div id="letti"></div>
-      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn" id="leggi">Leggi</button><button class="btn primary" id="crea" disabled>Crea le tappe</button></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary" id="crea" disabled>Crea le tappe</button></div>
     </form>`, (el, close) => {
     $('[data-x]', el).onclick = close;
-    $('#leggi', el).onclick = safe(async () => {
-      const url = $('[name=url]', el).value.trim();
-      if (!url) return toast('Incolla il collegamento', true);
-      $('#letti', el).innerHTML = '<div class="muted small">Leggo il collegamento\u2026</div>';
-      const r = await api('/maps/percorso', { method: 'POST', body: { url } });
+    const campo = $('[name=url]', el), stato = $('#stato-link', el);
+    const leggi = safe(async testo => {
+      const url = linkNelTesto(testo) || String(testo || '').trim();
+      if (!url || url === lettoOra) return;
+      lettoOra = url;
+      stato.textContent = 'leggo\u2026';
+      $('#letti', el).innerHTML = '';
+      let r;
+      try { r = await api('/maps/percorso', { method: 'POST', body: { url } }); }
+      catch (e) { stato.textContent = ''; $('#letti', el).innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
       punti = r.punti;
-      if (punti.length < 2) { $('#letti', el).innerHTML = '<div class="empty">Serve almeno una partenza e un arrivo.</div>'; return; }
+      stato.textContent = '';
+      if (punti.length < 2) return $('#letti', el).innerHTML = '<div class="empty">Serve almeno una partenza e un arrivo.</div>';
       const tratti = punti.slice(1).map((p, i) => `${esc(String(punti[i].name).split(',')[0])} \u2192 ${esc(String(p.name).split(',')[0])}`);
       $('#letti', el).innerHTML = `<div class="small"><b>${tratti.length} ${tratti.length === 1 ? 'tappa' : 'tappe'}</b> da ${punti.length} punti</div>
         <div class="quali-tappe" style="margin-top:6px">${tratti.map((t, i) => `<div class="small">${i + 1}. ${t}</div>`).join('')}</div>
         ${r.non_trovati.length ? `<div class="small muted" style="margin-top:6px">Non riconosciuti e saltati: ${esc(r.non_trovati.join(', '))}</div>` : ''}`;
       $('#crea', el).disabled = false;
     });
+    // Incollato il collegamento, si legge da se': era l'unica cosa da farci
+    campo.addEventListener('paste', e => setTimeout(() => leggi(campo.value), 0));
+    let attesa;
+    campo.addEventListener('input', () => { clearTimeout(attesa); attesa = setTimeout(() => leggi(campo.value), 700); });
+    $('#incolla', el).onclick = safe(async () => {
+      let testo = '';
+      try { testo = await navigator.clipboard.readText(); }
+      catch { return toast('Il browser non mi lascia leggere gli appunti: incolla nel campo con \u2318V', true); }
+      campo.value = linkNelTesto(testo) || testo.trim();
+      leggi(campo.value);
+    });
+    setTimeout(() => campo.focus(), 50);
     $('#f', el).onsubmit = safe(async e => {
       e.preventDefault();
-      if (punti.length < 2) return toast('Prima leggi il collegamento', true);
+      if (punti.length < 2) return toast('Incolla prima un percorso di Google Maps', true);
       const fd = Object.fromEntries(new FormData(e.target));
       $('#crea', el).disabled = true; $('#crea', el).textContent = 'Creo le tappe\u2026';
       let quante = 0;
