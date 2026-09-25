@@ -337,3 +337,9 @@ input[type=checkbox], input[type=radio] { width: auto; }
 /* Sulla copertina di un viaggio si vede che la foto si puo' guardare */
 .viaggio .copertina img[data-grande] { cursor: zoom-in; }
 .photos img[data-grande], .foto-sosta a[data-grande] { cursor: zoom-in; }
+
+/* Il tratto con cui un atleta compare sulla mappa, accanto al suo nome */
+.segno-atleta { display: inline-block; width: 16px; height: 0; vertical-align: middle; border-top: 3px solid var(--muted); margin-right: 2px; }
+/* Nella legenda, il colore dice la disciplina e il tratto dice chi: due cose
+   diverse, separate da una riga sottile */
+.legenda-mappa .stacco { width: 1px; height: 14px; background: var(--line); border-radius: 0; align-self: center; }

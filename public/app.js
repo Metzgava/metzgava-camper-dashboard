@@ -450,7 +450,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v19';
+const VERSIONE = 'v20';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -523,6 +523,12 @@ async function viewTrip(id) {
   soste.forEach(x => fotoSosta.set(x.id, []));
   photos.forEach(p => { if (p.stop_id && fotoSosta.has(p.stop_id)) fotoSosta.get(p.stop_id).push(p); });
   const fotoViaggio = photos.filter(p => !p.stop_id || !fotoSosta.has(p.stop_id));
+  // In due si esce insieme, ma gli allenamenti sono di ciascuno: separati si
+  // leggono, mischiati bisogna spulciare riga per riga di chi e' ognuno. Sulla
+  // mappa il colore dice la disciplina, quindi a dire chi e' resta il tratto.
+  const atletiDelViaggio = [...new Set(workouts.map(w => w.athlete).filter(Boolean))].sort();
+  const TRATTI = [['4 6', 'dashed'], ['1 6', 'dotted'], ['12 4 2 4', 'dashed'], ['8 3', 'dashed']];
+  const trattoDi = nome => TRATTI[Math.max(0, atletiDelViaggio.indexOf(nome)) % TRATTI.length];
   const closed = trip.status === 'closed';
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
   const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
@@ -539,7 +545,7 @@ async function viewTrip(id) {
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
       <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe · ${dur(totals.minutes * 60)} guida</div></div>
       <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
-      <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
+      <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${atletiDelViaggio.length > 1 ? atletiDelViaggio.map(n => `${esc(n)} ${workouts.filter(w => w.athlete === n).length}`).join(' \u00b7 ') + '<br>' : ''}${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
     </div>
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${(() => {
@@ -549,6 +555,7 @@ async function viewTrip(id) {
         return `<div class="legenda-mappa">
           ${legs.length ? `<span class="voce"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
           ${discipline.map(d => `<span class="voce"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
+          ${atletiDelViaggio.length > 1 ? '<span class="stacco"></span>' + atletiDelViaggio.map(nome => `<span class="voce"><i class="tratteggio" style="border-top-color:var(--muted);border-top-style:${trattoDi(nome)[1]}"></i>${esc(nome)}</span>`).join('') : ''}
           ${conPosto ? `<span class="voce">\ud83d\udcf7 ${conPosto} fot${conPosto === 1 ? 'o' : 'o'} nel punto dello scatto</span>` : ''}
         </div>`;
       })()}</div>
@@ -576,7 +583,13 @@ async function viewTrip(id) {
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
         ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
         <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
-      <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
+      ${atletiDelViaggio.length ? atletiDelViaggio.map(nome => {
+        const suoi = workouts.filter(w => w.athlete === nome);
+        const km = suoi.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000;
+        return `<div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83d\udc5f ${esc(nome)}</h2>
+          <div class="small muted"><i class="segno-atleta" style="border-top-style:${trattoDi(nome)[1]}"></i> ${suoi.length} ${suoi.length === 1 ? 'uscita' : 'uscite'}${km >= 0.1 ? ` \u00b7 ${num(km)} km` : ''}</div></div>
+          <div class="list">${suoi.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} \u00b7 ${num((w.distance_m || 0) / 1000)} km \u00b7 ${dur(w.duration_s)}${w.hr_avg ? ' \u00b7 \u2764\ufe0f ' + w.hr_avg : ''}${w.calories ? ' \u00b7 \ud83d\udd25 ' + w.calories : ''}</div></div></a>`).join('')}</div></div>`;
+      }).join('') : '<div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div></div>'}
     </div>`);
 
   // Mappa
@@ -609,8 +622,8 @@ async function viewTrip(id) {
     const km = num((w.distance_m || 0) / 1000);
     let punto = null, circa = false, dove = '';
     if (traccia) {
-      L.polyline(traccia, { color: colore, weight: 3, dashArray: '4 6' }).addTo(map)
-        .bindPopup(`<b>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</b><br>${fdt(w.started_at)} \u00b7 ${km} km \u00b7 ${dur(w.duration_s)}<br><a href="#/allenamento/${w.id}">Apri l\u2019allenamento</a>`);
+      L.polyline(traccia, { color: colore, weight: 3, dashArray: trattoDi(w.athlete)[0] }).addTo(map)
+        .bindPopup(`<b>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</b><br>${esc(w.athlete || '')} \u00b7 ${fdt(w.started_at)} \u00b7 ${km} km \u00b7 ${dur(w.duration_s)}<br><a href="#/allenamento/${w.id}">Apri l\u2019allenamento</a>`);
       // L'icona sta a meta' del giro: sull'attivita', e lontana dai segnaposto
       // delle tappe, che stanno quasi sempre dove si e' partiti
       punto = traccia[Math.floor(traccia.length / 2)];
