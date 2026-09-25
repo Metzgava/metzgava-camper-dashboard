@@ -4,6 +4,7 @@ import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName } from '../lib/carlock.js';
+import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
 
@@ -492,6 +493,31 @@ router.post('/trips/:id/split', wrap(async (req, res) => {
   const home = String(req.body?.home || 'Susegana').trim();
   const r = await splitTripByHome(+req.params.id, home, req.user.id);
   res.json({ home, ...r });
+}));
+
+// ---- percorsi presi da Google Maps ----
+// Si incolla il collegamento di un itinerario e se ne cavano i punti. I nomi
+// vengono poi cercati dal nostro geocoder: Google i suoi non li presta.
+router.post('/maps/percorso', wrap(async (req, res) => {
+  const link = String(req.body?.url || '').trim();
+  if (!link) return res.status(400).json({ error: 'Incolla il collegamento di Google Maps' });
+  let disteso = link;
+  try { disteso = await seguiLinkBreve(link); }
+  catch (e) { console.warn('maps: collegamento breve non seguito:', e.message); }
+  const grezzi = puntiDaLinkMaps(disteso);
+  if (!grezzi.length) return res.status(400).json({
+    error: 'In questo collegamento non ci sono tappe. Su Google Maps apri le indicazioni (Percorso), poi Condividi \u2192 Copia link.' });
+
+  const punti = [], nonTrovati = [];
+  for (const g of grezzi) {
+    if (g.lat != null) { punti.push(g); continue; }
+    let trovato = null;
+    try { trovato = (await geocode(g.name))[0]; } catch (e) { console.warn('maps: geocoder', e.message); }
+    if (trovato) punti.push({ name: trovato.name, lat: trovato.lat, lon: trovato.lon, cercato: g.name });
+    else nonTrovati.push(g.name);
+    await new Promise(r => setTimeout(r, 250));   // i geocoder gratuiti non si martellano
+  }
+  res.json({ punti, non_trovati: nonTrovati, link: disteso });
 }));
 
 // ---- import CarLock (CSV/XLSX esportato da my.carlock.co) ----

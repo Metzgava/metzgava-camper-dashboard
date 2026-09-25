@@ -293,6 +293,10 @@ function tripForm(t = null) {
   const sezionePercorso = t ? '' : `
     <div class="card" style="padding:12px;margin-top:4px">
       <div class="row between"><b class="small">\ud83d\uddfa\ufe0f Percorso</b><span class="small muted">facoltativo</span></div>
+      <div class="row" style="gap:6px;align-items:flex-end;margin-top:8px">
+        <div class="grow"><label class="f">Arrivi da Google Maps</label><input id="p-link" placeholder="Incolla qui il link delle indicazioni" autocomplete="off"></div>
+        <button type="button" class="btn sm" id="p-leggi">Leggi</button></div>
+      <div id="p-esito-link" class="small muted"></div>
       <div style="margin-top:8px"><label class="f">Si parte da</label><input id="p-da" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
       <div id="p-tappe" style="margin-top:8px"></div>
       <button type="button" class="btn sm" id="p-piu" style="margin-top:8px">\uff0b Tappa intermedia</button>
@@ -321,6 +325,24 @@ function tripForm(t = null) {
           $$('[data-rm]', el).forEach(b => b.onclick = () => { punti.tappe.splice(+b.dataset.rm, 1); disegnaTappe(); });
         };
         $('#p-piu', el).onclick = () => { punti.tappe.push(null); disegnaTappe(); };
+
+        // Un itinerario gia' pensato su Google Maps non si riscrive a mano: si
+        // incolla, e i suoi punti si sistemano da soli nei campi qui sotto
+        $('#p-leggi', el).onclick = safe(async () => {
+          const link = $('#p-link', el).value.trim();
+          if (!link) return toast('Incolla il collegamento di Google Maps', true);
+          $('#p-esito-link', el).textContent = 'Leggo il collegamento\u2026';
+          const r = await api('/maps/percorso', { method: 'POST', body: { url: link } });
+          if (r.punti.length < 2) { $('#p-esito-link', el).textContent = ''; return toast('In quel collegamento c\u2019\u00e8 un punto solo', true); }
+          punti.partenza = r.punti[0];
+          punti.arrivo = r.punti[r.punti.length - 1];
+          punti.tappe = r.punti.slice(1, -1);
+          $('#p-da', el).value = punti.partenza.name;
+          $('#p-a', el).value = punti.arrivo.name;
+          disegnaTappe();
+          $('#p-esito-link', el).innerHTML = `Trovati <b>${r.punti.length} punti</b>${r.non_trovati.length ? ` \u00b7 non riconosciuti: ${esc(r.non_trovati.join(', '))}` : ''}`;
+          $('#p-calcola', el).click();
+        });
 
         const mostraScelta = () => {
           $$('[data-variante]', el).forEach(c => c.classList.toggle('scelto', c.dataset.variante === scelta?.chiave));
@@ -450,7 +472,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v20';
+const VERSIONE = 'v21';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -560,7 +582,7 @@ async function viewTrip(id) {
         </div>`;
       })()}</div>
     <div class="grid due" style="margin-top:14px">
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn sm" id="damaps" title="Incolla un itinerario di Google Maps">\ud83d\uddfa\ufe0f Da Maps</button><button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove dormiamo o dove ci fermiamo</h2>${'<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
         ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">
@@ -679,6 +701,7 @@ async function viewTrip(id) {
   }));
   $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
   $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
+  $('#damaps')?.addEventListener('click', () => tappeDaMaps(trip, legs));
   $('#carlock')?.addEventListener('click', () => carlockImport({ ...trip, legs }));
   $('#sostituisci')?.addEventListener('click', () => carlockImport({ ...trip, legs }, [], true));
   $('#addsosta')?.addEventListener('click', () => sostaForm(trip));
@@ -924,6 +947,56 @@ function sostaForm(trip, s = null, preimpostato = null) {
         close(); restaQui();
       });
     });
+}
+
+// Un itinerario pensato su Google Maps diventa tappe: ogni tratto fra due punti
+// e' una tappa, con la distanza vera su strada e il gasolio che ne consegue.
+function tappeDaMaps(trip, legs) {
+  const ultima = legs[legs.length - 1];
+  let punti = [];
+  modal(`<h2>\ud83d\uddfa\ufe0f Tappe da Google Maps</h2>
+    <p class="small muted">Su Google Maps apri le indicazioni, poi <b>Condividi \u2192 Copia link</b>. Va bene anche il link corto. Ogni tratto fra due punti diventa una tappa, con la distanza calcolata su strada.</p>
+    <form id="f" class="stack">
+      <div><label class="f">Collegamento</label><input name="url" required placeholder="https://www.google.com/maps/dir/\u2026" autocomplete="off"></div>
+      <div class="form-grid">
+        <div><label class="f">Data della prima tappa</label><input type="date" name="date" value="${ultima?.date ? iso(ultima.date) : (trip.start_date ? iso(trip.start_date) : today())}"></div>
+        <div style="align-self:end"><label class="riga-scelta"><input type="checkbox" name="un_giorno"> Un giorno per tappa</label></div>
+      </div>
+      <div id="letti"></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn" id="leggi">Leggi</button><button class="btn primary" id="crea" disabled>Crea le tappe</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = close;
+    $('#leggi', el).onclick = safe(async () => {
+      const url = $('[name=url]', el).value.trim();
+      if (!url) return toast('Incolla il collegamento', true);
+      $('#letti', el).innerHTML = '<div class="muted small">Leggo il collegamento\u2026</div>';
+      const r = await api('/maps/percorso', { method: 'POST', body: { url } });
+      punti = r.punti;
+      if (punti.length < 2) { $('#letti', el).innerHTML = '<div class="empty">Serve almeno una partenza e un arrivo.</div>'; return; }
+      const tratti = punti.slice(1).map((p, i) => `${esc(String(punti[i].name).split(',')[0])} \u2192 ${esc(String(p.name).split(',')[0])}`);
+      $('#letti', el).innerHTML = `<div class="small"><b>${tratti.length} ${tratti.length === 1 ? 'tappa' : 'tappe'}</b> da ${punti.length} punti</div>
+        <div class="quali-tappe" style="margin-top:6px">${tratti.map((t, i) => `<div class="small">${i + 1}. ${t}</div>`).join('')}</div>
+        ${r.non_trovati.length ? `<div class="small muted" style="margin-top:6px">Non riconosciuti e saltati: ${esc(r.non_trovati.join(', '))}</div>` : ''}`;
+      $('#crea', el).disabled = false;
+    });
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      if (punti.length < 2) return toast('Prima leggi il collegamento', true);
+      const fd = Object.fromEntries(new FormData(e.target));
+      $('#crea', el).disabled = true; $('#crea', el).textContent = 'Creo le tappe\u2026';
+      let quante = 0;
+      for (let i = 1; i < punti.length; i++) {
+        const giorno = fd.date && fd.un_giorno
+          ? iso(new Date(new Date(fd.date + 'T12:00:00').getTime() + (i - 1) * 86400000))
+          : (fd.date || null);
+        await api(`/trips/${trip.id}/legs`, { method: 'POST', body: { from: punti[i - 1], to: punti[i], date: giorno } });
+        quante++;
+      }
+      close();
+      toast(quante === 1 ? 'Tappa creata' : `${quante} tappe create`);
+      restaQui();
+    });
+  });
 }
 
 function legForm(trip, legs, leg = null) {
