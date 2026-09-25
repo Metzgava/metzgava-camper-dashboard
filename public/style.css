@@ -323,3 +323,17 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .quali-tappe[hidden] { display: none; }
 .quali-tappe label { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; cursor: pointer; }
 .quali-tappe input[type=checkbox] { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 1px; padding: 0; accent-color: var(--accent); }
+
+/* La lente: una foto guardata grande, sopra tutto il resto */
+.lente { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,.93); display: grid; place-items: center; animation: fade .15s; }
+.lente figure { margin: 0; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.lente img { max-width: min(calc(100vw - 32px), 1500px); max-height: calc(100vh - 110px); object-fit: contain; border-radius: 10px; display: block; }
+.lente figcaption { color: rgba(255,255,255,.85); font-size: 14px; text-align: center; max-width: 80vw; }
+.lente button { position: absolute; background: rgba(255,255,255,.14); color: #fff; border: 0; border-radius: 50%; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; font: inherit; font-size: 20px; line-height: 1; }
+.lente button:hover { background: rgba(255,255,255,.3); }
+.lente .chiudi { top: calc(14px + env(safe-area-inset-top)); right: 14px; }
+.lente .passo { top: 50%; transform: translateY(-50%); font-size: 30px; }
+.lente .prima { left: 12px; } .lente .dopo { right: 12px; }
+/* Sulla copertina di un viaggio si vede che la foto si puo' guardare */
+.viaggio .copertina img[data-grande] { cursor: zoom-in; }
+.photos img[data-grande], .foto-sosta a[data-grande] { cursor: zoom-in; }

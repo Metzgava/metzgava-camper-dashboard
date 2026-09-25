@@ -245,7 +245,7 @@ async function viewTrips() {
   const card = t => {
     const g = giorniViaggio(t);
     return `<a class="viaggio${t.status === 'open' ? ' in-corso' : ''}" href="#/trip/${t.id}">
-      <div class="copertina">${t.cover ? `<img src="/uploads/${esc(t.cover)}" loading="lazy" alt="">` : rottaSvg(t.rotta) || '<span class="senza">🚐</span>'}
+      <div class="copertina">${t.cover ? `<img src="/uploads/${esc(t.cover)}" loading="lazy" alt="" data-grande="/uploads/${esc(t.cover)}" data-didascalia="${esc(nomeViaggio(t))}" title="Tocca la foto per ingrandirla">` : rottaSvg(t.rotta) || '<span class="senza">🚐</span>'}
         <span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div>
       <div class="corpo">
         <div class="title">${esc(nomeViaggio(t))}</div>
@@ -370,6 +370,74 @@ function tripForm(t = null) {
 }
 
 // ---------- Foto ----------
+// Una foto si guarda grande. Si apre sopra la pagina, si scorre con le frecce o
+// col dito quando ce n'e' piu' d'una, e si chiude toccando fuori, con la \u2715 o
+// con Esc. Sotto la miniatura non si legge niente: e' li' che si va a vedere se
+// quella curva era davvero cosi' stretta.
+let chiudiLente = null;
+function apriLente(foto, i = 0) {
+  chiudiLente?.();
+  if (!foto.length) return;
+  const el = document.createElement('div');
+  el.className = 'lente';
+  el.innerHTML = `<button class="chiudi" title="Chiudi (Esc)">\u2715</button>
+    ${foto.length > 1 ? '<button class="passo prima" title="Precedente">\u2039</button><button class="passo dopo" title="Successiva">\u203a</button>' : ''}
+    <figure><img alt=""><figcaption></figcaption></figure>`;
+  document.body.appendChild(el);
+  const scorrimento = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  const img = $('img', el), didascalia = $('figcaption', el);
+  const mostra = n => {
+    i = (n + foto.length) % foto.length;
+    img.src = foto[i].src;
+    didascalia.textContent = [foto[i].caption, foto.length > 1 ? `${i + 1} di ${foto.length}` : ''].filter(Boolean).join(' \u00b7 ');
+  };
+  const tasti = e => {
+    if (e.key === 'Escape') chiudi();
+    else if (e.key === 'ArrowLeft') mostra(i - 1);
+    else if (e.key === 'ArrowRight') mostra(i + 1);
+  };
+  const chiudi = () => {
+    document.removeEventListener('keydown', tasti);
+    document.body.style.overflow = scorrimento;
+    el.remove();
+    chiudiLente = null;
+  };
+  chiudiLente = chiudi;
+  document.addEventListener('keydown', tasti);
+  // Un tocco fuori dalla foto chiude: e' il gesto che viene da se'
+  el.addEventListener('click', e => {
+    if (e.target.closest('.chiudi')) return chiudi();
+    if (e.target.closest('.prima')) return mostra(i - 1);
+    if (e.target.closest('.dopo')) return mostra(i + 1);
+    if (!e.target.closest('img')) chiudi();
+  });
+  // Col dito si scorre, come in qualunque raccolta di foto
+  let partenza = null;
+  el.addEventListener('pointerdown', e => { partenza = e.clientX; });
+  el.addEventListener('pointerup', e => {
+    if (partenza == null) return;
+    const dx = e.clientX - partenza; partenza = null;
+    if (Math.abs(dx) > 45 && foto.length > 1) mostra(i + (dx < 0 ? 1 : -1));
+  });
+  mostra(i);
+}
+
+// Le foto da ingrandire si riconoscono dal loro attributo, e si guardano
+// insieme a quelle che hanno intorno: la raccolta del viaggio, la striscia di
+// una sosta. Una copertina o una foto sulla mappa stanno per conto loro.
+document.addEventListener('click', e => {
+  const scatto = e.target.closest('[data-grande]');
+  if (!scatto) return;
+  // Mentre si sceglie quali foto togliere, il tocco serve a spuntarle
+  if (scatto.closest('.photos.in-selezione')) return;
+  e.preventDefault(); e.stopPropagation();
+  const gruppo = scatto.closest('.photos, .foto-sosta');
+  const tutte = gruppo ? $$('[data-grande]', gruppo) : [scatto];
+  apriLente(tutte.map(x => ({ src: x.dataset.grande, caption: x.dataset.didascalia || '' })), Math.max(0, tutte.indexOf(scatto)));
+});
+
+
 // Dentro la libreria Foto il browser non puo' pescare: nessuna pagina web puo',
 // per come e' fatto il Mac, e non e' una mancanza di questa. Quello che si puo'
 // fare e' aprire l'app Foto e prendere gli scatti da li' — trascinandoli nel
@@ -382,7 +450,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v18';
+const VERSIONE = 'v19';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -507,7 +575,7 @@ async function viewTrip(id) {
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
         ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
-        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
+        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
       <div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="list">${workouts.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} · ${esc(w.athlete)} · ${num((w.distance_m || 0) / 1000)} km · ${dur(w.duration_s)}${w.hr_avg ? ' · ❤️ ' + w.hr_avg : ''}${w.calories ? ' · 🔥 ' + w.calories : ''}</div></div></a>`).join('') || '<div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div>'}</div></div>
     </div>`);
 
@@ -574,7 +642,7 @@ async function viewTrip(id) {
     const dove = nomeSostaDi(p);
     L.marker([p.lat, p.lon], { icon: fotoIcon(`/uploads/${p.filename}`), zIndexOffset: 500 })
       .addTo(map)
-      .bindPopup(`<a href="/uploads/${p.filename}" target="_blank" rel="noopener"><img src="/uploads/${p.filename}" style="width:220px;border-radius:8px;display:block"></a>
+      .bindPopup(`<a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire"><img src="/uploads/${p.filename}" style="width:220px;border-radius:8px;display:block"></a>
         ${p.caption ? `<b>${esc(p.caption)}</b><br>` : ''}${p.taken_at ? fdt(p.taken_at) : ''}${dove ? `<br>\ud83c\udd7f\ufe0f ${esc(dove)}` : ''}`);
     bounds.push([p.lat, p.lon]);
   });
@@ -768,7 +836,7 @@ const sostaRiga = (s, foto = []) => {
   <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
-  <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" target="_blank" rel="noopener" title="${esc(p.caption || 'Apri la foto')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a><button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
+  <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="${esc(p.caption || 'Tocca per ingrandire')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a><button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
     <label class="btn sm ghost" title="Foto di questa sosta">\ud83d\udcf7 ${foto.length ? 'Aggiungi' : 'Foto'}<input type="file" data-fotososta="${s.id}" accept="image/*" multiple hidden></label></div></div>`;
 };
 
