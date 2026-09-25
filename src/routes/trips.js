@@ -383,11 +383,19 @@ router.delete('/soste/:id', wrap(async (req, res) => {
   res.json({ ok: true, spese_tolte: tolte, spese_tenute: tenute });
 }));
 
+// Una strada scelta fra quelle proposte arriva gia' calcolata: distanza, durata
+// e disegno. Si accetta solo se ha tutt'e tre le cose, altrimenti si ricalcola.
+const sceltoDaFuori = p => (p && Array.isArray(p.geometry) && p.geometry.length > 1 && num(p.distance_km) > 0)
+  ? { distance_km: num(p.distance_km), duration_min: Math.round(num(p.duration_min)), geometry: p.geometry, warning: p.stimato ? 'Distanza stimata: il servizio dei percorsi non ha risposto' : null }
+  : null;
+
 router.post('/trips/:id/legs', wrap(async (req, res) => {
   const b = req.body || {};
   const from = b.from, to = b.to;
   if (!from?.lat || !to?.lat) return res.status(400).json({ error: 'Partenza e arrivo obbligatori' });
-  const r = await route(from, to);
+  // Se chi chiama ha gia' scelto una strada fra quelle proposte, si prende
+  // quella: ricalcolarla darebbe la piu' rapida, cioe' proprio quella scartata
+  const r = sceltoDaFuori(b.percorso) || await route(from, to);
   const pos = (await q('SELECT coalesce(max(position),0)+1 AS p FROM legs WHERE trip_id=$1', [req.params.id])).rows[0].p;
   const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,distance_km,duration_min,fuel_price,geometry,notes)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
@@ -402,8 +410,10 @@ router.put('/legs/:id', wrap(async (req, res) => {
   const cur = (await q('SELECT * FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
   let geo = { distance_km: b.distance_km != null ? num(b.distance_km) : cur.distance_km, duration_min: cur.duration_min, geometry: cur.geometry };
+  const scelto = sceltoDaFuori(b.percorso);
   const changedPts = b.from?.lat && b.to?.lat && (b.from.lat !== cur.from_lat || b.from.lon !== cur.from_lon || b.to.lat !== cur.to_lat || b.to.lon !== cur.to_lon);
-  if (changedPts) { const r = await route(b.from, b.to); geo = r; }
+  if (scelto) geo = scelto;
+  else if (changedPts) { const r = await route(b.from, b.to); geo = r; }
   const leg = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8, distance_km=$9, duration_min=$10, fuel_price=$11, geometry=$12, notes=$13, position=coalesce($14,position), senza_gasolio=$15 WHERE id=$1 RETURNING *`,
     [cur.id, b.date ?? cur.date, b.from?.name ?? cur.from_name, b.from?.lat ?? cur.from_lat, b.from?.lon ?? cur.from_lon, b.to?.name ?? cur.to_name, b.to?.lat ?? cur.to_lat, b.to?.lon ?? cur.to_lon,
       geo.distance_km, geo.duration_min, b.fuel_price != null && b.fuel_price !== '' ? num(b.fuel_price) : null, JSON.stringify(geo.geometry), b.notes ?? cur.notes, b.position,

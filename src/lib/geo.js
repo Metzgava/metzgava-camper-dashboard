@@ -93,16 +93,19 @@ async function percorsoOrs(from, to, evitare = []) {
   if (!f) throw new Error('nessun percorso');
   const s = f.properties.summary || {};
   if (!s.distance) throw new Error('percorso senza distanza');
-  // I tratti a pedaggio arrivano come intervalli marcati 1: sommando le loro
-  // distanze si sa quanti chilometri si pagano. Il prezzo no: quello nessun
-  // servizio gratuito lo pubblica, e si stima a tariffa chilometrica.
-  const pedaggio = (f.properties.extras?.tollways?.summary || [])
+  // I tratti a pedaggio arrivano come intervalli marcati 1. Di ognuno si prende
+  // «amount», cioe' la quota di percorso che occupa: e' una percentuale, e una
+  // percentuale non ha unita' di misura da sbagliare. La «distance» che sta
+  // accanto cambia scala con units, e letta come metri diceva zero chilometri a
+  // pedaggio su qualunque autostrada. Il prezzo invece nessun servizio gratuito
+  // lo pubblica, e resta una stima a tariffa chilometrica.
+  const quota = (f.properties.extras?.tollways?.summary || [])
     .filter(x => x.value === 1)
-    .reduce((t, x) => t + (x.distance || 0), 0);
+    .reduce((t, x) => t + (x.amount || 0), 0);
   return {
     distance_km: +s.distance.toFixed(1),
     duration_min: Math.round(s.duration / 60 * 1.15),   // il camper va piu' piano
-    pedaggio_km: +(pedaggio / 1000).toFixed(1),         // l'extra e' in metri anche con units=km
+    pedaggio_km: +(s.distance * quota / 100).toFixed(1),
     geometry: samplePoints(f.geometry.coordinates.map(([lon, lat]) => [+lat.toFixed(5), +lon.toFixed(5)]), 600),
     source: 'openrouteservice',
   };

@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v22';
+const VERSIONE = 'v23';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1062,40 +1062,94 @@ function legForm(trip, legs, leg = null) {
   const last = legs[legs.length - 1];
   let from = leg ? { name: leg.from_name, lat: leg.from_lat, lon: leg.from_lon } : last ? { name: last.to_name, lat: last.to_lat, lon: last.to_lon } : null;
   let to = leg ? { name: leg.to_name, lat: leg.to_lat, lon: leg.to_lon } : null;
+  // Le strade possibili fra i due punti, con quanto costano. Si cercano da sole
+  // appena ci sono partenza e arrivo: chiederle con un tasto sarebbe far premere
+  // un tasto per avere l'unica cosa che serve.
+  let varianti = [], scelta = null, sceltaEsplicita = false, cercandoPer = '';
   modal(`<h2>${leg ? 'Modifica tappa' : 'Nuova tappa'}</h2><form id="f" class="stack" style="margin-top:14px">
-    <div><label class="f">Partenza</label><input id="from" required value="${esc(from?.name || '')}" placeholder="Cerca città o luogo…" autocomplete="off"></div>
-    <div><label class="f">Arrivo</label><input id="to" required value="${esc(to?.name || '')}" placeholder="Cerca città o luogo…" autocomplete="off"></div>
+    <div><label class="f">Partenza</label><input id="from" required value="${esc(from?.name || '')}" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
+    <div><label class="f">Arrivo</label><input id="to" required value="${esc(to?.name || '')}" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
     <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${leg?.date ? iso(leg.date) : (last?.date ? iso(last.date) : (trip.start_date ? iso(trip.start_date) : today()))}"></div>
-      <div><label class="f">Gasolio €/l (vuoto = ${trip.fuel_price ?? settings.vehicle?.fuel_price})</label><input type="number" step="0.001" name="fuel_price" value="${leg?.fuel_price ?? ''}" placeholder="${trip.fuel_price ?? settings.vehicle?.fuel_price}"></div></div>
+      <div><label class="f">Gasolio \u20ac/l (vuoto = ${trip.fuel_price ?? settings.vehicle?.fuel_price})</label><input type="number" step="0.001" name="fuel_price" value="${leg?.fuel_price ?? ''}" placeholder="${trip.fuel_price ?? settings.vehicle?.fuel_price}"></div></div>
     <div><label class="f">Note</label><input name="notes" value="${esc(leg?.notes || '')}"></div>
     ${leg ? `<label class="riga-scelta"><input type="checkbox" name="gasolio" ${leg.senza_gasolio ? '' : 'checked'}> Calcola da solo il gasolio di questa tappa
       <span class="small muted">${leg.senza_gasolio ? 'Ora e\u2019 spento: la spesa l\u2019hai tolta a mano.' : 'La spesa si aggiorna con i chilometri e il prezzo.'}</span></label>` : ''}
-    <div id="prev" class="muted small"></div><div id="pmap" class="map sm" style="display:none"></div>
-    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn" id="pv">Anteprima</button><button class="btn primary">${leg ? 'Salva' : 'Aggiungi'}</button></div></form>`,
+    <div id="strade"></div><div id="pmap" class="map sm" style="display:none"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${leg ? 'Salva' : 'Aggiungi'}</button></div></form>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;
-      geoInput($('#from', el), r => from = r); geoInput($('#to', el), r => to = r);
+      const kml = num(trip.km_per_liter, 10) || 10;
+      const prezzo = () => +String($('[name=fuel_price]', el).value || trip.fuel_price || settings.vehicle?.fuel_price || 0).replace(',', '.');
       let pmap;
-      const preview = safe(async () => {
-        if (!from?.lat || !to?.lat) return toast('Seleziona partenza e arrivo dai suggerimenti', true);
-        const r = await api('/route/preview', { method: 'POST', body: { from, to } });
-        const price = +($('[name=fuel_price]', el).value || trip.fuel_price || settings.vehicle?.fuel_price || 0);
-        const lt = r.distance_km / (trip.km_per_liter || 10);
-        $('#prev', el).innerHTML = `<b>${num(r.distance_km)} km</b> · ${dur(r.duration_min * 60)} · ${num(lt)} l ≈ <b>${eur(lt * price)}</b> di gasolio${r.warning ? ' · ⚠️ ' + r.warning : ''}`
-          + ` <a class="btn sm" href="${mapsIndicazioni(from, to)}" target="_blank" rel="noopener" title="Le indicazioni le calcola Google quando ci clicchi">\ud83d\uddfa\ufe0f Maps</a>`;
-        const m = $('#pmap', el); m.style.display = 'block'; if (!pmap) pmap = makeMap(m, { simple: true }); else pmap.eachLayer(l => l instanceof L.Polyline && pmap.removeLayer(l));
-        pmap.invalidateSize(); pmap.fitBounds(L.polyline(r.geometry, { color: '#0f766e', weight: 4 }).addTo(pmap).getBounds(), { padding: [10, 10] });
+
+      const disegna = () => {
+        const tracce = (scelta?.tratte || []).flatMap(x => x.geometry || []);
+        const m = $('#pmap', el);
+        if (!tracce.length) { m.style.display = 'none'; return; }
+        m.style.display = 'block';
+        if (!pmap) pmap = makeMap(m, { simple: true });
+        else pmap.eachLayer(l => l instanceof L.Polyline && pmap.removeLayer(l));
+        pmap.invalidateSize();
+        pmap.fitBounds(L.polyline(tracce, { color: '#0f766e', weight: 4 }).addTo(pmap).getBounds(), { padding: [10, 10] });
+      };
+
+      const mostra = () => {
+        $('#strade', el).innerHTML = varianti.map(x => {
+          const litri = x.distance_km / kml;
+          return `<div class="variante ${x.chiave === scelta?.chiave ? 'scelto' : ''}" data-variante="${x.chiave}">
+            <div class="row between"><b>${esc(x.nome)}</b><b>${num(x.distance_km)} km</b></div>
+            <div class="small muted">${dur(x.duration_min * 60)} di guida \u00b7 ${num(litri)} l \u00b7 <b>${eur(litri * prezzo())}</b> di gasolio${x.stimato ? ' \u00b7 \u26a0\ufe0f distanza stimata' : ''}</div>
+            ${x.pedaggio_km == null ? '' : x.pedaggio_km > 0
+              ? `<div class="small muted">\ud83d\udee3\ufe0f ${num(x.pedaggio_km)} km a pedaggio \u00b7 <b>${eur(x.pedaggio)}</b> stimati</div>`
+              : '<div class="small muted">\ud83d\udee3\ufe0f nessun tratto a pedaggio</div>'}</div>`;
+        }).join('') + (varianti.length ? `<div class="small" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni(from, to)}" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Vedi su Google Maps</a></div>` : '');
+        $$('[data-variante]', el).forEach(c => c.onclick = () => {
+          scelta = varianti.find(x => x.chiave === c.dataset.variante);
+          sceltaEsplicita = true;
+          mostra(); disegna();
+        });
+      };
+
+      const cerca = safe(async () => {
+        if (!from?.lat || !to?.lat) { $('#strade', el).innerHTML = '<div class="small muted">Scegli partenza e arrivo dai suggerimenti: le strade possibili le trovo da sola.</div>'; return; }
+        const chiave = `${from.lat},${from.lon}>${to.lat},${to.lon}`;
+        if (chiave === cercandoPer) return;
+        cercandoPer = chiave;
+        $('#strade', el).innerHTML = '<div class="small muted">Cerco le strade possibili\u2026</div>';
+        let r;
+        try { r = await api('/route/opzioni', { method: 'POST', body: { punti: [from, to], km_per_liter: kml, fuel_price: prezzo() } }); }
+        catch (e) {
+          cercandoPer = '';
+          $('#strade', el).innerHTML = `<div class="small muted">${esc(e.message)} \u00b7 <button type="button" class="btn sm ghost" id="riprova">Riprova</button></div>`;
+          $('#riprova', el).onclick = cerca;
+          return;
+        }
+        varianti = r.varianti || [];
+        scelta = varianti[0] || null;
+        sceltaEsplicita = false;
+        mostra(); disegna();
       });
-      $('#pv', el).onclick = preview;
+
+      geoInput($('#from', el), r => { from = r; cerca(); });
+      geoInput($('#to', el), r => { to = r; cerca(); });
+      $('[name=fuel_price]', el).addEventListener('input', () => { if (varianti.length) mostra(); });
+      cerca();
+
       $('#f', el).onsubmit = safe(async e => {
         e.preventDefault();
-        if (!from?.lat || !to?.lat) return toast('Seleziona partenza e arrivo dai suggerimenti', true);
+        if (!from?.lat || !to?.lat) return toast('Scegli partenza e arrivo dai suggerimenti', true);
         const fd = Object.fromEntries(new FormData(e.target));
         const body = { from, to, date: fd.date || null, fuel_price: fd.fuel_price || null, notes: fd.notes };
         if (leg) body.senza_gasolio = !fd.gasolio;
+        // La strada scelta si porta dietro il suo disegno. Su una tappa che
+        // esiste gia' si manda solo se e' stata scelta davvero: una tappa di
+        // CarLock ha il tracciato vero, e non va sostituito da uno previsto.
+        if (scelta?.tratte?.[0]?.geometry && (!leg || sceltaEsplicita)) {
+          body.percorso = { distance_km: scelta.distance_km, duration_min: scelta.duration_min, geometry: scelta.tratte[0].geometry, stimato: scelta.stimato };
+        }
         const r = leg ? await api('/legs/' + leg.id, { method: 'PUT', body }) : await api(`/trips/${trip.id}/legs`, { method: 'POST', body });
         if (r.routing_warning) toast(r.routing_warning, true);
-        close(); render();
+        close(); restaQui();
       });
     });
 }
