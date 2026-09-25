@@ -383,7 +383,7 @@ function tripForm(t = null) {
           $('#p-esiti', el).innerHTML = varianti.map(x => `<div class="variante" data-variante="${x.chiave}">
               <div class="row between"><b>${esc(x.nome)}</b><b>${num(x.distance_km)} km</b></div>
               <div class="small muted">${dur(x.duration_min * 60)} di guida \u00b7 ${num(x.litri)} l \u00b7 <b>${eur(x.gasolio)}</b> di gasolio${x.stimato ? ' \u00b7 \u26a0\ufe0f distanza stimata' : ''}</div>
-              <div class="small" style="margin-top:4px"><a class="btn sm" href="${mapsIndicazioni(lista[0], lista[lista.length - 1], lista.slice(1, -1))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">\ud83d\uddfa\ufe0f Vedi su Google Maps</a></div>
+              <div class="small" style="margin-top:4px"><a class="btn sm" href="${mapsPerVariante(lista[0], lista[lista.length - 1], x, lista.slice(1, -1))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">\ud83d\uddfa\ufe0f Vedi su Google Maps</a></div>
               ${x.pedaggio_km == null ? '' : x.pedaggio_km > 0
                 ? `<div class="small muted">\ud83d\udee3\ufe0f ${num(x.pedaggio_km)} km a pedaggio \u00b7 <b>${eur(x.pedaggio)}</b> stimati \u00b7 totale <b>${eur(x.gasolio + x.pedaggio)}</b></div>`
                 : '<div class="small muted">\ud83d\udee3\ufe0f nessun tratto a pedaggio</div>'}
@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v23';
+const VERSIONE = 'v24';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1102,7 +1102,7 @@ function legForm(trip, legs, leg = null) {
             ${x.pedaggio_km == null ? '' : x.pedaggio_km > 0
               ? `<div class="small muted">\ud83d\udee3\ufe0f ${num(x.pedaggio_km)} km a pedaggio \u00b7 <b>${eur(x.pedaggio)}</b> stimati</div>`
               : '<div class="small muted">\ud83d\udee3\ufe0f nessun tratto a pedaggio</div>'}</div>`;
-        }).join('') + (varianti.length ? `<div class="small" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni(from, to)}" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Vedi su Google Maps</a></div>` : '');
+        }).join('') + (scelta ? `<div class="small" style="margin-top:6px"><a class="btn sm" href="${mapsPerVariante(from, to, scelta)}" target="_blank" rel="noopener">\ud83d\uddfa\ufe0f Vedi su Google Maps${varianti.length > 1 ? ` \u00b7 ${esc(scelta.nome.toLowerCase())}` : ''}</a></div>` : '');
         $$('[data-variante]', el).forEach(c => c.onclick = () => {
           scelta = varianti.find(x => x.chiave === c.dataset.variante);
           sceltaEsplicita = true;
@@ -1271,7 +1271,7 @@ function expenseForm(trip, legs, ex = null, soste = []) {
 // creato la tappa. Sul telefono si apre l'app, se c'e'.
 // Il formato e' quello documentato da Google (Maps URLs, api=1) e non vuole chiavi.
 const MAX_TAPPE_MAPS = 9;                       // il limite di Google per i punti intermedi
-function mapsIndicazioni(da, a, intermedie = []) {
+function mapsIndicazioni(da, a, intermedie = [], evita = '') {
   const punto = p => `${(+p.lat).toFixed(5)},${(+p.lon).toFixed(5)}`;
   // Partenza e arrivo coincidono quando si vuole solo «portami qui»: allora
   // l'origine si lascia decidere al telefono, che sa dov'e'
@@ -1281,8 +1281,28 @@ function mapsIndicazioni(da, a, intermedie = []) {
     : { api: '1', origin: punto(da), destination: punto(a), travelmode: 'driving' });
   const tappe = intermedie.filter(p => p?.lat != null).slice(0, MAX_TAPPE_MAPS);
   if (tappe.length) q.set('waypoints', tappe.map(punto).join('|'));
+  // Quello che la strada scelta evita, lo deve evitare anche Google: altrimenti
+  // si apre la sua strada, che e' un'altra, e la scelta fatta qui non conta
+  if (evita) q.set('avoid', evita);
   return `https://www.google.com/maps/dir/?${q}`;
 }
+
+// Qualche punto preso lungo la strada scelta. Google un tracciato non lo
+// accetta, ma per dei punti ci passa: bastano due, presi a un terzo e a due
+// terzi, per farlo andare di li' invece che per la sua strada preferita.
+function puntiGuida(geometry, quanti = 2) {
+  const g = Array.isArray(geometry) ? geometry.filter(p => Array.isArray(p) && p.length > 1) : [];
+  if (g.length < 3) return [];
+  return Array.from({ length: quanti }, (_, i) => g[Math.round(g.length * (i + 1) / (quanti + 1))])
+    .filter(Boolean).map(([lat, lon]) => ({ lat, lon }));
+}
+
+// L'indirizzo di Google per la strada scelta qui: ci passa per dove passa lei,
+// e le evita quello che lei evita
+const mapsPerVariante = (da, a, v, intermedie = []) => mapsIndicazioni(
+  da, a,
+  [...intermedie, ...puntiGuida(v?.tratte?.length === 1 ? v.tratte[0].geometry : [])].slice(0, MAX_TAPPE_MAPS),
+  v?.evita_pedaggi ? 'tolls' : '');
 
 // L'indirizzo che apre park4night centrato su un punto. Sul telefono, se l'app
 // e' installata, iOS e Android la aprono al posto del sito. Non serve chiedere
