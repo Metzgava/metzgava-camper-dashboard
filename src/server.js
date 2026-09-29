@@ -64,7 +64,12 @@ app.use((err, req, res, next) => {
 });
 
 const port = process.env.PORT || 3000;
-migrate().then(async () => {
+// Le manutenzioni all'avvio: rimettono in ordine cose gia' in archivio, e
+// nessuna serve a rispondere alla prima richiesta. Girano dopo che la porta e'
+// aperta, una per volta, ognuna col suo catch. Tenute prima, allungavano
+// l'avvio: e chi ci guarda da fuori aspetta un minuto, poi dichiara il servizio
+// morto e lo riavvia — all'infinito, con la dashboard irraggiungibile.
+async function manutenzioni() {
   // Recupera gli allenamenti gia' in archivio rimasti senza viaggio, per esempio
   // perche' il viaggio e' stato creato dopo averli importati
   await agganciaAllenamenti().catch(e => console.warn('aggancio allenamenti fallito:', e.message));
@@ -73,10 +78,14 @@ migrate().then(async () => {
   await sistemaDurateCarlock().catch(e => console.warn('durate CarLock non ricontate:', e.message));
   // Ripulisce anche i doppioni gia' in archivio, non solo quelli che arriveranno
   await rimuoviDoppioniAutomatici().catch(e => console.warn('pulizia doppioni fallita:', e.message));
+}
+
+migrate().then(() => {
   app.listen(port, () => console.log(`Camper dashboard su porta ${port}`));
-    console.log(sannoEvitareIPedaggi()
-      ? 'percorsi: variante senza pedaggi attiva (OpenRouteService)'
-      : 'percorsi: solo la variante piu\u2019 rapida (manca ORS_API_KEY)');
+  console.log(sannoEvitareIPedaggi()
+    ? 'percorsi: variante senza pedaggi attiva (OpenRouteService)'
+    : 'percorsi: solo la variante piu\u2019 rapida (manca ORS_API_KEY)');
+  manutenzioni().catch(e => console.warn('manutenzioni all\u2019avvio:', e.message));
   const every = Number(process.env.KOMOOT_SYNC_HOURS || 6);
   if (every > 0) {
     const giro = () => { syncAllKomoot(); syncAllStrava(); };
@@ -84,3 +93,7 @@ migrate().then(async () => {
     setInterval(giro, every * 3600 * 1000);
   }
 }).catch(e => { console.error('Migrazione fallita', e); process.exit(1); });
+
+// Una promessa caduta e non raccolta fa uscire Node: qui si scrive e si tira
+// avanti, perche' un guasto in un lavoro di sfondo non deve spegnere tutto
+process.on('unhandledRejection', e => console.error('promessa non raccolta:', e?.message || e));
