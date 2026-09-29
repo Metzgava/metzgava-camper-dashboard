@@ -27,8 +27,12 @@ export const q = (text, params) => pool.query(text, params);
 // non regge: il pianificatore puo' valutare la sottrazione prima del filtro sul
 // formato, e su un orario vuoto la conversione a numero fa cadere tutto.
 export async function sistemaDurateCarlock() {
+  // Solo le tappe fatte di un tragitto solo: li' fra la partenza e l'arrivo si
+  // e' guidato e basta. In una tappa che unisce piu' tragitti, in mezzo ci sono
+  // le soste, e il tempo trascorso non e' tempo di guida.
   const righe = (await q(`SELECT id, start_time, end_time, duration_min FROM legs
-    WHERE source='carlock' AND start_time IS NOT NULL AND end_time IS NOT NULL`)).rows;
+    WHERE source='carlock' AND start_time IS NOT NULL AND end_time IS NOT NULL
+      AND coalesce(external_id,'') NOT LIKE '%+%'`)).rows;
   const minuti = t => { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
   let corrette = 0;
   for (const l of righe) {

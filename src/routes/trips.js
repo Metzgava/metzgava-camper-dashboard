@@ -36,12 +36,35 @@ async function syncFuelExpense(legId) {
   else if (!ex.edited) await q('UPDATE expenses SET amount=$2,description=$3,meta=$4,date=COALESCE($5,date) WHERE id=$1', [ex.id, amount, desc, meta, leg.date]);
 }
 
+// Quanto e' durata una tappa dall'uscita al ritorno, orari alla mano. Vale solo
+// quando gli orari ci sono: sulle tappe previste non esiste un «in strada».
+const minutiInStrada = l => {
+  const m = t => { const x = String(t || '').match(/^(\d{1,2}):(\d{2})/); return x ? +x[1] * 60 + +x[2] : null; };
+  const a = m(l.start_time), b = m(l.end_time);
+  if (a == null || b == null) return null;
+  return b >= a ? b - a : b + 1440 - a;
+};
+
 async function tripTotals(tripId) {
   const byCat = (await q('SELECT category, sum(amount * rate)::float AS total, count(*)::int AS n FROM expenses WHERE trip_id=$1 GROUP BY category ORDER BY total DESC', [tripId])).rows;
-  const legs = (await q('SELECT coalesce(sum(distance_km),0)::float AS km, coalesce(sum(duration_min),0)::int AS minutes, count(*)::int AS n FROM legs WHERE trip_id=$1', [tripId])).rows[0];
+  // Le ore di guida sono la somma delle durate delle tappe. Il tempo in strada
+  // e' un'altra cosa: fra la partenza e l'arrivo di una tappa che unisce piu'
+  // tragitti ci sono anche le soste, e quelle non si guidano.
+  const tappe = (await q('SELECT distance_km, duration_min, start_time, end_time, external_id FROM legs WHERE trip_id=$1', [tripId])).rows;
+  const legs = {
+    km: tappe.reduce((a, l) => a + (+l.distance_km || 0), 0),
+    minutes: tappe.reduce((a, l) => a + (l.duration_min || 0), 0),
+    n: tappe.length,
+  };
+  const strada = tappe.reduce((a, l) => a + (minutiInStrada(l) ?? l.duration_min ?? 0), 0);
+  // Una tappa che unisce piu' tragitti e la cui durata copre tutto l'intervallo
+  // fra partenza e arrivo non sta dicendo il tempo di guida: dentro ci sono le
+  // soste fra un tragitto e l'altro. Si conta a parte, e si dice.
+  const soloStrada = tappe.filter(l => String(l.external_id || '').includes('+') && (minutiInStrada(l) ?? 0) <= (l.duration_min || 0)).length;
   const fuel = (await q(`SELECT coalesce(sum((meta->>'liters')::float),0) AS liters FROM expenses WHERE trip_id=$1 AND category='gasolio' AND auto=true`, [tripId])).rows[0];
   const total = byCat.reduce((a, b) => a + b.total, 0);
-  return { total: +total.toFixed(2), by_category: byCat, km: +legs.km.toFixed(1), minutes: legs.minutes, legs: legs.n, liters: +(+fuel.liters).toFixed(1), cost_per_km: legs.km ? +(total / legs.km).toFixed(3) : null };
+  return { total: +total.toFixed(2), by_category: byCat, km: +legs.km.toFixed(1), minutes: legs.minutes, minuti_strada: strada, tappe_con_soste: soloStrada,
+    legs: legs.n, liters: +(+fuel.liters).toFixed(1), cost_per_km: legs.km ? +(total / legs.km).toFixed(3) : null };
 }
 
 // ---- impostazioni veicolo ----
@@ -154,18 +177,20 @@ router.get('/trips', wrap(async (req, res) => {
   // Mete e forma dell'itinerario per la scheda. Si prendono i soli estremi delle
   // tappe, non le geometrie: quelle di CarLock pesano quanto tutto il resto e
   // qui basta il profilo del viaggio, non il tracciato metro per metro.
-  const tappe = (await q('SELECT trip_id, from_name, from_lat, from_lon, to_name, to_lat, to_lon FROM legs ORDER BY trip_id, position, id')).rows;
+  const tappe = (await q('SELECT trip_id, from_name, from_lat, from_lon, to_name, to_lat, to_lon, duration_min, start_time, end_time FROM legs ORDER BY trip_id, position, id')).rows;
   const perViaggio = new Map();
   for (const l of tappe) {
-    if (!perViaggio.has(l.trip_id)) perViaggio.set(l.trip_id, { mete: [], rotta: [] });
+    if (!perViaggio.has(l.trip_id)) perViaggio.set(l.trip_id, { mete: [], rotta: [], minuti_guida: 0, minuti_strada: 0 });
     const v = perViaggio.get(l.trip_id);
     for (const [nome, lat, lon] of [[l.from_name, l.from_lat, l.from_lon], [l.to_name, l.to_lat, l.to_lon]]) {
       const breve = String(nome || '').split(',')[0].trim();
       if (breve && breve !== v.mete[v.mete.length - 1]) v.mete.push(breve);
       if (lat != null && lon != null) v.rotta.push([lat, lon]);
     }
+    v.minuti_guida += l.duration_min || 0;
+    v.minuti_strada += minutiInStrada(l) ?? l.duration_min ?? 0;
   }
-  res.json(trips.map(t => ({ ...t, ...(perViaggio.get(t.id) || { mete: [], rotta: [] }) })));
+  res.json(trips.map(t => ({ ...t, ...(perViaggio.get(t.id) || { mete: [], rotta: [], minuti_guida: 0, minuti_strada: 0 }) })));
 }));
 router.post('/trips', wrap(async (req, res) => {
   const s = await getSettings();

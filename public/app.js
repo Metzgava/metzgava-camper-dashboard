@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v25';
+const VERSIONE = 'v26';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -570,12 +570,23 @@ async function viewTrip(id) {
   const trattoDi = nome => TRATTI[Math.max(0, atletiDelViaggio.indexOf(nome)) % TRATTI.length];
   const closed = trip.status === 'closed';
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
+  // Il tempo in strada di una tappa: dall'orario di partenza a quello di
+  // arrivo. Dentro ci sono anche le soste, quindi non e' tempo di guida.
+  // Una tappa che unisce piu' tragitti e dura quanto tutto l'intervallo non
+  // distingue la guida dalle soste che ci sono in mezzo: non si spaccia per guida
+  const conSoste = l => String(l.external_id || '').includes('+') && inStrada(l) <= (l.duration_min || 0);
+  const inStrada = l => {
+    const m = t => { const x = String(t || '').match(/^(\d{1,2}):(\d{2})/); return x ? +x[1] * 60 + +x[2] : null; };
+    const a = m(l.start_time), b = m(l.end_time);
+    if (a == null || b == null) return 0;
+    return b >= a ? b - a : b + 1440 - a;
+  };
   const legRow = (l, i) => `<div class="step"><div class="ordine">
       <button class="freccia" data-su="${l.id}" title="Sposta prima" ${i === 0 ? 'disabled' : ''}>\u25b2</button>
       <div class="n">${i + 1}</div>
       <button class="freccia" data-giu="${l.id}" title="Sposta dopo" ${i === legs.length - 1 ? 'disabled' : ''}>\u25bc</button>
     </div><div class="grow">
-      <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
+      <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button><button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}${e.place ? `<div class="small muted">\ud83d\udccd ${esc(e.place)}</div>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
@@ -586,7 +597,8 @@ async function viewTrip(id) {
       <div class="row"><button class="btn" id="edit">✏️ Modifica</button>${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn primary" id="close">Concludi viaggio</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
-      <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe · ${dur(totals.minutes * 60)} guida</div></div>
+      <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe \u00b7 ${totals.km && totals.minutes ? num(totals.km / (totals.minutes / 60), 0) + ' km/h di media' : ''}</div></div>
+      <div class="tile"><div class="label">Ore di guida</div><div class="value">${dur(totals.minutes * 60)}</div><div class="sub">${totals.minuti_strada > totals.minutes + 5 ? `${dur(totals.minuti_strada * 60)} in strada, soste comprese` : ''}${totals.tappe_con_soste ? `${totals.minuti_strada > totals.minutes + 5 ? '<br>' : ''}su ${totals.tappe_con_soste} tapp${totals.tappe_con_soste === 1 ? 'a' : 'e'} comprende le soste` : ''}</div></div>
       <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
       <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${atletiDelViaggio.length > 1 ? atletiDelViaggio.map(n => `${esc(n)} ${workouts.filter(w => w.athlete === n).length}`).join(' \u00b7 ') + '<br>' : ''}${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
     </div>
@@ -2077,11 +2089,21 @@ async function viewDashboard() {
 
     const perTrip = {};
     f.forEach(w => { const k = w.trip_id || 0; (perTrip[k] ||= { titolo: w.trip_title || 'Senza viaggio', n: 0, km: 0, kcal: 0, s: 0 }); const r = perTrip[k]; r.n++; r.km += (w.distance_m || 0) / 1000; r.kcal += w.calories || 0; r.s += w.duration_s || 0; });
+    // Un viaggio chiesto per nome nei filtri compare comunque, anche se in quel
+    // periodo non ci si e' allenati: le ore al volante ci sono lo stesso, e
+    // cercarlo e non trovarlo sembrerebbe che non sia mai esistito
+    dash.trips.filter(x => x !== 'none').forEach(id => {
+      const v = trips.find(x => String(x.id) === String(id));
+      if (v && !perTrip[id]) perTrip[id] = { titolo: v.title, n: 0, km: 0, kcal: 0, s: 0 };
+    });
     const tripOrd = Object.entries(perTrip).sort((a, b) => b[1].km - a[1].km);
     const datiViaggio = id => trips.find(x => x.id === +id);
     // I km del camper vengono dalle tappe del viaggio, non dagli allenamenti:
     // sono due grandezze diverse e vanno tenute separate.
     const kmCamper = tripOrd.reduce((a, [id]) => a + (datiViaggio(id)?.km || 0), 0);
+    // Le ore al volante dei viaggi in elenco: quanto e' costato, in tempo,
+    // arrivare dove si e' andati
+    const guidaTot = tripOrd.reduce((a, [id]) => a + (datiViaggio(id)?.minuti_guida || 0), 0);
 
     const MAX = 60;
     $('#out').innerHTML = `
@@ -2091,15 +2113,16 @@ async function viewDashboard() {
         <div class="tile accent"><div class="label">Attività</div><div class="value">${t.n}</div><div class="sub">su ${ws.length} totali</div></div>
         <div class="tile"><div class="label">Km allenamento</div><div class="value">${num(t.km)} km</div></div>
         <div class="tile"><div class="label">Km in camper</div><div class="value">${num(kmCamper, 0)} km</div><div class="sub">dei viaggi in elenco</div></div>
+        <div class="tile"><div class="label">Ore di guida</div><div class="value">${dur(guidaTot * 60)}</div><div class="sub">${guidaTot ? num(kmCamper / (guidaTot / 60), 0) + ' km/h di media' : 'dei viaggi in elenco'}</div></div>
         <div class="tile"><div class="label">Tempo</div><div class="value">${dur(t.s)}</div></div>
         <div class="tile"><div class="label">Calorie</div><div class="value">${num(t.kcal, 0)}</div></div>
         <div class="tile"><div class="label">Dislivello</div><div class="value">${num(t.up, 0)} m</div></div>
         <div class="tile"><div class="label">Battito medio</div><div class="value">${t.hrn ? Math.round(t.hr / t.hrn) + ' bpm' : '—'}</div></div>
       </div>
         <div class="card pad-0" style="margin-bottom:14px"><div style="padding:14px 16px 6px"><h2>Per viaggio</h2></div>
-          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th>Date</th><th class="num">Km camper</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
+          <div class="table-wrap"><table><thead><tr><th>Viaggio</th><th>Date</th><th class="num">Km camper</th><th class="num">Guida</th><th class="num">Attività</th><th class="num">Km allenam.</th><th class="num">Tempo</th><th class="num">Spesa</th></tr></thead>
           <tbody>${tripOrd.map(([id, r]) => { const v = datiViaggio(id); return `<tr><td>${+id ? `<a href="#/trip/${id}">${esc(v ? nomeViaggio(v) : r.titolo)}</a>` : `<span class="muted">${esc(r.titolo)}</span>`}${v ? ` <span class="badge ${v.status === 'open' ? 'open' : 'closed'}">${v.status === 'open' ? 'aperto' : 'chiuso'}</span>` : ''}</td>
-            <td class="nowrap small">${v ? `${dateCliccabili(v)}` : '<span class="muted">\u2014</span>'}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
+            <td class="nowrap small">${v ? `${dateCliccabili(v)}` : '<span class="muted">\u2014</span>'}</td><td class="num">${v ? num(v.km, 0) : '—'}</td><td class="num nowrap" ${v?.minuti_strada > v?.minuti_guida + 5 ? `title="In strada ${dur(v.minuti_strada * 60)}, soste comprese"` : ''}>${v?.minuti_guida ? dur(v.minuti_guida * 60) : '—'}</td><td class="num">${r.n}</td><td class="num">${num(r.km)}</td><td class="num">${dur(r.s)}</td><td class="num">${v ? eur(v.total) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="8" class="empty">Nessun dato con questi filtri</td></tr>'}</tbody></table></div></div>
       <div class="grid due">
         <div class="card"><h2>Km di allenamento per sport</h2><div class="small muted">i km in camper sono nella tabella accanto</div>
           <div class="barre-oriz">${sportOrd.map(([k, v]) => `<div class="barra-oriz">
