@@ -422,6 +422,23 @@ router.put('/legs/:id', wrap(async (req, res) => {
   if (changedPts) cercaSosteArrivo(leg.id, leg.to_name, leg.to_lat, leg.to_lon).catch(e => console.warn('soste all\u2019arrivo:', e.message));
   res.json(leg);
 }));
+// L'ordine delle tappe si cambia a mano: il giorno non basta a dire cosa viene
+// prima, e due tappe nella stessa giornata le mette in fila solo chi le ha
+// fatte. Si scambia con la vicina, che e' l'unico movimento che serve davvero.
+router.post('/legs/:id/sposta', wrap(async (req, res) => {
+  const cur = (await q('SELECT id, trip_id, position FROM legs WHERE id=$1', [req.params.id])).rows[0];
+  if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
+  // Le posizioni in archivio possono essere pari, ripetute o con dei buchi: qui
+  // si guarda l'ordine con cui le tappe compaiono, che e' quello che si vede
+  const ordine = (await q('SELECT id FROM legs WHERE trip_id=$1 ORDER BY position, id', [cur.trip_id])).rows.map(r => r.id);
+  const i = ordine.indexOf(cur.id);
+  const j = String(req.body?.verso) === 'su' ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= ordine.length) return res.json({ ok: true, spostata: false });
+  [ordine[i], ordine[j]] = [ordine[j], ordine[i]];
+  for (let k = 0; k < ordine.length; k++) await q('UPDATE legs SET position=$2 WHERE id=$1', [ordine[k], k + 1]);
+  res.json({ ok: true, spostata: true, ordine });
+}));
+
 router.post('/legs/:id/pois', wrap(async (req, res) => {
   const cur = (await q('SELECT to_name, to_lat, to_lon FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
@@ -528,6 +545,82 @@ router.post('/maps/percorso', wrap(async (req, res) => {
     await new Promise(r => setTimeout(r, 250));   // i geocoder gratuiti non si martellano
   }
   res.json({ punti, non_trovati: nonTrovati, link: disteso });
+}));
+
+// Gli indirizzi di CarLock cercati uno per uno, con la cache: lo stesso posto
+// ricorre in ogni tragitto della giornata
+async function geocodaCarlock(indirizzo, cache = new Map()) {
+  if (cache.has(indirizzo)) return cache.get(indirizzo);
+  let trovato = null;
+  for (const c of addressCandidates(indirizzo)) {
+    try {
+      const r = await geocode(c);
+      if (r.length) { trovato = { name: indirizzo.includes(',') ? `${shortName(indirizzo)}, ${indirizzo.split(',')[0].trim()}` : shortName(indirizzo), lat: r[0].lat, lon: r[0].lon }; break; }
+    } catch { }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  cache.set(indirizzo, trovato);
+  return trovato;
+}
+
+// Il percorso vero di una tappa sola. Un viaggio puo' essere gia' a posto e
+// avere una tappa sbagliata: qui si porta dentro il tragitto davvero percorso
+// senza toccare le altre. Con ?preview=1 si guarda soltanto.
+router.post('/legs/:id/carlock', upload.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'File CarLock mancante' });
+  const leg = (await q('SELECT * FROM legs WHERE id=$1', [req.params.id])).rows[0];
+  if (!leg) return res.status(404).json({ error: 'Tappa non trovata' });
+  let righe;
+  try { righe = readCarlockFile(req.file.buffer, req.file.originalname); }
+  catch (e) { return res.status(400).json({ error: 'File non leggibile: ' + e.message }); }
+  if (!righe.length) return res.status(400).json({ error: 'Nessun tragitto nel file' });
+
+  // Intorno al giorno della tappa: il file copre mesi, e la tappa e' una
+  const giorni = Math.min(Math.max(0, num(req.body.giorni, 1)), 30);
+  const perno = leg.date || righe[0].date;
+  const dentro = (d, g) => Math.abs((new Date(d) - new Date(g)) / 86400000) <= giorni;
+  const vicine = leg.date ? righe.filter(r => dentro(r.date, perno)) : righe;
+  const candidate = mergeTrips(vicine.length ? vicine : righe, num(req.body.merge_gap_min, 30));
+
+  if (req.query.preview) {
+    return res.json({
+      giorno: leg.date, giorni, nel_file: righe.length,
+      tratte: candidate.map(l => ({ external_id: l.external_id, date: l.date, start: l.start, end: l.end,
+        from: shortName(l.from), to: shortName(l.to), km: l.km, duration_min: l.duration_min, merged: l.merged || 1 })),
+    });
+  }
+
+  const volute = String(req.body.scelte || '').split('\n').map(x => x.trim()).filter(Boolean);
+  const scelte = candidate.filter(c => volute.includes(c.external_id));
+  if (!scelte.length) return res.status(400).json({ error: 'Nessun tragitto scelto' });
+
+  // Piu' tragitti scelti diventano una tappa sola: si parte dal primo e si
+  // arriva all'ultimo, e i chilometri sono la somma di quelli veri
+  const primo = scelte[0], ultimo = scelte[scelte.length - 1];
+  const cache = new Map();
+  const da = await geocodaCarlock(primo.from, cache), a = await geocodaCarlock(ultimo.to, cache);
+  if (!da || !a) return res.status(422).json({ error: `Indirizzo non riconosciuto: ${!da ? primo.from : ultimo.to}` });
+  let geometry = [[da.lat, da.lon], [a.lat, a.lon]];
+  try { geometry = (await route(da, a)).geometry; } catch { }
+  const km = +scelte.reduce((t, x) => t + x.km, 0).toFixed(1);
+  const minuti = scelte.reduce((t, x) => t + x.duration_min, 0);
+  const id_esterno = scelte.map(x => x.external_id).join('+');
+  let aggiornata;
+  try {
+    aggiornata = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8,
+        distance_km=$9, duration_min=$10, geometry=$11, start_time=$12, end_time=$13, source='carlock', external_id=$14,
+        notes=coalesce(nullif($15,''), notes)
+      WHERE id=$1 RETURNING *`,
+      [leg.id, primo.date, da.name, da.lat, da.lon, a.name, a.lat, a.lon, km, minuti, JSON.stringify(geometry),
+        primo.start, ultimo.end, id_esterno,
+        `CarLock ${primo.start}\u2013${ultimo.end}` + (scelte.length > 1 ? ` (${scelte.length} tratte unite)` : '')])).rows[0];
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'Questo tragitto e\u2019 gia\u2019 su un\u2019altra tappa del viaggio' });
+    throw e;
+  }
+  await syncFuelExpense(leg.id);
+  console.log(`tappa ${leg.id}: percorso reale da CarLock, ${km} km da ${scelte.length} tratte`);
+  res.json({ ok: true, leg: aggiornata, tratte: scelte.length, km });
 }));
 
 // ---- import CarLock (CSV/XLSX esportato da my.carlock.co) ----

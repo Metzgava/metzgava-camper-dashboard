@@ -101,7 +101,24 @@ const num = s => {
   const m = t.match(/-?\d+(\.\d+)?/);
   return m ? +m[0] : 0;
 };
-const durMin = s => { const h = +(String(s).match(/(\d+)\s*h/) || [0, 0])[1], m = +(String(s).match(/(\d+)\s*min/) || [0, 0])[1]; return h * 60 + m; };
+// «1h 29m», «1 h 29 min», «45m», «45 min»: i minuti a volte sono «min» e a
+// volte «m», e leggendo solo «min» un'ora e mezza diventava un'ora tonda
+const durMin = s => {
+  const t = String(s || '');
+  const h = +(t.match(/(\d+)\s*h/) || [0, 0])[1];
+  const m = +(t.match(/(\d+)\s*m(?:in)?\b/) || [0, 0])[1];
+  return h * 60 + m;
+};
+
+// Fra due orari la durata non si legge: si conta. Quando ci sono l'inizio e la
+// fine, quelli comandano — nessun formato da indovinare. Dopo la mezzanotte
+// l'arrivo e' il giorno dopo.
+const minutiFraOrari = (inizio, fine) => {
+  const m = t => { const x = String(t).match(/(\d{1,2}):(\d{2})/); return x ? +x[1] * 60 + +x[2] : null; };
+  const a = m(inizio), b = m(fine);
+  if (a == null || b == null) return null;
+  return b >= a ? b - a : b + 24 * 60 - a;
+};
 function parseDate(s) {
   const m = String(s).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
   if (!m) return null;
@@ -125,7 +142,7 @@ export function parseCarlockCsv(text) {
     const km = num(c[iKm]);
     trips.push({
       date, start: c[iStart] || '', end: c[iEnd] || '', from: c[iFrom] || '', to: c[iTo] || '',
-      km, duration_min: durMin(c[iDur]), type: c[iType] || '',
+      km, duration_min: minutiFraOrari(c[iStart], c[iEnd]) ?? durMin(c[iDur]), type: c[iType] || '',
       external_id: `carlock:${date}:${c[iStart]}:${c[iEnd]}`,
     });
   }

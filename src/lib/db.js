@@ -267,6 +267,19 @@ export async function migrate() {
   UPDATE expenses e SET stop_id = s.id, auto = true, edited = (e.amount <> s.cost)
     FROM stops s WHERE (s.meta->>'spesa_id')::int = e.id AND e.stop_id IS NULL;
 
+  -- La durata delle tappe di CarLock veniva letta dal testo del file, dove i
+  -- minuti sono scritti «m» e non «min»: un'ora e mezza diventava un'ora tonda.
+  -- Dove ci sono gli orari, la durata si conta invece di leggerla.
+  UPDATE legs SET duration_min = (
+      (substring(end_time from 1 for 2)::int * 60 + substring(end_time from 4 for 2)::int)
+      - (substring(start_time from 1 for 2)::int * 60 + substring(start_time from 4 for 2)::int)
+      + CASE WHEN end_time < start_time THEN 1440 ELSE 0 END)
+    WHERE source='carlock' AND start_time ~ '^[0-9]{2}:[0-9]{2}' AND end_time ~ '^[0-9]{2}:[0-9]{2}'
+      AND duration_min IS DISTINCT FROM (
+      (substring(end_time from 1 for 2)::int * 60 + substring(end_time from 4 for 2)::int)
+      - (substring(start_time from 1 for 2)::int * 60 + substring(start_time from 4 for 2)::int)
+      + CASE WHEN end_time < start_time THEN 1440 ELSE 0 END);
+
   -- Chi cancella la spesa del gasolio di una tappa non vuole rivedersela
   -- ricalcolata al primo ritocco: la tappa si ricorda di restarne senza.
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS senza_gasolio BOOLEAN NOT NULL DEFAULT false;

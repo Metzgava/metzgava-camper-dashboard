@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v24';
+const VERSIONE = 'v25';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -570,10 +570,14 @@ async function viewTrip(id) {
   const trattoDi = nome => TRATTI[Math.max(0, atletiDelViaggio.indexOf(nome)) % TRATTI.length];
   const closed = trip.status === 'closed';
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
-  const legRow = (l, i) => `<div class="step"><div class="n">${i + 1}</div><div class="grow">
+  const legRow = (l, i) => `<div class="step"><div class="ordine">
+      <button class="freccia" data-su="${l.id}" title="Sposta prima" ${i === 0 ? 'disabled' : ''}>\u25b2</button>
+      <div class="n">${i + 1}</div>
+      <button class="freccia" data-giu="${l.id}" title="Sposta dopo" ${i === legs.length - 1 ? 'disabled' : ''}>\u25bc</button>
+    </div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Km reali dal tracker CarLock">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
-      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button><button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}${e.place ? `<div class="small muted">\ud83d\udccd ${esc(e.place)}</div>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}<button class="btn sm ghost danger" data-del-ex="${e.id}" data-auto-ex="${e.auto ? 1 : 0}" title="Elimina">🗑</button>`}</td></tr>`;
   $('#app').innerHTML = layout(`
@@ -783,6 +787,11 @@ async function viewTrip(id) {
       if (!l.pois?.cercato_il) { toast('Cerco aree sosta e borghi\u2026'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); }
       poiModal(l);
     }
+    if (b.dataset.su || b.dataset.giu) {
+      const r = await api(`/legs/${b.dataset.su || b.dataset.giu}/sposta`, { method: 'POST', body: { verso: b.dataset.su ? 'su' : 'giu' } });
+      if (r.spostata) restaQui();
+    }
+    if (b.dataset.carlockLeg) carlockPerTappa(trip, legs.find(x => x.id == b.dataset.carlockLeg));
     if (b.dataset.editLeg) legForm(trip, legs, legs.find(x => x.id == b.dataset.editLeg));
     if (b.dataset.delLeg && await confirmDlg('Eliminare la tappa e la sua spesa gasolio?')) {
       const r = await api('/legs/' + b.dataset.delLeg, { method: 'DELETE' });
@@ -1152,6 +1161,58 @@ function legForm(trip, legs, leg = null) {
         close(); restaQui();
       });
     });
+}
+
+// Il percorso vero di una tappa sola. Il file di CarLock copre mesi: qui si
+// guardano solo i tragitti intorno al giorno di questa tappa, e se ne sceglie
+// uno — o piu' d'uno, se quel giorno si e' viaggiato a pezzi.
+function carlockPerTappa(trip, leg) {
+  let tratte = [];
+  modal(`<h2>\ud83d\udce1 Percorso reale di questa tappa</h2>
+    <p class="small muted"><b>${esc(String(leg.from_name).split(',')[0])} \u2192 ${esc(String(leg.to_name).split(',')[0])}</b>${leg.date ? ` \u00b7 ${fdate(leg.date)}` : ''} \u00b7 ora ${num(leg.distance_km)} km.
+      Da <b>my.carlock.co</b> \u2192 Trips \u2192 icona <b>CSV</b>. La tappa prende i chilometri e gli orari veri; le altre non si toccano.</p>
+    <form id="f" class="stack">
+      <input type="file" name="file" accept=".csv,.xls,.xlsx,text/csv" required>
+      <div class="form-grid">
+        <div><label class="f">Giorni intorno alla tappa</label><select name="giorni">${[0, 1, 3, 7, 30].map(g => `<option value="${g}" ${g === 1 ? 'selected' : ''}>${g === 0 ? 'solo quel giorno' : '\u00b1 ' + g + (g === 1 ? ' giorno' : ' giorni')}</option>`).join('')}</select></div>
+        <div><label class="f">Unisci soste pi\u00f9 brevi di (min)</label><input type="number" name="merge_gap_min" value="30"></div>
+      </div>
+      <div id="tratte"></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary" id="applica" disabled>Porta nella tappa</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = close;
+    const leggi = safe(async () => {
+      if (!$('[name=file]', el).files[0]) return;
+      $('#tratte', el).innerHTML = '<div class="muted small">Leggo il file\u2026</div>';
+      const fd = new FormData($('#f', el));
+      const r = await api(`/legs/${leg.id}/carlock?preview=1`, { method: 'POST', body: fd });
+      tratte = r.tratte;
+      if (!tratte.length) { $('#tratte', el).innerHTML = `<div class="empty">Nessun tragitto in questo periodo (${r.nel_file} nel file). Allarga i giorni intorno alla tappa.</div>`; $('#applica', el).disabled = true; return; }
+      $('#tratte', el).innerHTML = `<div class="small muted">Scegli il tragitto \u2014 pi\u00f9 d\u2019uno diventa una tappa sola</div>
+        <div class="quali-tappe" style="margin-top:6px">${tratte.map((t, i) => `<label><input type="checkbox" class="una-tratta" value="${i}">
+          <span>${fdate(t.date)} ${t.start}\u2013${t.end} \u00b7 ${esc(t.from)} \u2192 ${esc(t.to)}
+          <span class="muted">\u00b7 ${num(t.km)} km${t.merged > 1 ? ` \u00b7 ${t.merged} tratte` : ''}</span></span></label>`).join('')}</div>`;
+      const spunte = $$('.una-tratta', el);
+      spunte.forEach(c => c.onchange = () => { $('#applica', el).disabled = !$$('.una-tratta:checked', el).length; });
+      // Con un solo candidato la scelta e' gia' fatta
+      if (spunte.length === 1) { spunte[0].checked = true; $('#applica', el).disabled = false; }
+    });
+    $('[name=file]', el).onchange = leggi;
+    $('[name=giorni]', el).onchange = leggi;
+    $('[name=merge_gap_min]', el).onchange = leggi;
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const scelte = $$('.una-tratta:checked', el).map(c => tratte[+c.value].external_id);
+      if (!scelte.length) return toast('Scegli almeno un tragitto', true);
+      $('#applica', el).disabled = true; $('#applica', el).textContent = 'Porto nella tappa\u2026';
+      const fd = new FormData($('#f', el));
+      fd.set('scelte', scelte.join('\n'));
+      const r = await api(`/legs/${leg.id}/carlock`, { method: 'POST', body: fd });
+      close();
+      toast(`Tappa aggiornata: ${num(r.km)} km reali${r.tratte > 1 ? ` da ${r.tratte} tratte` : ''}`);
+      restaQui();
+    });
+  });
 }
 
 function carlockImport(trip, openTrips = [], sostituisciDefault = false) {

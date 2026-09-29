@@ -343,3 +343,9 @@ input[type=checkbox], input[type=radio] { width: auto; }
 /* Nella legenda, il colore dice la disciplina e il tratto dice chi: due cose
    diverse, separate da una riga sottile */
 .legenda-mappa .stacco { width: 1px; height: 14px; background: var(--line); border-radius: 0; align-self: center; }
+
+/* Il numero della tappa, con le frecce per cambiarle di posto */
+.step .ordine { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 0 auto; margin-top: 2px; }
+.step .freccia { background: none; border: 0; color: var(--muted); font-size: 11px; line-height: 1; padding: 2px 6px; cursor: pointer; border-radius: 6px; }
+.step .freccia:hover:not(:disabled) { background: var(--surface-2); color: var(--accent); }
+.step .freccia:disabled { opacity: .25; cursor: default; }
