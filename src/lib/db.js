@@ -21,6 +21,28 @@ export const pool = new Pool({
 export const q = (text, params) => pool.query(text, params);
 
 
+// La durata delle tappe di CarLock veniva letta dal testo del file, dove i
+// minuti sono scritti «m» e non «min»: «1h 29m» diventava un'ora tonda. Dove ci
+// sono gli orari la durata si conta, e non si legge. In SQL questo controllo
+// non regge: il pianificatore puo' valutare la sottrazione prima del filtro sul
+// formato, e su un orario vuoto la conversione a numero fa cadere tutto.
+export async function sistemaDurateCarlock() {
+  const righe = (await q(`SELECT id, start_time, end_time, duration_min FROM legs
+    WHERE source='carlock' AND start_time IS NOT NULL AND end_time IS NOT NULL`)).rows;
+  const minuti = t => { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
+  let corrette = 0;
+  for (const l of righe) {
+    const a = minuti(l.start_time), b = minuti(l.end_time);
+    if (a == null || b == null) continue;
+    const giusta = b >= a ? b - a : b + 1440 - a;
+    if (giusta === l.duration_min) continue;
+    await q('UPDATE legs SET duration_min=$2 WHERE id=$1', [l.id, giusta]);
+    corrette++;
+  }
+  if (corrette) console.log(`tappe CarLock: durata ricontata su ${corrette}`);
+  return corrette;
+}
+
 // Una sosta che costa e' una spesa del viaggio. Le soste gia' in archivio col
 // loro costo la ricevono qui. Gira a ogni avvio senza rifare niente: salta
 // quelle che una spesa ce l'hanno e quelle a cui e' stata tolta a mano.
@@ -266,19 +288,6 @@ export async function migrate() {
   -- un importo diverso restano come sono: li' qualcuno ha corretto a mano.
   UPDATE expenses e SET stop_id = s.id, auto = true, edited = (e.amount <> s.cost)
     FROM stops s WHERE (s.meta->>'spesa_id')::int = e.id AND e.stop_id IS NULL;
-
-  -- La durata delle tappe di CarLock veniva letta dal testo del file, dove i
-  -- minuti sono scritti «m» e non «min»: un'ora e mezza diventava un'ora tonda.
-  -- Dove ci sono gli orari, la durata si conta invece di leggerla.
-  UPDATE legs SET duration_min = (
-      (substring(end_time from 1 for 2)::int * 60 + substring(end_time from 4 for 2)::int)
-      - (substring(start_time from 1 for 2)::int * 60 + substring(start_time from 4 for 2)::int)
-      + CASE WHEN end_time < start_time THEN 1440 ELSE 0 END)
-    WHERE source='carlock' AND start_time ~ '^[0-9]{2}:[0-9]{2}' AND end_time ~ '^[0-9]{2}:[0-9]{2}'
-      AND duration_min IS DISTINCT FROM (
-      (substring(end_time from 1 for 2)::int * 60 + substring(end_time from 4 for 2)::int)
-      - (substring(start_time from 1 for 2)::int * 60 + substring(start_time from 4 for 2)::int)
-      + CASE WHEN end_time < start_time THEN 1440 ELSE 0 END);
 
   -- Chi cancella la spesa del gasolio di una tappa non vuole rivedersela
   -- ricalcolata al primo ritocco: la tappa si ricorda di restarne senza.

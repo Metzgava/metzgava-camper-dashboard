@@ -2,7 +2,7 @@ import express from 'express';
 import cookieSession from 'cookie-session';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { migrate } from './lib/db.js';
+import { migrate, sistemaDurateCarlock } from './lib/db.js';
 import { SECRET } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
@@ -70,6 +70,7 @@ migrate().then(async () => {
   await agganciaAllenamenti().catch(e => console.warn('aggancio allenamenti fallito:', e.message));
   await normalizzaNomiEsistenti().catch(e => console.warn('uniformazione nomi fallita:', e.message));
   await completaExifMancanti().catch(e => console.warn('lettura exif fallita:', e.message));
+  await sistemaDurateCarlock().catch(e => console.warn('durate CarLock non ricontate:', e.message));
   // Ripulisce anche i doppioni gia' in archivio, non solo quelli che arriveranno
   await rimuoviDoppioniAutomatici().catch(e => console.warn('pulizia doppioni fallita:', e.message));
   app.listen(port, () => console.log(`Camper dashboard su porta ${port}`));
