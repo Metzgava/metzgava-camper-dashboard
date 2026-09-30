@@ -138,6 +138,20 @@ export async function variantiTratto(from, to) {
 
 // Il percorso completo di un viaggio: partenza, soste intermedie, arrivo. Ogni
 // variante porta con se' le tratte gia' pronte da salvare come tappe.
+// CarLock registra quanto si e' percorso, non per dove: la riga sulla mappa e'
+// sempre una ricostruzione. Fra le strade possibili si prende quella che misura
+// quanto dice il contachilometri — se si e' fatta la Romea invece
+// dell'autostrada, la differenza si vede nei chilometri, ed e' l'unico indizio
+// che si ha. Senza un numero vero a cui somigliare, resta la piu' rapida.
+export async function percorsoVicinoAiKm(from, to, kmVeri) {
+  const varianti = await variantiTratto(from, to);
+  if (!varianti.length) throw new Error('nessun percorso');
+  if (!(kmVeri > 0)) return { ...varianti[0], scelta_per_km: false };
+  const vicino = varianti.reduce((migliore, v) =>
+    Math.abs(v.distance_km - kmVeri) < Math.abs(migliore.distance_km - kmVeri) ? v : migliore);
+  return { ...vicino, scelta_per_km: varianti.length > 1, scarto_km: +(vicino.distance_km - kmVeri).toFixed(1) };
+}
+
 export async function percorsiConTappe(punti) {
   const tratte = [];
   for (let i = 0; i + 1 < punti.length; i++) tratte.push(await variantiTratto(punti[i], punti[i + 1]));

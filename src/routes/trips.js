@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
-import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night } from '../lib/geo.js';
+import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, percorsoVicinoAiKm } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName } from '../lib/carlock.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
@@ -450,6 +450,23 @@ router.put('/legs/:id', wrap(async (req, res) => {
 // L'ordine delle tappe si cambia a mano: il giorno non basta a dire cosa viene
 // prima, e due tappe nella stessa giornata le mette in fila solo chi le ha
 // fatte. Si scambia con la vicina, che e' l'unico movimento che serve davvero.
+// Ridisegna la riga di una tappa scegliendo, fra le strade possibili, quella che
+// misura quanto i chilometri veri. Serve alle tappe importate prima, quando si
+// prendeva sempre la piu' rapida e sulla mappa compariva l'autostrada anche se
+// si era passati per la statale.
+router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
+  const l = (await q('SELECT * FROM legs WHERE id=$1', [req.params.id])).rows[0];
+  if (!l) return res.status(404).json({ error: 'Tappa non trovata' });
+  if (l.from_lat == null || l.to_lat == null) return res.status(400).json({ error: 'La tappa non ha i due punti' });
+  const scelto = await percorsoVicinoAiKm(
+    { name: l.from_name, lat: l.from_lat, lon: l.from_lon },
+    { name: l.to_name, lat: l.to_lat, lon: l.to_lon },
+    num(l.distance_km));
+  await q('UPDATE legs SET geometry=$2 WHERE id=$1', [l.id, JSON.stringify(scelto.geometry)]);
+  console.log(`tappa ${l.id}: ridisegnata su «${scelto.nome}», ${scelto.distance_km} km contro ${l.distance_km} veri`);
+  res.json({ ok: true, nome: scelto.nome, km_disegnati: scelto.distance_km, km_veri: +l.distance_km, scarto_km: scelto.scarto_km ?? null });
+}));
+
 router.post('/legs/:id/sposta', wrap(async (req, res) => {
   const cur = (await q('SELECT id, trip_id, position FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
@@ -625,9 +642,10 @@ router.post('/legs/:id/carlock', upload.single('file'), wrap(async (req, res) =>
   const cache = new Map();
   const da = await geocodaCarlock(primo.from, cache), a = await geocodaCarlock(ultimo.to, cache);
   if (!da || !a) return res.status(422).json({ error: `Indirizzo non riconosciuto: ${!da ? primo.from : ultimo.to}` });
-  let geometry = [[da.lat, da.lon], [a.lat, a.lon]];
-  try { geometry = (await route(da, a)).geometry; } catch { }
   const km = +scelte.reduce((t, x) => t + x.km, 0).toFixed(1);
+  // La strada da disegnare e' quella che misura quanto il contachilometri
+  let geometry = [[da.lat, da.lon], [a.lat, a.lon]];
+  try { geometry = (await percorsoVicinoAiKm(da, a, km)).geometry; } catch { }
   const minuti = scelte.reduce((t, x) => t + x.duration_min, 0);
   const id_esterno = scelte.map(x => x.external_id).join('+');
   let aggiornata;
@@ -721,7 +739,7 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
     const from = await geo(l.from), to = await geo(l.to);
     if (!from || !to) continue;
     let geometry = [[from.lat, from.lon], [to.lat, to.lon]];
-    try { const r = await route(from, to); geometry = r.geometry; } catch { }
+    try { geometry = (await percorsoVicinoAiKm(from, to, l.km)).geometry; } catch { }
     const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,distance_km,duration_min,geometry,notes,source,external_id,start_time,end_time)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'carlock',$14,$15,$16) ON CONFLICT (trip_id, external_id) WHERE external_id IS NOT NULL DO NOTHING RETURNING *`,
       [trip.id, ++pos, l.date, from.name, from.lat, from.lon, to.name, to.lat, to.lon, l.km, l.duration_min, JSON.stringify(geometry),
