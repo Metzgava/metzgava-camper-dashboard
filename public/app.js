@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v29';
+const VERSIONE = 'v30';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2201,9 +2201,17 @@ const barreOriz = (voci, unita) => {
 function graficiDelViaggio(d) {
   const { trip, legs, expenses, workouts, totals } = d;
   const nome = l => `${esc(String(l.from_name).split(',')[0])} \u2192 ${esc(String(l.to_name).split(',')[0])}`;
+  // Il gasolio calcolato sulle tappe un luogo non ce l'ha: si consuma lungo la
+  // strada, e metterlo nel mucchio del «senza luogo» faceva sparire la voce piu'
+  // grossa del viaggio dentro una parola che non spiega niente
   const perLuogo = {};
-  expenses.forEach(e => { const k = (e.place || '').trim() || 'senza luogo'; perLuogo[k] = (perLuogo[k] || 0) + (+e.amount || 0) * (+e.rate || 1); });
-  const luoghi = Object.entries(perLuogo).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  expenses.forEach(e => {
+    const k = (e.place || '').trim()
+      || (e.auto && e.category === 'gasolio' ? '\u26fd Gasolio delle tappe' : 'Senza luogo');
+    perLuogo[k] = (perLuogo[k] || 0) + (+e.amount || 0) * (+e.rate || 1);
+  });
+  const luoghi = Object.entries(perLuogo).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const quanteSenzaLuogo = expenses.filter(e => !(e.place || '').trim() && !(e.auto && e.category === 'gasolio')).length;
   const perSport = {};
   workouts.forEach(w => { const k = w.sport || 'Altro'; perSport[k] = (perSport[k] || 0) + (w.distance_m || 0) / 1000; });
   const sport = Object.entries(perSport).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
@@ -2216,7 +2224,7 @@ function graficiDelViaggio(d) {
         ${barreOriz(legs.map(l => ({ etichetta: nome(l), valore: l.duration_min || 0, testo: dur((l.duration_min || 0) * 60) })), 'min')}</div>
     </div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card"><h2>Spese per luogo</h2><div class="small muted">dove sono stati spesi i soldi</div>
+      <div class="card"><h2>Spese per luogo</h2><div class="small muted">dove sono stati spesi i soldi${quanteSenzaLuogo ? ` \u00b7 ${quanteSenzaLuogo} ${quanteSenzaLuogo === 1 ? 'spesa non ha' : 'spese non hanno'} il luogo scritto` : ''}</div>
         ${barreOriz(luoghi.map(([k, v]) => ({ etichetta: esc(k), valore: v, testo: eur(v) })), '\u20ac')}</div>
       <div class="card"><h2>Km di allenamento per disciplina</h2><div class="small muted">le attivit\u00e0 dentro le date del viaggio</div>
         ${barreOriz(sport.map(([k, v]) => ({ etichetta: `${sportIco(k)} ${esc(k)}`, valore: v })), 'km')}</div>

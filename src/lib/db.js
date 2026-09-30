@@ -51,13 +51,19 @@ export async function sistemaDurateCarlock() {
 // loro costo la ricevono qui. Gira a ogni avvio senza rifare niente: salta
 // quelle che una spesa ce l'hanno e quelle a cui e' stata tolta a mano.
 async function spesePerSosteGiaScritte() {
-  const r = await q(`INSERT INTO expenses(trip_id, stop_id, date, category, description, amount, currency, rate, auto)
+  // Le spese nate da una sosta prima che il luogo esistesse: il posto lo sanno,
+  // e' la sosta stessa, e senza restavano nel mucchio del «senza luogo»
+  const senza = await q(`UPDATE expenses e SET place = s.name FROM stops s
+    WHERE e.stop_id = s.id AND e.place IS NULL`);
+  if (senza.rowCount) console.log(`spese di sosta: luogo messo su ${senza.rowCount}`);
+
+  const r = await q(`INSERT INTO expenses(trip_id, stop_id, date, category, description, place, amount, currency, rate, auto)
     SELECT s.trip_id, s.id, coalesce(s.from_date, current_date),
       CASE s.kind WHEN 'camping' THEN 'campeggio' WHEN 'appartamento' THEN 'altro' ELSE 'area_sosta' END,
       s.name || CASE WHEN s.from_date IS NOT NULL AND s.to_date IS NOT NULL AND s.to_date > s.from_date
         THEN ' (' || (s.to_date - s.from_date) || CASE WHEN s.to_date - s.from_date = 1 THEN ' notte)' ELSE ' notti)' END
         ELSE '' END,
-      s.cost, s.currency, s.rate, true
+      s.name, s.cost, s.currency, s.rate, true
     FROM stops s
     WHERE s.cost > 0 AND NOT s.senza_spesa
       AND NOT EXISTS (SELECT 1 FROM expenses e WHERE e.stop_id = s.id)`);
