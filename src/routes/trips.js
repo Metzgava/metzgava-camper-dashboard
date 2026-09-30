@@ -464,7 +464,8 @@ router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
     num(l.distance_km));
   await q('UPDATE legs SET geometry=$2 WHERE id=$1', [l.id, JSON.stringify(scelto.geometry)]);
   console.log(`tappa ${l.id}: ridisegnata su «${scelto.nome}», ${scelto.distance_km} km contro ${l.distance_km} veri`);
-  res.json({ ok: true, nome: scelto.nome, km_disegnati: scelto.distance_km, km_veri: +l.distance_km, scarto_km: scelto.scarto_km ?? null });
+  res.json({ ok: true, nome: scelto.nome, km_disegnati: scelto.distance_km, km_veri: +l.distance_km,
+    scarto_km: scelto.scarto_km ?? null, confrontate: !!scelto.scelta_per_km });
 }));
 
 router.post('/legs/:id/sposta', wrap(async (req, res) => {

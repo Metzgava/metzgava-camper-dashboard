@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v27';
+const VERSIONE = 'v28';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -806,7 +806,11 @@ async function viewTrip(id) {
     if (b.dataset.ridisegna) {
       toast('Cerco la strada che misura quei chilometri\u2026');
       const r = await api(`/legs/${b.dataset.ridisegna}/ridisegna`, { method: 'POST' });
-      toast(`Ridisegnata su \u00ab${r.nome.toLowerCase()}\u00bb: ${num(r.km_disegnati)} km contro ${num(r.km_veri)} veri`);
+      // Con una strada sola non c'e' stato niente da confrontare: dirlo, perche'
+      // il disegno potrebbe non somigliare a dove si e' passati davvero
+      toast(r.confrontate
+        ? `Ridisegnata su \u00ab${r.nome.toLowerCase()}\u00bb: ${num(r.km_disegnati)} km contro ${num(r.km_veri)} veri`
+        : `Ridisegnata, ma avevo una strada sola da proporre: ${num(r.km_disegnati)} km contro ${num(r.km_veri)} veri`, !r.confrontate);
       restaQui();
     }
     if (b.dataset.carlockLeg) carlockPerTappa(trip, legs.find(x => x.id == b.dataset.carlockLeg));
