@@ -295,6 +295,14 @@ input[type=checkbox], input[type=radio] { width: auto; }
   background: rgba(0,0,0,.55); color: #fff; border: 0; border-radius: 7px; cursor: pointer; opacity: 0; transition: opacity .15s; }
 .foto-sosta figure:hover .del, .foto-sosta figure:focus-within .del { opacity: 1; }
 @media (hover: none) { .foto-sosta .del { opacity: 1; } }
+/* Il posto dove mettere le foto di una sosta si vede che e' un posto dove
+   mettere le foto: un riquadro tratteggiato grande come una miniatura, non un
+   pulsante senza bordi che si legge come un'etichetta e non si tocca mai */
+.foto-sosta .aggiungi { width: 62px; height: 62px; flex: 0 0 auto; border: 1.5px dashed var(--line); border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  font-size: 11px; color: var(--muted); cursor: pointer; background: none; }
+.foto-sosta .aggiungi .ico { font-size: 17px; line-height: 1; }
+.foto-sosta .aggiungi:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 @media (max-width: 800px) { .foto-sosta { padding-left: 0; } }
 
 /* Sulla mappa, una foto sta col suo viso nel punto dove e' stata scattata */

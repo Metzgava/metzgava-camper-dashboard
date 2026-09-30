@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v30';
+const VERSIONE = 'v31';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -921,7 +921,9 @@ const sostaRiga = (s, foto = []) => {
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
   <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="${esc(p.caption || 'Tocca per ingrandire')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a><button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
-    <label class="btn sm ghost" title="Foto di questa sosta">\ud83d\udcf7 ${foto.length ? 'Aggiungi' : 'Foto'}<input type="file" data-fotososta="${s.id}" accept="image/*" multiple hidden></label></div></div>`;
+    <label class="aggiungi" title="${foto.length ? 'Aggiungi foto a questa sosta' : 'Metti le foto di questa sosta'}">
+      <span class="ico">\ud83d\udcf7</span><span>${foto.length ? 'Aggiungi' : 'Foto'}</span>
+      <input type="file" data-fotososta="${s.id}" accept="image/*" multiple hidden></label></div></div>`;
 };
 
 // Scheda di una sosta: il posto si cerca come ogni altro luogo, il tipo dice se
