@@ -489,7 +489,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v28';
+const VERSIONE = 'v29';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2185,7 +2185,44 @@ async function viewDashboard() {
 }
 
 // ---------- Riepiloghi ----------
-const state = { period: 'month', from: null, to: null, group: 'month', atleta: null, avviato: false };
+const state = { period: 'month', from: null, to: null, group: 'month', atleta: null, viaggio: null, avviato: false };
+// I grafici che hanno senso solo dentro un viaggio: su tutto l'archivio le
+// tappe di viaggi diversi finirebbero nello stesso grafico senza voler dire
+// niente. Qui invece la domanda e' «in questo viaggio, dove sono finiti i
+// chilometri, le ore e i soldi».
+const barreOriz = (voci, unita) => {
+  if (!voci.length) return '<div class="empty">Nessun dato</div>';
+  const massimo = Math.max(1, ...voci.map(v => v.valore));
+  return `<div class="barre-oriz">${voci.map(v => `<div class="barra-oriz">
+    <div class="riga"><span class="etichetta">${v.etichetta}</span><b class="valore">${v.testo ?? (num(v.valore) + ' ' + unita)}</b></div>
+    <span class="traccia"><i style="width:${Math.max(2, v.valore / massimo * 100)}%"></i></span></div>`).join('')}</div>`;
+};
+
+function graficiDelViaggio(d) {
+  const { trip, legs, expenses, workouts, totals } = d;
+  const nome = l => `${esc(String(l.from_name).split(',')[0])} \u2192 ${esc(String(l.to_name).split(',')[0])}`;
+  const perLuogo = {};
+  expenses.forEach(e => { const k = (e.place || '').trim() || 'senza luogo'; perLuogo[k] = (perLuogo[k] || 0) + (+e.amount || 0) * (+e.rate || 1); });
+  const luoghi = Object.entries(perLuogo).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const perSport = {};
+  workouts.forEach(w => { const k = w.sport || 'Altro'; perSport[k] = (perSport[k] || 0) + (w.distance_m || 0) / 1000; });
+  const sport = Object.entries(perSport).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  return `<div class="card" style="margin-top:14px"><div class="row between"><h2>\ud83d\ude90 ${esc(nomeViaggio(trip))}</h2>
+      <div class="small muted">${dateViaggio(trip)} \u00b7 ${legs.length} tappe \u00b7 ${num(totals.km)} km \u00b7 ${dur(totals.minutes * 60)} di guida</div></div></div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card"><h2>Chilometri per tappa</h2><div class="small muted">dove sono finiti i chilometri di questo viaggio</div>
+        ${barreOriz(legs.map(l => ({ etichetta: nome(l), valore: +l.distance_km || 0 })), 'km')}</div>
+      <div class="card"><h2>Ore di guida per tappa</h2><div class="small muted">quanto e\u2019 costata, in tempo, ogni tratta</div>
+        ${barreOriz(legs.map(l => ({ etichetta: nome(l), valore: l.duration_min || 0, testo: dur((l.duration_min || 0) * 60) })), 'min')}</div>
+    </div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card"><h2>Spese per luogo</h2><div class="small muted">dove sono stati spesi i soldi</div>
+        ${barreOriz(luoghi.map(([k, v]) => ({ etichetta: esc(k), valore: v, testo: eur(v) })), '\u20ac')}</div>
+      <div class="card"><h2>Km di allenamento per disciplina</h2><div class="small muted">le attivit\u00e0 dentro le date del viaggio</div>
+        ${barreOriz(sport.map(([k, v]) => ({ etichetta: `${sportIco(k)} ${esc(k)}`, valore: v })), 'km')}</div>
+    </div>`;
+}
+
 async function viewSummary() {
   const now = new Date();
   const presets = { week: [iso(now - 6 * 864e5), today(), 'day'], month: [iso(new Date(now.getFullYear(), now.getMonth(), 1)), today(), 'day'], year: [`${now.getFullYear()}-01-01`, today(), 'month'], all: ['2000-01-01', today(), 'year'], custom: null };
@@ -2193,7 +2230,19 @@ async function viewSummary() {
   // Come nel Cruscotto: di partenza gli allenamenti sono quelli di chi e' collegato,
   // per non sommare le copie dello stesso giro presenti su piu' atleti
   if (!state.avviato) { state.avviato = true; if (atleti.length > 1) state.atleta = user.id; }
-  const s = await api(`/summary?from=${state.from}&to=${state.to}&group=${state.group}${state.atleta ? '&user_id=' + state.atleta : ''}`);
+  const viaggi = await api('/trips');
+  // Scelto un viaggio, il periodo diventa il suo: chiedere anche le date sarebbe
+  // far fare due volte lo stesso lavoro, e sbagliarle nasconderebbe tutto
+  const viaggio = state.viaggio ? viaggi.find(v => v.id === state.viaggio) : null;
+  if (viaggio) {
+    state.from = viaggio.start_date ? iso(viaggio.start_date) : state.from;
+    state.to = viaggio.end_date ? iso(viaggio.end_date) : today();
+    if (state.period !== 'custom') state.group = 'day';
+  }
+  const s = await api(`/summary?from=${state.from}&to=${state.to}&group=${state.group}${state.atleta ? '&user_id=' + state.atleta : ''}${viaggio ? '&trip_id=' + viaggio.id : ''}`);
+  // Del viaggio scelto si prende tutto: tappe, spese e allenamenti servono ai
+  // grafici che hanno senso solo dentro un viaggio
+  const dettaglio = viaggio ? await api('/trips/' + viaggio.id) : null;
   const periods = [...new Set([...s.periods.map(p => p.period), ...s.km.map(p => p.period), ...s.workouts.map(p => p.period)])].sort();
   const fmtP = p => state.group === 'year' ? p.slice(0, 4) : state.group === 'month' ? new Date(p).toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) : new Date(p).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
   const spentBy = Object.fromEntries(periods.map(p => [p, s.periods.filter(x => x.period === p).reduce((a, b) => a + b.total, 0)]));
@@ -2206,13 +2255,16 @@ async function viewSummary() {
   const total = s.totals.spent || 1;
   let acc = 0; const grad = s.by_category.map(c => { const a = acc; acc += c.total / total * 100; return `${catColor(c.category)} ${a}% ${acc}%`; }).join(', ');
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Riepiloghi</h1>
-    <div class="card"><div class="chips">${[['week', '7 giorni'], ['month', 'Questo mese'], ['year', 'Quest\'anno'], ['all', 'Tutto'], ['custom', 'Periodo…']].map(([k, l]) => `<span class="chip ${state.period === k ? 'active' : ''}" data-p="${k}">${l}</span>`).join('')}</div>
-      <div class="row" style="margin-top:12px"><div class="field w-md"><label class="f">Dal</label><input type="date" id="from" value="${state.from}"></div><div class="field w-md"><label class="f">Al</label><input type="date" id="to" value="${state.to}"></div>
+    <div class="card">${viaggio ? `<div class="small muted">Il periodo e’ quello del viaggio: <b>${dateViaggio(viaggio)}</b>. Per guardare un periodo qualsiasi, rimetti «Tutti i viaggi».</div>` : `<div class="chips">${[['week', '7 giorni'], ['month', 'Questo mese'], ['year', 'Quest\'anno'], ['all', 'Tutto'], ['custom', 'Periodo…']].map(([k, l]) => `<span class="chip ${state.period === k ? 'active' : ''}" data-p="${k}">${l}</span>`).join('')}</div>`}
+      <div class="row" style="margin-top:12px">${viaggio ? '' : `<div class="field w-md"><label class="f">Dal</label><input type="date" id="from" value="${state.from}"></div><div class="field w-md"><label class="f">Al</label><input type="date" id="to" value="${state.to}"></div>`}
+      <div class="field w-md"><label class="f">Viaggio</label><select id="f-viaggio">
+        <option value="">Tutti i viaggi</option>${viaggi.map(v => `<option value="${v.id}" ${state.viaggio === v.id ? 'selected' : ''}>${esc(nomeViaggio(v))}${v.start_date ? ' \u00b7 ' + fdate(v.start_date) : ''}</option>`).join('')}</select></div>
       ${atleti.length > 1 ? `<div class="field w-sm"><label class="f">Allenamenti di</label><select id="f-atleta">
         <option value="">Tutti insieme</option>${atleti.map(a => `<option value="${a.id}" ${state.atleta === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>` : ''}
-      <div class="field w-sm"><label class="f">Raggruppa</label><select id="group">${[['day', 'Giorno'], ['week', 'Settimana'], ['month', 'Mese'], ['year', 'Anno']].map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div><div class="field" style="align-self:flex-end"><button class="btn primary" id="go">Applica</button></div></div></div>
-    <div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Speso</div><div class="value">${eur(s.totals.spent)}</div><div class="sub">${s.totals.trips} viaggi</div></div><div class="tile"><div class="label">Km in camper</div><div class="value">${num(s.totals.km, 0)}</div><div class="sub">${s.totals.legs} tappe · ${s.totals.km ? eur(s.totals.spent / s.totals.km) + '/km' : ''}</div></div><div class="tile"><div class="label">Allenamenti</div><div class="value">${s.totals.workouts}</div><div class="sub">${num(s.totals.workout_km)} km</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(s.totals.calories, 0)}</div></div></div>
-    <div class="grid cols-2">
+      <div class="field w-sm"><label class="f">Raggruppa</label><select id="group">${[['day', 'Giorno'], ['week', 'Settimana'], ['month', 'Mese'], ['year', 'Anno']].map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>${viaggio ? '' : '<div class="field" style="align-self:flex-end"><button class="btn primary" id="go">Applica</button></div>'}</div></div>
+    <div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Speso</div><div class="value">${eur(s.totals.spent)}</div><div class="sub">${s.totals.trips} viagg${s.totals.trips === 1 ? 'io' : 'i'}</div></div><div class="tile"><div class="label">Km in camper</div><div class="value">${num(s.totals.km, 0)}</div><div class="sub">${s.totals.legs} tappe · ${s.totals.km ? eur(s.totals.spent / s.totals.km) + '/km' : ''}</div></div><div class="tile"><div class="label">Allenamenti</div><div class="value">${s.totals.workouts}</div><div class="sub">${num(s.totals.workout_km)} km</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(s.totals.calories, 0)}</div></div></div>
+    ${dettaglio ? graficiDelViaggio(dettaglio) : ''}
+    <div class="grid cols-2" style="margin-top:14px">
       <div class="card"><h2>Spese per ${({ day: 'giorno', week: 'settimana', month: 'mese', year: 'anno' })[state.group]}</h2>
         <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${eur(spentBy[p])}"><i style="height:${(spentBy[p] || 0) / max * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
       <div class="card"><h2>Per categoria</h2><div class="donut" style="margin-top:10px"><div class="ring" style="background:conic-gradient(${grad || 'var(--surface-2) 0 100%'})"><b>${eur(s.totals.spent)}</b></div>
@@ -2228,8 +2280,12 @@ async function viewSummary() {
     <div class="card pad-0" style="margin-top:14px"><div class="table-wrap"><table><thead><tr><th>Periodo</th><th class="num">Spese</th><th class="num">Km camper</th><th class="num">Allenamenti</th><th class="num">Km allenamento</th><th class="num">Calorie</th><th class="num">❤️ medio</th></tr></thead>
       <tbody>${periods.map(p => `<tr><td>${fmtP(p)}</td><td class="num"><b>${eur(spentBy[p])}</b></td><td class="num">${num(kmBy[p] || 0, 0)}</td><td class="num">${woBy[p]?.n || 0}</td><td class="num">${num(woBy[p]?.km || 0)}</td><td class="num">${num(woBy[p]?.calories || 0, 0)}</td><td class="num">${woBy[p]?.hr_avg || '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nessun dato</td></tr>'}</tbody></table></div></div>`);
   $$('.chip').forEach(c => c.onclick = () => { state.period = c.dataset.p; render(); });
-  $('#go').onclick = () => { state.period = 'custom'; state.from = $('#from').value; state.to = $('#to').value; state.group = $('#group').value; render(); };
+  if ($('#go')) $('#go').onclick = () => { state.period = 'custom'; state.from = $('#from').value; state.to = $('#to').value; state.group = $('#group').value; render(); };
+  // Col viaggio scelto non c'e' un «Applica» da premere: il raggruppamento si
+  // cambia e il disegno si rifa'
+  if (viaggio) $('#group').onchange = e => { state.group = e.target.value; render(); };
   if ($('#f-atleta')) $('#f-atleta').onchange = e => { state.atleta = e.target.value ? +e.target.value : null; render(); };
+  $('#f-viaggio').onchange = e => { state.viaggio = e.target.value ? +e.target.value : null; state.period = 'custom'; render(); };
 }
 
 // ---------- Impostazioni ----------
