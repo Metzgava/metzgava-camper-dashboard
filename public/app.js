@@ -408,6 +408,11 @@ function tripForm(t = null) {
     });
 }
 
+// La copertina si sceglie fra tutte le foto del viaggio, comprese quelle delle
+// soste: la foto buona e' dove capita, non per forza nella raccolta.
+const stellaCopertina = (p, scelta) => `<button class="copertina-scelta${scelta === p.id ? ' scelta' : ''}" data-copertina="${p.id}"
+  title="${scelta === p.id ? 'E\u2019 la copertina del viaggio \u00b7 tocca per togliere la scelta' : 'Usa come copertina del viaggio'}">${scelta === p.id ? '\u2605' : '\u2606'}</button>`;
+
 // ---------- Foto ----------
 // Una foto si guarda grande. Si apre sopra la pagina, si scorre con le frecce o
 // col dito quando ce n'e' piu' d'una, e si chiude toccando fuori, con la \u2715 o
@@ -489,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v31';
+const VERSIONE = 'v32';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -562,6 +567,7 @@ async function viewTrip(id) {
   soste.forEach(x => fotoSosta.set(x.id, []));
   photos.forEach(p => { if (p.stop_id && fotoSosta.has(p.stop_id)) fotoSosta.get(p.stop_id).push(p); });
   const fotoViaggio = photos.filter(p => !p.stop_id || !fotoSosta.has(p.stop_id));
+
   // In due si esce insieme, ma gli allenamenti sono di ciascuno: separati si
   // leggono, mischiati bisogna spulciare riga per riga di chi e' ognuno. Sulla
   // mappa il colore dice la disciplina, quindi a dire chi e' resta il tratto.
@@ -625,7 +631,7 @@ async function viewTrip(id) {
           ${[{ n: legs[0].from_name, lat: legs[0].from_lat, lon: legs[0].from_lon }, ...legs.map(l => ({ n: l.to_name, lat: l.to_lat, lon: l.to_lon }))]
             .filter(x => x.lat != null)
             .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div></div>` : ''}
-        <div class="list" id="soste">${soste.length ? soste.map(s => sostaRiga(s, fotoSosta.get(s.id))).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
+        <div class="list" id="soste">${soste.length ? soste.map(s => sostaRiga(s, fotoSosta.get(s.id), trip.cover_photo_id)).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
 
       <div class="card pad-0" style="grid-column:1/-1"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2><button class="btn primary sm" id="addex">＋ Spesa</button></div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
@@ -637,7 +643,7 @@ async function viewTrip(id) {
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
         ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
-        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
+        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}${stellaCopertina(p, trip.cover_photo_id)}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
       ${atletiDelViaggio.length ? atletiDelViaggio.map(nome => {
         const suoi = workouts.filter(w => w.athlete === nome);
         const km = suoi.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000;
@@ -752,6 +758,16 @@ async function viewTrip(id) {
   $('#soste')?.addEventListener('click', safe(async e => {
     const b = e.target.closest('[data-del-ph]');
     if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); restaQui(); }
+  }));
+  // La stella sceglie la copertina del viaggio, ovunque stia la foto: nella
+  // raccolta o sotto una sosta
+  $('main')?.addEventListener('click', safe(async e => {
+    const b = e.target.closest('[data-copertina]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = await api(`/trips/${id}/copertina`, { method: 'POST', body: { photo_id: +b.dataset.copertina } });
+    toast(r.cover_photo_id ? 'Copertina del viaggio scelta' : 'Copertina di nuovo automatica: la prima foto');
+    restaQui();
   }));
   $$('[data-delsosta]').forEach(b => b.onclick = safe(async () => {
     if (!await confirmDlg('Togliere questa sosta e il suo costo dalle spese?')) return;
@@ -906,7 +922,7 @@ const stelline = n => n ? '\u2605'.repeat(n) + '\u2606'.repeat(5 - n) : '';
 
 // Una sosta segnata: quando si arriva e si riparte, quanto e' piaciuta, quanto
 // e' costata, e la porta verso park4night o qualunque altro indirizzo
-const sostaRiga = (s, foto = []) => {
+const sostaRiga = (s, foto = [], copertina = null) => {
   const n = notti(s.from_date, s.to_date);
   const quando = !s.from_date ? '<i>giorni da decidere</i>'
     : fdate(s.from_date) + (s.arrival_time ? ` alle ${s.arrival_time}` : '')
@@ -920,7 +936,7 @@ const sostaRiga = (s, foto = []) => {
   <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
-  <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="${esc(p.caption || 'Tocca per ingrandire')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a><button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
+  <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="${esc(p.caption || 'Tocca per ingrandire')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a>${stellaCopertina(p, copertina)}<button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
     <label class="aggiungi" title="${foto.length ? 'Aggiungi foto a questa sosta' : 'Metti le foto di questa sosta'}">
       <span class="ico">\ud83d\udcf7</span><span>${foto.length ? 'Aggiungi' : 'Foto'}</span>
       <input type="file" data-fotososta="${s.id}" accept="image/*" multiple hidden></label></div></div>`;

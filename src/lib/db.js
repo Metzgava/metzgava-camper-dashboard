@@ -284,6 +284,11 @@ export async function migrate() {
 
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';   -- manual | carlock
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
+  -- La copertina del viaggio la sceglie chi l'ha fatto: senza scelta resta la
+  -- prima foto, che e' un ripiego, non una decisione. Se quella foto viene
+  -- cancellata, si torna al ripiego invece di restare senza.
+  ALTER TABLE trips ADD COLUMN IF NOT EXISTS cover_photo_id INT REFERENCES photos(id) ON DELETE SET NULL;
+
   -- Dove e' stata fatta la spesa: il distributore, il supermercato, il ristorante.
   -- Solo il nome: una spesa si ricorda dal posto, non dalle coordinate.
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS place TEXT;

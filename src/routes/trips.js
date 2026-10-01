@@ -171,8 +171,11 @@ router.get('/trips', wrap(async (req, res) => {
       (SELECT count(*)::int FROM legs WHERE trip_id=t.id) AS n_legs,
       (SELECT count(*)::int FROM photos WHERE trip_id=t.id) AS n_photos,
       (SELECT count(*)::int FROM workouts WHERE trip_id=t.id AND meta->'copiato_da' IS NULL) AS n_workouts,
-      -- La copertina della scheda: la prima foto del viaggio, per data di scatto
-      (SELECT filename FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1) AS cover
+      -- La copertina della scheda: quella scelta, e finche' non si sceglie la
+      -- prima foto del viaggio, per data di scatto
+      coalesce(
+        (SELECT filename FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
+        (SELECT filename FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover
     FROM trips t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
   // Mete e forma dell'itinerario per la scheda. Si prendono i soli estremi delle
   // tappe, non le geometrie: quelle di CarLock pesano quanto tutto il resto e
@@ -413,6 +416,20 @@ router.delete('/soste/:id', wrap(async (req, res) => {
 const sceltoDaFuori = p => (p && Array.isArray(p.geometry) && p.geometry.length > 1 && num(p.distance_km) > 0)
   ? { distance_km: num(p.distance_km), duration_min: Math.round(num(p.duration_min)), geometry: p.geometry, warning: p.stimato ? 'Distanza stimata: il servizio dei percorsi non ha risposto' : null }
   : null;
+
+// La foto di copertina si sceglie. Rimandando la stessa, si torna alla prima
+// caricata: e' la scelta che si disfa, non una seconda decisione da prendere.
+router.post('/trips/:id/copertina', wrap(async (req, res) => {
+  const idFoto = req.body?.photo_id ? +req.body.photo_id : null;
+  if (idFoto) {
+    const sua = (await q('SELECT 1 FROM photos WHERE id=$1 AND trip_id=$2', [idFoto, req.params.id])).rowCount;
+    if (!sua) return res.status(400).json({ error: 'Quella foto non e\u2019 di questo viaggio' });
+  }
+  const t = (await q('UPDATE trips SET cover_photo_id = CASE WHEN cover_photo_id IS NOT DISTINCT FROM $2 THEN NULL ELSE $2 END WHERE id=$1 RETURNING cover_photo_id',
+    [req.params.id, idFoto])).rows[0];
+  if (!t) return res.status(404).json({ error: 'Viaggio non trovato' });
+  res.json({ ok: true, cover_photo_id: t.cover_photo_id });
+}));
 
 router.post('/trips/:id/legs', wrap(async (req, res) => {
   const b = req.body || {};
