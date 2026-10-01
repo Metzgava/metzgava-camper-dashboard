@@ -494,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v32';
+const VERSIONE = 'v33';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -581,6 +581,22 @@ async function viewTrip(id) {
   // Una tappa che unisce piu' tragitti e dura quanto tutto l'intervallo non
   // distingue la guida dalle soste che ci sono in mezzo: non si spaccia per guida
   const conSoste = l => String(l.external_id || '').includes('+') && inStrada(l) <= (l.duration_min || 0);
+  // Quanto e' lunga la riga disegnata. Se non somiglia ai chilometri veri, la
+  // strada ricostruita non e' quella fatta: meglio dirlo prima che se ne accorga
+  // chi guarda la mappa e si chieda perche' passa di li'.
+  const lungaQuanto = g => {
+    if (!Array.isArray(g) || g.length < 2) return 0;
+    const rad = x => x * Math.PI / 180;
+    let t = 0;
+    for (let i = 1; i < g.length; i++) {
+      const [a1, o1] = g[i - 1], [a2, o2] = g[i];
+      const h = Math.sin(rad(a2 - a1) / 2) ** 2 + Math.cos(rad(a1)) * Math.cos(rad(a2)) * Math.sin(rad(o2 - o1) / 2) ** 2;
+      t += 12742 * Math.asin(Math.sqrt(h));
+    }
+    return t;
+  };
+  const stradaSospetta = l => l.source === 'carlock' && l.distance_km > 0
+    && Math.abs(lungaQuanto(l.geometry) - l.distance_km) > Math.max(15, l.distance_km * 0.08);
   const inStrada = l => {
     const m = t => { const x = String(t || '').match(/^(\d{1,2}):(\d{2})/); return x ? +x[1] * 60 + +x[2] : null; };
     const a = m(l.start_time), b = m(l.end_time);
@@ -593,7 +609,7 @@ async function viewTrip(id) {
       <button class="freccia" data-giu="${l.id}" title="Sposta dopo" ${i === legs.length - 1 ? 'disabled' : ''}>\u25bc</button>
     </div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
-      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
+      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>${l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}${e.place ? `<div class="small muted">\ud83d\udccd ${esc(e.place)}</div>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}<button class="btn sm ghost danger" data-del-ex="${e.id}" data-auto-ex="${e.auto ? 1 : 0}" title="Elimina">🗑</button>`}</td></tr>`;
