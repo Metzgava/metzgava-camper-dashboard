@@ -38,7 +38,9 @@ async function saveWorkout(userId, w, tripId = null, opzioni = {}) {
   const r = await q(`INSERT INTO workouts(user_id,trip_id,source,external_id,sport,name,started_at,duration_s,distance_m,elevation_up_m,calories,hr_avg,hr_max,speed_avg_kmh,track,hr_track,meta)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
     ON CONFLICT (user_id,source,external_id) DO UPDATE SET
-      sport=coalesce(EXCLUDED.sport,workouts.sport), name=coalesce(EXCLUDED.name,workouts.name), duration_s=coalesce(EXCLUDED.duration_s,workouts.duration_s),
+      sport=CASE WHEN workouts.sport_manual THEN workouts.sport ELSE coalesce(EXCLUDED.sport,workouts.sport) END,
+      name=CASE WHEN workouts.sport_manual THEN workouts.name ELSE coalesce(EXCLUDED.name,workouts.name) END,
+      duration_s=coalesce(EXCLUDED.duration_s,workouts.duration_s),
       distance_m=coalesce(EXCLUDED.distance_m,workouts.distance_m), elevation_up_m=coalesce(EXCLUDED.elevation_up_m,workouts.elevation_up_m),
       calories=coalesce(EXCLUDED.calories,workouts.calories), hr_avg=coalesce(EXCLUDED.hr_avg,workouts.hr_avg), hr_max=coalesce(EXCLUDED.hr_max,workouts.hr_max),
       speed_avg_kmh=coalesce(EXCLUDED.speed_avg_kmh,workouts.speed_avg_kmh), track=coalesce(EXCLUDED.track,workouts.track),
@@ -556,7 +558,7 @@ export async function normalizzaNomiEsistenti() {
   for (const { sport } of rows) {
     const nuovo = normalizzaSport(sport);
     if (nuovo === sport) continue;
-    const r = await q('UPDATE workouts SET sport=$2, name=CASE WHEN name=$1 THEN $2 ELSE name END WHERE sport=$1', [sport, nuovo]);
+    const r = await q('UPDATE workouts SET sport=$2, name=CASE WHEN name=$1 THEN $2 ELSE name END WHERE sport=$1 AND NOT sport_manual', [sport, nuovo]);
     console.log(`nomi: "${sport}" -> "${nuovo}" (${r.rowCount})`);
     cambiati += r.rowCount;
   }
@@ -810,7 +812,10 @@ router.put('/workouts/:id', wrap(async (req, res) => {
   let r = (await q(`UPDATE workouts SET
       trip_id=CASE WHEN $2 THEN $3::int ELSE trip_id END,
       trip_manual=CASE WHEN $11 THEN false WHEN $2 THEN true ELSE trip_manual END,
-      name=coalesce($4,name), sport=coalesce($5,sport),
+      -- Cambiando disciplina, un titolo che era solo il nome della disciplina la
+      -- segue; un titolo scritto a mano resta quello che e'
+      name=CASE WHEN $5::text IS NOT NULL AND name = sport THEN $5::text ELSE coalesce($4,name) END,
+      sport=coalesce($5,sport), sport_manual=CASE WHEN $5::text IS NOT NULL THEN true ELSE sport_manual END,
       calories=coalesce($6,calories), hr_avg=coalesce($7,hr_avg), hr_max=coalesce($8,hr_max),
       distance_m=coalesce($12,distance_m), duration_s=coalesce($13,duration_s), elevation_up_m=coalesce($14,elevation_up_m)
     WHERE id=$1 AND (user_id=$9 OR $10) RETURNING *`,

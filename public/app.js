@@ -494,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v33';
+const VERSIONE = 'v34';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1610,8 +1610,24 @@ function modificaWorkout(w, dopo) {
   const pesoDelGiorno = w.peso_kg != null ? +w.peso_kg : '';
   const campo = (id, etichetta, valore, passo, suffisso) =>
     `<div class="field"><label class="f">${etichetta}</label><input type="number" step="${passo}" min="0" id="${id}" value="${valore ?? ''}" placeholder="${suffisso}"></div>`;
+  // La disciplina la sa chi si e' allenato, non il telefono: un'uscita in casa
+  // sul tapis arriva spesso come «Escursione», e da qui si rimette a posto.
+  // Cambiandola cambia anche l'icona, i filtri e i conti per disciplina.
+  const DISCIPLINE_SCELTA = ['Camminata', 'Camminata su tapis', 'Corsa', 'Corsa su tapis', 'Escursione',
+    'Bicicletta', 'Nuoto in piscina', 'Nuoto in acque libere', 'Nuoto', 'Scialpinismo', 'Sci', 'Sci di fondo', 'Snowboard'];
+  const sportOra = (w.sport || '').trim();
+  const elenco = DISCIPLINE_SCELTA.includes(sportOra) || !sportOra ? DISCIPLINE_SCELTA : [sportOra, ...DISCIPLINE_SCELTA];
+  // Dentro un <option> ci sta solo testo: l'icona del tapis roulant e' un disegno
+  // e non si vedrebbe, quindi li' si usa quella della camminata o della corsa
+  const icoOpzione = k => /tapis|treadmill/i.test(k) ? (/cors/i.test(k) ? '\ud83c\udfc3' : '\ud83d\udeb6') : sportIco(k);
   modal(`<h2>Dati dell\u2019allenamento</h2>
     <div class="row" style="margin-top:12px">
+      <div class="field grow"><label class="f">Tipo di allenamento</label>
+        <select id="m-sport">${elenco.map(k => `<option value="${esc(k)}" ${k === sportOra ? 'selected' : ''}>${icoOpzione(k)} ${esc(k)}</option>`).join('')}
+          <option value="__altro">\u270f\ufe0f Altro\u2026</option></select></div>
+      <div class="field grow" id="m-altro-campo" hidden><label class="f">Come si chiama</label><input id="m-altro" placeholder="Es. Canoa" value=""></div>
+    </div>
+    <div class="row">
       ${campo('m-km', 'Distanza (km)', w.distance_m != null ? +(w.distance_m / 1000).toFixed(2) : '', '0.01', 'km')}
       ${campo('m-min', 'Durata (minuti)', w.duration_s != null ? Math.round(w.duration_s / 60) : '', '1', 'min')}
       ${campo('m-disl', 'Dislivello (m)', w.elevation_up_m, '1', 'm')}
@@ -1637,8 +1653,17 @@ function modificaWorkout(w, dopo) {
         $('#m-vam', el).textContent = (disl > 0 && min > 0) ? num(disl / (min / 60), 0) + ' m/h' : '\u2014';
       };
       ['#m-km', '#m-min', '#m-disl'].forEach(sel => $(sel, el).addEventListener('input', aggiornaMedia));
+      $('#m-sport', el).onchange = e => {
+        const altro = e.target.value === '__altro';
+        $('#m-altro-campo', el).hidden = !altro;
+        if (altro) $('#m-altro', el).focus();
+      };
       aggiornaMedia();
       $('[data-x]', el).onclick = close;
+      const sportScelto = () => {
+        const scelta = $('#m-sport', el).value;
+        return scelta === '__altro' ? $('#m-altro', el).value.trim() : scelta;
+      };
       $('#m-salva', el).onclick = safe(async () => {
         const v = sel => { const t = $(sel, el).value.trim(); return t === '' ? null : Number(t); };
         const km = v('#m-km'), min = v('#m-min');
@@ -1646,6 +1671,7 @@ function modificaWorkout(w, dopo) {
           distance_m: km === null ? null : Math.round(km * 1000),
           duration_s: min === null ? null : Math.round(min * 60),
           elevation_up_m: v('#m-disl'), calories: v('#m-kcal'), hr_avg: v('#m-hr'), hr_max: v('#m-hrmax'),
+          ...(sportScelto() && sportScelto() !== sportOra ? { sport: sportScelto() } : {}),
         } });
         // La pesata viaggia su una strada sua: e' della giornata, non dell'allenamento
         const peso = v('#m-peso');

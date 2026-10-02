@@ -311,6 +311,11 @@ export async function migrate() {
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS end_time TEXT;
   CREATE UNIQUE INDEX IF NOT EXISTS idx_legs_external ON legs(trip_id, external_id) WHERE external_id IS NOT NULL;
 
+  -- vero quando la disciplina e' stata scelta a mano: ne' il prossimo invio dal
+  -- telefono ne' l'uniformazione dei nomi la riscrivono. Un'escursione che era
+  -- in realta' il tapis roulant lo sa solo chi l'ha fatta.
+  ALTER TABLE workouts ADD COLUMN IF NOT EXISTS sport_manual BOOLEAN NOT NULL DEFAULT false;
+
   -- vero quando il viaggio e' stato scelto a mano: l'aggancio automatico non lo tocca
   ALTER TABLE workouts ADD COLUMN IF NOT EXISTS trip_manual BOOLEAN NOT NULL DEFAULT false;
 
