@@ -369,3 +369,14 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .foto-sosta figure:hover .copertina-scelta, .foto-sosta .copertina-scelta.scelta { opacity: 1; }
 .copertina-scelta.scelta { background: var(--accent); }
 @media (hover: none) { .photos .copertina-scelta, .foto-sosta .copertina-scelta { opacity: 1; } }
+
+/* Le discipline nella tendina: l'icona com'e', disegno compreso */
+.tendina-corpo .voce-sport { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0;
+  background: none; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); text-align: left; cursor: pointer; }
+.tendina-corpo .voce-sport:hover { background: var(--surface-2); }
+.tendina-corpo .voce-sport svg { flex: 0 0 auto; }
+#m-tipo { display: block; }
+#m-tipo > summary { display: flex; align-items: center; gap: 8px; }
+/* Il pannello sta largo quanto il campo: in una finestra stretta non deve
+   andarsene per i fatti suoi */
+#m-tipo .tendina-corpo { left: 0; right: 0; min-width: 0; max-width: none; }
