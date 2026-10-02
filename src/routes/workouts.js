@@ -228,7 +228,13 @@ export async function archivia(userId, items) {
 // Altre metriche hanno avg/min/max invece di qty, e le bilance americane mandano
 // libbre: qui si tiene solo il peso corporeo, convertito in chilogrammi.
 const PESO_CORPOREO = /weight|body_?mass|peso|massa.?corp/i;
-const NON_PESO = /lean|fat|bmi|indice|magra|grass/i;
+// «body_mass_index» contiene «body_mass» e passava per peso: l'indice di massa
+// corporea di chi pesa 71 kg vale 24, che e' un peso possibile per una persona,
+// e con la regola della pesata piu' bassa vinceva sempre lui.
+const NON_PESO = /index|indice|\bbmi\b|lean|fat|magra|grass|percent|perc\b|ratio|rapporto/i;
+// Fra piu' metriche che somigliano al peso vince quella che il peso lo e' per
+// nome: le altre sono misure derivate che gli assomigliano solo di numero.
+const PESO_ESATTO = /^weight_body_mass$|^body_mass$|^weight$/i;
 const inChili = (valore, unita) => {
   const u = String(unita || 'kg').toLowerCase();
   if (u.startsWith('lb') || u.includes('libbr') || u.includes('pound')) return valore * 0.45359237;
@@ -248,9 +254,13 @@ export function pesiDaPacchetto(body) {
   const metriche = body?.data?.metrics;
   if (!Array.isArray(metriche)) return [];
   const fuori = [];
-  for (const m of metriche) {
+  const candidate = metriche.filter(m => {
     const nome = String(m?.name || '');
-    if (!PESO_CORPOREO.test(nome) || NON_PESO.test(nome)) continue;
+    return PESO_CORPOREO.test(nome) && !NON_PESO.test(nome);
+  });
+  // Se c'e' la metrica che si chiama proprio «peso corporeo», le altre si lasciano stare
+  const esatte = candidate.filter(m => PESO_ESATTO.test(String(m?.name || '')));
+  for (const m of (esatte.length ? esatte : candidate)) {
     for (const p of (Array.isArray(m.data) ? m.data : [])) {
       const valore = num(p?.qty ?? p?.avg ?? p?.Avg ?? p?.value);
       const quando = new Date(p?.date || p?.start || p?.startDate);
