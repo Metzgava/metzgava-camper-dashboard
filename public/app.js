@@ -494,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v34';
+const VERSIONE = 'v35';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1613,8 +1613,12 @@ function modificaWorkout(w, dopo) {
   // La disciplina la sa chi si e' allenato, non il telefono: un'uscita in casa
   // sul tapis arriva spesso come «Escursione», e da qui si rimette a posto.
   // Cambiandola cambia anche l'icona, i filtri e i conti per disciplina.
+  // Nell'elenco stanno le discipline che qui si fanno davvero. Il nuoto generico
+  // non serve, con la piscina e le acque libere gia' separate; lo snowboard nessuno
+  // lo fa. Se un allenamento ne porta una fuori elenco, quella compare lo stesso,
+  // e «Altro» resta per tutto il resto.
   const DISCIPLINE_SCELTA = ['Camminata', 'Camminata su tapis', 'Corsa', 'Corsa su tapis', 'Escursione',
-    'Bicicletta', 'Nuoto in piscina', 'Nuoto in acque libere', 'Nuoto', 'Scialpinismo', 'Sci', 'Sci di fondo', 'Snowboard'];
+    'Bicicletta', 'Nuoto in piscina', 'Nuoto in acque libere', 'Scialpinismo', 'Sci', 'Sci di fondo'];
   const sportOra = (w.sport || '').trim();
   const elenco = DISCIPLINE_SCELTA.includes(sportOra) || !sportOra ? DISCIPLINE_SCELTA : [sportOra, ...DISCIPLINE_SCELTA];
   // Dentro un <option> ci sta solo testo: l'icona del tapis roulant e' un disegno
