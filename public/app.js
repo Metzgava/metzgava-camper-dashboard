@@ -494,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v36';
+const VERSIONE = 'v37';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1546,6 +1546,14 @@ const pesoRiga = w => w.peso_kg == null ? ''
 // Andamento del peso: una spezzata disegnata a mano in SVG, senza librerie.
 // Le coordinate stanno in un viewBox fisso e il foglio di stile la fa scalare,
 // cosi' il disegno resta nitido anche sul telefono.
+// Una pesata che segna mezzanotte non l'ha fatta nessuno a quell'ora: e' il
+// segno che il telefono le manda gia' mediate per giorno, e allora la regola
+// della pesata del mattino non ha su cosa lavorare.
+const aMezzanotte = pesi => {
+  const conOra = pesi.filter(p => p.ora);
+  return conOra.length >= 3 && conOra.filter(p => p.ora === '00:00').length / conOra.length > 0.8;
+};
+
 function graficoPeso(pesi) {
   if (!pesi.length) return '<div class="empty">Nessuna pesata in questo periodo.</div>';
   const ultimo = pesi[pesi.length - 1], primo = pesi[0];
@@ -1561,6 +1569,7 @@ function graficoPeso(pesi) {
     ${pesi.length > 1 ? `<div class="small ${variazione >= 0.05 ? 'in-salita' : variazione <= -0.05 ? 'in-discesa' : 'muted'}">
       ${variazione >= 0.05 ? '\u25b2 +' + num(variazione, 1) + ' kg' : variazione <= -0.05 ? '\u25bc \u2212' + num(-variazione, 1) + ' kg' : 'stabile'} <span class="muted">dal ${fdate(primo.day)}</span></div>
     <div class="small muted">min ${num(minimo, 1)} \u00b7 max ${num(massimo, 1)} kg \u00b7 ${pesi.length} pesate${giorniCoperti > pesi.length ? ` su ${giorniCoperti} giorni` : ''}</div>` : ''}
+    ${aMezzanotte(pesi) ? `<div class="small muted" style="margin-top:4px">\u26a0\ufe0f Queste pesate arrivano gi\u00e0 aggregate per giorno: segnano mezzanotte, che non e\u2019 l\u2019ora in cui sali sulla bilancia. Cos\u00ec non si puo\u2019 tenere quella della mattina. In Health Auto Export, sull\u2019automazione, metti <b>Aggregazione: Nessuna</b> sul peso.</div>` : ''}
   </div>`;
   if (pesi.length < 2) return riassunto;
 

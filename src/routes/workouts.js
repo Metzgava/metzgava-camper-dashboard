@@ -521,7 +521,10 @@ router.get('/weights', wrap(async (req, res) => {
   const conds = ['user_id = $1'], params = [chi];
   if (req.query.from) { params.push(req.query.from); conds.push(`day >= $${params.length}`); }
   if (req.query.to) { params.push(req.query.to); conds.push(`day <= $${params.length}`); }
-  const rows = (await q(`SELECT to_char(day,'YYYY-MM-DD') AS day, kg::float AS kg, source FROM weights
+  // L'ora della misura serve a capire se le pesate arrivano vere o gia'
+  // aggregate: una pesata a mezzanotte non l'ha fatta nessuno
+  const rows = (await q(`SELECT to_char(day,'YYYY-MM-DD') AS day, kg::float AS kg, source,
+      to_char(measured_at AT TIME ZONE 'Europe/Rome','HH24:MI') AS ora FROM weights
                          WHERE ${conds.join(' AND ')} ORDER BY day`, params)).rows;
   res.json(rows);
 }));
