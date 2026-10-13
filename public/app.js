@@ -494,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v38';
+const VERSIONE = 'v39';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1325,7 +1325,13 @@ function carlockImport(trip, openTrips = [], sostituisciDefault = false) {
       close();
       if (r.split?.created?.length) { toast(`Importate ${r.imported} tappe, divise in ${r.split.created.length} viaggi`); location.hash = '#/'; render(); return; }
       if (!trip) location.hash = '#/trip/' + target;
-      if (!r.imported && r.geocode_failed.length) modal(`<h2>Import non riuscito</h2><p>Nessun indirizzo è stato geocodificato (${r.geocode_failed.length} indirizzi).</p>${r.geocode_errors?.length ? `<p class="small muted">Motivo: ${esc(r.geocode_errors.join(' · '))}</p>` : ''}<p class="small">Riprova tra qualche minuto: i servizi di geocodifica gratuiti limitano le richieste.</p><div class="row" style="justify-content:flex-end"><button class="btn primary" data-x>Ok</button></div>`, (el2, close2) => $('[data-x]', el2).onclick = close2);
+      if (!r.imported && r.geocode_failed.length) modal(`<h2>Import non riuscito</h2>
+        <p>${r.geocode_failed.length === 1 ? 'Non ho trovato sulla mappa questo indirizzo' : `Non ho trovato sulla mappa questi ${r.geocode_failed.length} indirizzi`}, scritti così da CarLock:</p>
+        <ul class="small" style="margin:0 0 10px 18px">${r.geocode_failed.map(a => `<li>${esc(a)}</li>`).join('')}</ul>
+        ${r.geocode_errors?.length
+          ? `<p class="small muted">Il servizio di ricerca ha risposto: ${esc(r.geocode_errors.join(' · '))}</p><p class="small">Qui conviene riprovare fra qualche minuto: i geocoder gratuiti limitano le richieste.</p>`
+          : `<p class="small">Il servizio ha risposto senza errori: quel nome, per la mappa, non esiste. Scrivi la tappa a mano, oppure correggi l'indirizzo nel file di CarLock e riprova.</p>`}
+        <div class="row" style="justify-content:flex-end"><button class="btn primary" data-x>Ok</button></div>`, (el2, close2) => $('[data-x]', el2).onclick = close2);
       else toast(`Importate ${r.imported} tappe (${num(r.km)} km)`
         + (r.sostituite ? ` \u00b7 ${r.sostituite === 1 ? 'una prevista sostituita' : r.sostituite + ' previste sostituite'}` : '')
         + (r.geocode_failed.length ? ` \u00b7 ${r.geocode_failed.length} indirizzi non trovati` : ''), !!r.geocode_failed.length);

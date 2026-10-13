@@ -3,7 +3,7 @@ import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, percorsoVicinoAiKm } from '../lib/geo.js';
-import { readCarlockFile, mergeTrips, addressCandidates, shortName } from '../lib/carlock.js';
+import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
@@ -615,7 +615,7 @@ async function geocodaCarlock(indirizzo, cache = new Map()) {
   for (const c of addressCandidates(indirizzo)) {
     try {
       const r = await geocode(c);
-      if (r.length) { trovato = { name: indirizzo.includes(',') ? `${shortName(indirizzo)}, ${indirizzo.split(',')[0].trim()}` : shortName(indirizzo), lat: r[0].lat, lon: r[0].lon }; break; }
+      if (r.length) { trovato = { name: nomeTappa(indirizzo), lat: r[0].lat, lon: r[0].lon }; break; }
     } catch { }
     await new Promise(r => setTimeout(r, 250));
   }
@@ -743,7 +743,7 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
     for (const c of addressCandidates(addr)) {
       try {
         const r = await geocode(c);
-        if (r.length) { hit = { name: addr.includes(',') ? `${shortName(addr)}, ${addr.split(',')[0].trim()}` : shortName(addr), lat: r[0].lat, lon: r[0].lon }; break; }
+        if (r.length) { hit = { name: nomeTappa(addr), lat: r[0].lat, lon: r[0].lon }; break; }
       } catch (e) { errors.set(String(e.message).slice(0, 160), (errors.get(String(e.message).slice(0, 160)) || 0) + 1); }
       await new Promise(r => setTimeout(r, 250)); // non martellare i geocoder gratuiti
     }

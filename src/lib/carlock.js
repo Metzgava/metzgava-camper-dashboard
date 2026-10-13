@@ -166,16 +166,36 @@ export function mergeTrips(trips, gapMin = 30) {
 const PROVINCES = `Agrigento|Alessandria|Ancona|Aosta|Valle d'Aosta|Arezzo|Ascoli Piceno|Asti|Avellino|Bari|Barletta-Andria-Trani|Belluno|Benevento|Bergamo|Biella|Bologna|Bolzano|South Tyrol|Brescia|Brindisi|Cagliari|Caltanissetta|Campobasso|Caserta|Catania|Catanzaro|Chieti|Como|Cosenza|Cremona|Crotone|Cuneo|Enna|Fermo|Ferrara|Florence|Firenze|Foggia|Forlì-Cesena|Forli-Cesena|Frosinone|Genoa|Genova|Gorizia|Grosseto|Imperia|Isernia|La Spezia|L'Aquila|Latina|Lecce|Lecco|Livorno|Lodi|Lucca|Macerata|Mantua|Mantova|Massa and Carrara|Massa-Carrara|Matera|Messina|Milan|Milano|Modena|Monza and Brianza|Monza e Brianza|Naples|Napoli|Novara|Nuoro|Oristano|Padua|Padova|Palermo|Parma|Pavia|Perugia|Pesaro and Urbino|Pesaro e Urbino|Pescara|Piacenza|Pisa|Pistoia|Pordenone|Potenza|Prato|Ragusa|Ravenna|Reggio Calabria|Reggio Emilia|Rieti|Rimini|Rome|Roma|Rovigo|Salerno|Sassari|Savona|Siena|Syracuse|Siracusa|Sondrio|South Sardinia|Sud Sardegna|Taranto|Teramo|Terni|Turin|Torino|Trapani|Trento|Treviso|Trieste|Udine|Varese|Venice|Venezia|Verbano-Cusio-Ossola|Vercelli|Verona|Vibo Valentia|Vicenza|Viterbo`.split('|');
 const provRe = new RegExp(`\\s+(?:(?:Province of|Provincia di|Metropolitan City of|Città Metropolitana di)\\s+.+|(?:${PROVINCES.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')}))$`, 'i');
 
+// CarLock scrive gli indirizzi stranieri incollando insediamento e comune:
+// "402, Nova Gorica Nova Gorica City", "Tolmin Tolmin Municipality". Quel nome
+// doppio non esiste per nessun geocoder, e il comune ripetuto non aggiunge
+// niente a quello che si sa: via le parole che descrivono l'ente e via la
+// ripetizione, resta il nome del posto.
+const ENTI = /[ ,]+(?:urban municipality|municipality|city|town|comune|ob[c\u010d]ina|gemeinde|commune|district|county|prefecture)$/i;
+function senzaRipetizioni(nome) {
+  let t = String(nome).replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 3 && ENTI.test(t); i++) t = t.replace(ENTI, '').trim();
+  const w = t.split(' ');
+  // "Nova Gorica Nova Gorica" -> "Nova Gorica": la seconda meta' ripete la prima.
+  // Si parte dal pezzo piu' lungo, cosi' una parola uguale per caso non inganna
+  for (let n = Math.floor(w.length / 2); n >= 1; n--) {
+    if (w.slice(0, n).join(' ').toLowerCase() === w.slice(n, 2 * n).join(' ').toLowerCase()) {
+      return [...w.slice(0, n), ...w.slice(2 * n)].join(' ').trim();
+    }
+  }
+  return t;
+}
+
 // "31058 Susegana Treviso" -> { cap: "31058", town: "Susegana" }
 function capTown(addr) {
   const parts = String(addr).replace(/\s+/g, ' ').trim().split(',').map(s => s.trim()).filter(Boolean);
   const last = parts[parts.length - 1] || '';
   let m = last.match(/^(\d{5})\s+(.+)$/);
-  if (m) return { cap: m[1], town: m[2].replace(provRe, '').trim() };
+  if (m) return { cap: m[1], town: senzaRipetizioni(m[2].replace(provRe, '')) };
   // formato "…, Caorle, Venice 30021": provincia + CAP in coda, comune nel pezzo precedente
   m = last.match(/^(.+?)\s+(\d{5})$/);
-  if (m) { const prev = parts[parts.length - 2]; const town = (prev && !/\d/.test(prev) ? prev : m[1]).replace(provRe, '').trim(); return { cap: m[2], town }; }
-  return { cap: null, town: last.replace(provRe, '') };
+  if (m) { const prev = parts[parts.length - 2]; const town = senzaRipetizioni((prev && !/\d/.test(prev) ? prev : m[1]).replace(provRe, '')); return { cap: m[2], town }; }
+  return { cap: null, town: senzaRipetizioni(last.replace(provRe, '')) };
 }
 
 // Candidati per il geocoder, dal più preciso al più generico
@@ -189,8 +209,23 @@ export function addressCandidates(addr) {
   if (street) cands.push(`${street}, ${town}`);
   if (cap) cands.push(`${cap} ${town}`);
   cands.push(town);
+  // Ultima rete: il nome accorciato di una parola per volta. CarLock al comune
+  // incolla a volte la frazione o la regione, e "Most na Soci Tolmin" non
+  // esiste per nessuna mappa mentre "Most na Soci" si trova. Si tagliano al
+  // massimo due parole: oltre, si rischia di finire in un altro paese
+  const w = town.split(' ').filter(Boolean);
+  for (let n = w.length - 1; n >= Math.max(1, w.length - 2); n--) cands.push(w.slice(0, n).join(' '));
   return [...new Set(cands.filter(Boolean))];
 }
 
 // Nome breve per la tappa: il comune
 export function shortName(addr) { return capTown(addr).town || String(addr); }
+
+// Nome completo per l'elenco: comune e via, ma solo se la via c'e' davvero.
+// CarLock all'estero scrive spesso il solo numero civico ("402, Nova Gorica
+// City"), e un numero da solo non dice dove si era: sta meglio fuori
+export function nomeTappa(addr) {
+  const parts = String(addr).split(',').map(x => x.trim()).filter(Boolean);
+  const via = parts.length > 1 ? parts[0] : null;
+  return via && !/^\d+\s*[a-z]?$/i.test(via) ? `${shortName(addr)}, ${via}` : shortName(addr);
+}
