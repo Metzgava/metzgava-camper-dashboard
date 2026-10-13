@@ -323,6 +323,19 @@ export async function migrate() {
   -- in realta' il tapis roulant lo sa solo chi l'ha fatta.
   ALTER TABLE workouts ADD COLUMN IF NOT EXISTS sport_manual BOOLEAN NOT NULL DEFAULT false;
 
+  -- Le letture che l'orologio prende tutto il giorno per conto suo: battito e
+  -- energia attiva. Non sono un allenamento, ma quando un giro e' stato
+  -- registrato solo da komoot sono l'unico battito che esiste di quelle ore, e
+  -- ritagliate sull'orario del giro raccontano comunque qualcosa. Si tengono
+  -- poche settimane: servono ad aspettare l'allenamento, non a fare archivio.
+  CREATE TABLE IF NOT EXISTS health_samples (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    at TIMESTAMPTZ NOT NULL,
+    value DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (user_id, kind, at)
+  );
+
   -- vero quando il viaggio e' stato scelto a mano: l'aggancio automatico non lo tocca
   ALTER TABLE workouts ADD COLUMN IF NOT EXISTS trip_manual BOOLEAN NOT NULL DEFAULT false;
 

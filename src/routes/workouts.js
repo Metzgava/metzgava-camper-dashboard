@@ -66,9 +66,21 @@ async function mergeHealthIntoTrack(userId, w) {
   const r = await q(`SELECT * FROM workouts WHERE user_id=$1 AND source IN ('komoot','gpx','strava') AND abs(extract(epoch FROM (started_at - $2::timestamptz))) < 900 ORDER BY abs(extract(epoch FROM (started_at - $2::timestamptz))) LIMIT 1`, [userId, start]);
   const match = r.rows[0];
   if (!match) return null;
-  await q(`UPDATE workouts SET calories=coalesce($2,calories), hr_avg=coalesce($3,hr_avg), hr_max=coalesce($4,hr_max),
+  // Con una curva vera arrivano anche la media e il massimo: se il pacchetto non
+  // li dichiara si contano sulla curva, e comunque prendono il posto di quelli
+  // ricostruiti dalle letture della giornata. Lasciare una media di 99 accanto a
+  // una curva che sta sui 130 e' il modo piu' rapido di non capirci piu' niente.
+  const curva = Array.isArray(w.hr_track) && w.hr_track.length ? w.hr_track : null;
+  const medio = w.hr_avg ?? (curva ? Math.round(curva.reduce((a, p) => a + (+p[1] || 0), 0) / curva.length) : null);
+  const massimo = w.hr_max ?? (curva ? Math.max(...curva.map(p => +p[1] || 0)) : null);
+  await q(`UPDATE workouts SET calories=coalesce($2,calories),
+      hr_avg=${curva ? '$3' : 'coalesce($3,hr_avg)'}, hr_max=${curva ? '$4' : 'coalesce($4,hr_max)'},
       hr_track=coalesce($6::jsonb,hr_track), meta=coalesce(meta,'{}')::jsonb || $5::jsonb WHERE id=$1`,
-    [match.id, w.calories ?? null, w.hr_avg ?? null, w.hr_max ?? null, JSON.stringify({ health: w.meta || {}, merged_from_health: true }),
+    [match.id, w.calories ?? null, medio, massimo,
+      // Con il battito vero dell'orologio la ricostruzione non c'e' piu', e il
+      // segno che la dichiarava andrebbe a raccontare una cosa falsa
+      JSON.stringify({ health: w.meta || {}, merged_from_health: true,
+        ...(w.hr_track ? { battiti_da_letture: null } : {}), ...(w.calories != null ? { calorie_da_letture: null } : {}) }),
       w.hr_track ? JSON.stringify(w.hr_track) : null]);
   return match.id;
 }
@@ -84,13 +96,15 @@ function healthDuration(w) {
 // L'energia arriva con la sua unita': Salute la esporta spesso in kilojoule e
 // prenderli per chilocalorie gonfia tutto di quattro volte. Per Apple "Cal" e'
 // la chilocaloria, la caloria piccola non si usa.
+const inKcal = (valore, unita) => {
+  const u = String(unita || 'kcal').toLowerCase().replace(/[^a-z]/g, '');
+  return (u === 'kj' || u.includes('joule')) ? valore / 4.184 : valore;
+};
 function healthEnergy(e) {
   if (e?.qty == null) return null;
-  const u = String(e.units || 'kcal').toLowerCase().replace(/[^a-z]/g, '');
   const q = num(e.qty);
   if (!Number.isFinite(q) || q <= 0) return null;   // uno zero vale quanto un dato assente
-  const kcal = (u === 'kj' || u.includes('joule')) ? q / 4.184 : q;
-  return Math.round(kcal);
+  return Math.round(inKcal(q, e.units));
 }
 
 // Sulle uscite in bici il telefono spesso segna energia attiva zero e riempie
@@ -133,6 +147,92 @@ function serieBattiti(w) {
     .sort((a, b) => a[0] - b[0])
     .map(([t, bpm]) => [Math.max(0, Math.round((t - inizio) / 1000)), bpm]);
   return punti.length > 1 ? samplePoints(punti, 400) : null;
+}
+
+// ---------- battiti e calorie ricavati dalle letture della giornata ----------
+// L'orologio misura il battito tutto il giorno anche quando nessuno ha avviato
+// un allenamento. Chi registra il giro con komoot si ritrova percio' il
+// tracciato ma nessun battito: in Salute, di quelle ore, non esiste nessuna
+// sessione a cui attaccarli. Le letture pero' il telefono le manda lo stesso,
+// fra le metriche, e finora le buttavamo via tutte tranne il peso. Si tengono
+// da parte qualche settimana e, quando un allenamento di quelle ore non ha
+// battiti, gliele si ritaglia addosso. Non e' la curva di un allenamento vero
+// - li' c'e' una misura ogni pochi secondi, qui ogni pochi minuti - e proprio
+// per questo resta scritto da dove viene.
+const LETTURE_UTILI = { heart_rate: 'battiti', active_energy: 'energia' };
+const GIORNI_LETTURE = 45;
+const MIN_LETTURE = 3;
+
+export function lettureDaPacchetto(body) {
+  const metriche = Array.isArray(body?.data?.metrics) ? body.data.metrics : [];
+  const viste = new Map();
+  for (const m of metriche) {
+    const tipo = LETTURE_UTILI[String(m?.name || '').toLowerCase()];
+    if (!tipo) continue;
+    for (const p of (Array.isArray(m.data) ? m.data : [])) {
+      const quando = new Date(p?.date || p?.start || p?.startDate);
+      const grezzo = num(p?.qty ?? p?.Avg ?? p?.avg ?? p?.value);
+      if (isNaN(quando) || !Number.isFinite(grezzo) || grezzo <= 0) continue;
+      const valore = tipo === 'energia' ? inKcal(grezzo, p.units || m.units) : grezzo;
+      if (tipo === 'battiti' && (valore < 25 || valore > 260)) continue;
+      // Lo stesso istante puo' arrivare due volte, dall'orologio e dal telefono:
+      // due righe uguali manderebbero in errore l'inserimento in blocco
+      viste.set(`${tipo}|${quando.toISOString()}`, { tipo, at: quando, valore: Math.round(valore * 100) / 100 });
+    }
+  }
+  return [...viste.values()];
+}
+
+export async function archiviaLetture(userId, letture) {
+  if (!letture.length) return 0;
+  // Ogni invio ripete le letture del giorno gia' mandate: la chiave le fa
+  // ricadere sulle stesse righe invece di moltiplicarle
+  const r = await q(`INSERT INTO health_samples(user_id,kind,at,value)
+      SELECT $1, k, t, v FROM unnest($2::text[], $3::timestamptz[], $4::float8[]) AS x(k,t,v)
+      ON CONFLICT (user_id,kind,at) DO UPDATE SET value=EXCLUDED.value`,
+    [userId, letture.map(l => l.tipo), letture.map(l => l.at), letture.map(l => l.valore)]);
+  await q(`DELETE FROM health_samples WHERE at < now() - ($1 || ' days')::interval`, [GIORNI_LETTURE]);
+  return r.rowCount;
+}
+
+// Attacca le letture agli allenamenti di quelle ore che ne sono senza. Non
+// tocca niente di quello che e' arrivato davvero da Salute o dall'orologio:
+// riempie solo i vuoti, e lascia detto che quel battito e' ricostruito.
+export async function recuperaDaLetture(userId, giorni = 30) {
+  const senza = (await q(`SELECT id, started_at, duration_s, calories, (hr_track IS NOT NULL) AS ha_battiti
+      FROM workouts WHERE user_id=$1 AND started_at > now() - ($2 || ' days')::interval
+        AND meta->'copiato_da' IS NULL AND (hr_track IS NULL OR calories IS NULL)
+      ORDER BY started_at DESC`, [userId, giorni])).rows;
+  let battiti = 0, calorie = 0;
+  for (const w of senza) {
+    const durata = Math.max(60, +w.duration_s || 0);
+    const righe = (await q(`SELECT kind, extract(epoch FROM (at - $2::timestamptz))::int AS s, value
+        FROM health_samples WHERE user_id=$1
+          AND at >= $2::timestamptz - interval '2 minutes'
+          AND at <= $2::timestamptz + ($3 || ' seconds')::interval + interval '2 minutes'
+        ORDER BY at`, [userId, w.started_at, durata])).rows;
+    if (!w.ha_battiti) {
+      const bpm = righe.filter(x => x.kind === 'battiti');
+      if (bpm.length >= MIN_LETTURE) {
+        const serie = samplePoints(bpm.map(x => [Math.max(0, x.s), Math.round(x.value)]), 400);
+        const medio = Math.round(bpm.reduce((a, x) => a + x.value, 0) / bpm.length);
+        const massimo = Math.round(Math.max(...bpm.map(x => x.value)));
+        await q(`UPDATE workouts SET hr_track=$2::jsonb, hr_avg=coalesce(hr_avg,$3), hr_max=coalesce(hr_max,$4),
+            meta=coalesce(meta,'{}')::jsonb || $5::jsonb WHERE id=$1`,
+          [w.id, JSON.stringify(serie), medio, massimo, JSON.stringify({ battiti_da_letture: bpm.length })]);
+        battiti++;
+      }
+    }
+    if (w.calories == null) {
+      const kcal = righe.filter(x => x.kind === 'energia').reduce((a, x) => a + x.value, 0);
+      if (kcal >= 1) {
+        await q(`UPDATE workouts SET calories=$2, meta=coalesce(meta,'{}')::jsonb || $3::jsonb WHERE id=$1`,
+          [w.id, Math.round(kcal), JSON.stringify({ calorie_da_letture: true })]);
+        calorie++;
+      }
+    }
+  }
+  return { battiti, calorie, esaminati: senza.length };
 }
 
 function healthTrack(route) {
@@ -322,16 +422,22 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
   const r = await archivia(req.user.id, items);
   const pesiTrovati = pesiDaPacchetto(body);
   const pesate = await archiviaPesi(req.user.id, pesiTrovati);
+  // Battito ed energia della giornata si mettono da parte anche quando non
+  // servono a niente: servono il giorno dopo, se arriva un giro senza battiti
+  const letture = lettureDaPacchetto(body);
+  await archiviaLetture(req.user.id, letture);
+  const recuperati = await recuperaDaLetture(req.user.id);
   // Traccia l'esito: un invio accettato ma vuoto altrimenti non lascerebbe alcun segno.
   // Registriamo solo la forma del pacchetto e i conteggi, mai i dati sanitari.
   const metriche = nomiMetriche(body);
   console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged}`
-    + ` scartati=${r.scartati} letture-peso=${pesiTrovati.length} pesate=${pesate} dispositivo=${req.device.name}`);
+    + ` scartati=${r.scartati} letture-peso=${pesiTrovati.length} pesate=${pesate} letture=${letture.length}`
+    + ` recuperi=${recuperati.battiti}b/${recuperati.calorie}k dispositivo=${req.device.name}`);
   if (metriche.length && !pesiTrovati.length) {
     console.log(`ingest: nessun peso fra le metriche di ${req.device.name} -> ${metriche.join(' ').slice(0, 400)}`);
   }
   if (r.saved) await rimuoviDoppioniAutomatici(req.user.id).catch(e => console.warn('pulizia doppioni fallita:', e.message));
-  res.json({ ok: true, ...r, pesate, device: req.device.name });
+  res.json({ ok: true, ...r, pesate, letture: letture.length, recuperati, device: req.device.name });
 }));
 
 // ---------- rotte autenticate ----------
@@ -892,6 +998,9 @@ router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req,
   }
   const r = await archivia(destinatario, items);
   const pesate = await archiviaPesi(destinatario, pesi);
+  const letture = lettureDaPacchetto(body);
+  await archiviaLetture(destinatario, letture);
+  const recuperati = await recuperaDaLetture(destinatario);
   // Letture e giornate non coincidono: piu' pesate nello stesso giorno valgono
   // per una sola. Il periodo coperto dice subito se il file conteneva davvero
   // tutto l'arco di tempo che ci si aspettava.
@@ -904,7 +1013,7 @@ router.post('/workouts/health-json', uploadJson.single('file'), wrap(async (req,
     console.log(`importazione file: nessun peso fra le metriche -> ${metriche.join(' ').slice(0, 400)}`);
   }
   if (r.saved) await rimuoviDoppioniAutomatici(destinatario).catch(e => console.warn('pulizia doppioni fallita:', e.message));
-  res.json({ ok: true, letti: items.length, pesate, letture_peso: pesi.length, periodo_pesi: periodoPesi, ...r });
+  res.json({ ok: true, letti: items.length, pesate, letture_peso: pesi.length, periodo_pesi: periodoPesi, letture: letture.length, recuperati, ...r });
 }));
 
 // Upload GPX manuale
@@ -955,6 +1064,9 @@ export async function syncKomootFor(userId, { full = false } = {}) {
   }
   await q('UPDATE integrations SET last_sync_at=now() WHERE id=$1', [r.id]);
   if (n) await rimuoviDoppioniAutomatici(userId).catch(e => console.warn('pulizia doppioni fallita:', e.message));
+  // Komoot porta il tracciato ma non il battito: se le letture di quelle ore
+  // sono gia' arrivate dal telefono, il giro le trova qui ad aspettarlo
+  if (n) await recuperaDaLetture(userId).catch(e => console.warn('recupero battiti fallito:', e.message));
   return { imported: n, checked: tours.length };
 }
 router.post('/komoot/sync', wrap(async (req, res) => {

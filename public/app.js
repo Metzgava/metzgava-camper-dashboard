@@ -494,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v40';
+const VERSIONE = 'v41';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2033,7 +2033,7 @@ async function viewWorkouts(idAtleta) {
 // Il battito di un'uscita, minuto per minuto. La media e il massimo sono due
 // numeri; la curva racconta dove si e' spinto e dove si e' tirato il fiato.
 const mmss = s => { const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`; };
-function graficoBattiti(serie, durataAllenamento) {
+function graficoBattiti(serie, durataAllenamento, letture = 0) {
   if (!Array.isArray(serie) || serie.length < 2) return '';
   const bpm = serie.map(p => p[1]);
   const minimo = Math.min(...bpm), massimo = Math.max(...bpm);
@@ -2063,7 +2063,8 @@ function graficoBattiti(serie, durataAllenamento) {
     <div class="peso-scelto" id="battito-scelto">Tocca il grafico per vedere minuto e battito</div>
     ${durataAllenamento && durata > durataAllenamento * 1.1 + 300
       ? `<div class="small muted" style="margin-top:6px">L\u2019orologio ha registrato per ${mmss(durata)}, piu\u2019 della durata segnata dell\u2019uscita (${dur(durataAllenamento)}): la curva copre tutto quello che ha misurato.</div>`
-      : ''}</div>`;
+      : ''}
+    ${letture ? `<div class="small muted" style="margin-top:6px">Curva ricostruita da ${letture} letture della giornata, una ogni ${Math.round(durata / letture / 60) || 1} minuti circa: l\u2019orologio misurava, ma non era stato avviato nessun allenamento. Con l\u2019allenamento avviato le misure sono una ogni pochi secondi.</div>` : ''}</div>`;
 }
 
 async function viewWorkout(id) {
@@ -2071,10 +2072,10 @@ async function viewWorkout(id) {
   const trips = await api('/trips');
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
   $('#app').innerHTML = layout(`<a href="${tornaAllenamenti(w)}" class="small">← Allenamenti ${esc(w.athlete || '')}</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
-    <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
+    <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.meta?.battiti_da_letture ? ` · <span title="Nessun allenamento registrato sull\u2019orologio: i battiti sono le letture della giornata ritagliate su queste ore">battiti ricostruiti</span>` : ''}${w.meta?.calorie_da_letture ? ' · <span title="Somma dell\u2019energia attiva misurata in quelle ore">calorie ricavate dall\u2019energia attiva</span>' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
     <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}${w.peso_kg != null ? stat('Peso', `${num(w.peso_kg, 1)} kg<div class="sub">pesata del giorno</div>`) : ''}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
-    ${graficoBattiti(w.hr_track, w.duration_s)}
+    ${graficoBattiti(w.hr_track, w.duration_s, w.meta?.battiti_da_letture || 0)}
     <div class="card" style="margin-top:14px"><div class="row"><div class="grow"><label class="f">Associato al viaggio</label>
       <select id="trip">
         <option value="auto" ${w.trip_manual ? '' : 'selected'}>Automatico, in base alle date</option>
