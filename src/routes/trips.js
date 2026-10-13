@@ -40,7 +40,7 @@ async function syncFuelExpense(legId) {
 // di natura diversa - i litri si contano, l'autostrada si stima a tariffa
 // chilometrica - e sommati in un numero solo non dicevano piu' quale dei due
 // pesa. Il costo della tappa resta la somma dei due.
-async function syncTollExpense(legId) {
+export async function syncTollExpense(legId) {
   const leg = (await q('SELECT * FROM legs WHERE id=$1', [legId])).rows[0];
   if (!leg) return;
   const ex = (await q(`SELECT * FROM expenses WHERE leg_id=$1 AND category='pedaggi' AND auto=true`, [legId])).rows[0];
