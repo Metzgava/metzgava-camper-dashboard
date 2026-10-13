@@ -358,6 +358,10 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .step .freccia:hover:not(:disabled) { background: var(--surface-2); color: var(--accent); }
 .step .freccia:disabled { opacity: .25; cursor: default; }
 
+/* Il costo di una tappa: gasolio e pedaggio separati, e la somma */
+.costi-tappa { margin-top: 4px; color: var(--muted); }
+.costi-tappa b { color: var(--text); font-weight: 600; }
+
 /* La stella che sceglie la copertina del viaggio, sulle foto */
 .photos .copertina-scelta, .foto-sosta .copertina-scelta { position: absolute; top: 4px; left: 4px; z-index: 2;
   background: rgba(0,0,0,.5); color: #fff; border: 0; border-radius: 8px; width: 24px; height: 24px; font-size: 14px;

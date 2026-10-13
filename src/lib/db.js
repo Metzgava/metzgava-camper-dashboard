@@ -307,6 +307,13 @@ export async function migrate() {
   -- Chi cancella la spesa del gasolio di una tappa non vuole rivedersela
   -- ricalcolata al primo ritocco: la tappa si ricorda di restarne senza.
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS senza_gasolio BOOLEAN NOT NULL DEFAULT false;
+
+  -- I chilometri di autostrada della tappa. Il pedaggio non si somma al gasolio:
+  -- sono due costi di natura diversa - i litri si contano, l'autostrada si stima
+  -- a tariffa chilometrica - e tenuti insieme non si capiva quale dei due pesa.
+  -- Il costo della tappa resta la loro somma.
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS pedaggio_km NUMERIC(10,1);
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS senza_pedaggio BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS start_time TEXT;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS end_time TEXT;
   CREATE UNIQUE INDEX IF NOT EXISTS idx_legs_external ON legs(trip_id, external_id) WHERE external_id IS NOT NULL;
