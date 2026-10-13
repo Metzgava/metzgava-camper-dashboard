@@ -199,9 +199,15 @@ export async function archiviaLetture(userId, letture) {
 // tocca niente di quello che e' arrivato davvero da Salute o dall'orologio:
 // riempie solo i vuoti, e lascia detto che quel battito e' ricostruito.
 export async function recuperaDaLetture(userId, giorni = 30) {
-  const senza = (await q(`SELECT id, started_at, duration_s, calories, (hr_track IS NOT NULL) AS ha_battiti
+  // Si ricostruisce solo dove non si sa niente. Un allenamento registrato
+  // dall'orologio ha gia' la sua media vera: appiccicargli accanto una curva di
+  // letture passive, che sta venti battiti piu' in basso, farebbe litigare due
+  // numeri sulla stessa pagina. Li' la curva vera si recupera riesportando
+  // l'allenamento da Salute, non inventandola.
+  const senza = (await q(`SELECT id, started_at, duration_s, calories, hr_avg, (hr_track IS NOT NULL) AS ha_battiti
       FROM workouts WHERE user_id=$1 AND started_at > now() - ($2 || ' days')::interval
-        AND meta->'copiato_da' IS NULL AND (hr_track IS NULL OR calories IS NULL)
+        AND meta->'copiato_da' IS NULL
+        AND ((hr_track IS NULL AND hr_avg IS NULL) OR calories IS NULL)
       ORDER BY started_at DESC`, [userId, giorni])).rows;
   let battiti = 0, calorie = 0;
   for (const w of senza) {
@@ -211,7 +217,7 @@ export async function recuperaDaLetture(userId, giorni = 30) {
           AND at >= $2::timestamptz - interval '2 minutes'
           AND at <= $2::timestamptz + ($3 || ' seconds')::interval + interval '2 minutes'
         ORDER BY at`, [userId, w.started_at, durata])).rows;
-    if (!w.ha_battiti) {
+    if (!w.ha_battiti && w.hr_avg == null) {
       const bpm = righe.filter(x => x.kind === 'battiti');
       if (bpm.length >= MIN_LETTURE) {
         const serie = samplePoints(bpm.map(x => [Math.max(0, x.s), Math.round(x.value)]), 400);
