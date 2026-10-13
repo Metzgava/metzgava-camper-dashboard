@@ -326,7 +326,7 @@ const RAGGIO_SOSTE = 5000;
 async function cercaSosteArrivo(legId, nome, lat, lon) {
   const casa = nomeCasa(await getSettings());
   if (eCasa(nome, casa)) {
-    await q('UPDATE legs SET pois=$2 WHERE id=$1', [legId, { stops: [], villages: [], raggio: RAGGIO_SOSTE, casa: true, cercato_il: new Date().toISOString() }]);
+    await q('UPDATE legs SET pois=$2 WHERE id=$1', [legId, { stops: [], raggio: RAGGIO_SOSTE, casa: true, cercato_il: new Date().toISOString() }]);
     return;
   }
   const p = await poisAlongRoute([[lat, lon]], RAGGIO_SOSTE);
@@ -345,13 +345,13 @@ router.get('/trips/:id/vicinanze', wrap(async (req, res) => {
   const legs = (await q('SELECT id, to_name, to_lat, to_lon FROM legs WHERE trip_id=$1 ORDER BY position, id', [req.params.id])).rows;
   if (!legs.length) return res.json({ raggio, luoghi: [], avviso: 'Il viaggio non ha ancora tappe' });
   // Le destinazioni, non la strada: ci si ferma dove si arriva. Casa esclusa,
-  // che di aree sosta non ne serve. Niente borghi: qui si cerca dove dormire.
+  // che di aree sosta non ne serve.
   const casa = nomeCasa(await getSettings());
   const mete = legs.filter(l => !eCasa(l.to_name, casa) && l.to_lat != null).map(l => [l.to_lat, l.to_lon]);
   if (!mete.length) return res.json({ raggio, luoghi: [], avviso: `Le tappe arrivano tutte a ${casa}: non c\u2019e\u2019 niente da cercare` });
-  const r = await poisAlongRoute(mete, raggio, { conBorghi: false });
+  const r = await poisAlongRoute(mete, raggio);
   const luoghi = (r.stops || []).map(p => ({ ...p, park4night: linkPark4night(p.lat, p.lon) }));
-  res.json({ raggio, luoghi, borghi: r.villages || [], avviso: r.warning || null });
+  res.json({ raggio, luoghi, avviso: r.warning || null });
 }));
 
 router.get('/trips/:id/soste', wrap(async (req, res) => {
@@ -577,7 +577,7 @@ router.post('/legs/:id/pois', wrap(async (req, res) => {
   // e una richiesta con un centro solo il servizio la serve sempre
   const casa = nomeCasa(await getSettings());
   if (eCasa(cur.to_name, casa)) {
-    const vuoto = { stops: [], villages: [], raggio, casa: true };
+    const vuoto = { stops: [], raggio, casa: true };
     await q('UPDATE legs SET pois=$2 WHERE id=$1', [req.params.id, vuoto]);
     return res.json(vuoto);
   }

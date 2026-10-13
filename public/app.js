@@ -494,7 +494,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v41';
+const VERSIONE = 'v42';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -624,7 +624,7 @@ async function viewTrip(id) {
       <button class="freccia" data-giu="${l.id}" title="Sposta dopo" ${i === legs.length - 1 ? 'disabled' : ''}>\u25bc</button>
     </div><div class="grow">
       <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
-      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste · 🏘️ ${l.pois.villages?.length || 0} borghi` : ' · <i>cerco aree sosta e borghi…</i>'}</div>
+      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
       ${rigaCosti(l)}
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>${l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}${e.place ? `<div class="small muted">\ud83d\udccd ${esc(e.place)}</div>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
@@ -698,7 +698,6 @@ async function viewTrip(id) {
     if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(map).bindPopup(esc(l.to_name));
     g.forEach(p => bounds.push(p));
     (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(map).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
-    (l.pois?.villages || []).slice(0, 12).forEach(v => L.marker([v.lat, v.lon], { icon: dotIcon('#6366f1', '🏘️') }).addTo(map).bindPopup(`<b>${esc(v.name)}</b><br>${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}${v.wikipedia ? `<br><a href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank">Wikipedia</a>` : ''}`));
   });
   // Un allenamento senza traccia \u2014 il nuoto in piscina, la camminata sul tapis
   // \u2014 non ha coordinate proprie. Il posto dove e' successo pero' si sa: e' dove
@@ -847,7 +846,7 @@ async function viewTrip(id) {
       const l = legs.find(x => x.id == b.dataset.poi);
       // Si cerca se non si e' mai cercato davvero. Un elenco vuoto dopo una
       // ricerca riuscita e' una risposta: qui intorno non c'e' niente.
-      if (!l.pois?.cercato_il) { toast('Cerco aree sosta e borghi\u2026'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); }
+      if (!l.pois?.cercato_il) { toast('Cerco aree sosta\u2026'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); }
       poiModal(l);
     }
     if (b.dataset.su || b.dataset.giu) {
@@ -1486,8 +1485,6 @@ function poiModal(l) {
         <a class="btn sm" href="${mapsIndicazioni({ lat: s.lat, lon: s.lon }, { lat: s.lat, lon: s.lon })}" target="_blank" rel="noopener" title="Portami qui">\ud83d\uddfa\ufe0f Naviga</a>
         ${s.website ? `<a class="btn sm ghost" href="${esc(s.website)}" target="_blank" rel="noopener">\ud83c\udf10 Sito</a>` : ''}
       </div></div></div>`).join('') || `<div class="muted small">Nessuna area censita su OpenStreetMap entro ${(p.raggio || 5000) / 1000} km. Prova ad allargare il raggio, oppure guarda su park4night: loro ne conoscono di piu\u2019.</div>`}
-    <h3 style="margin:14px 0 4px">🏘️ Borghi e paesi attraversati (${(p.villages || []).length})</h3>
-    ${(p.villages || []).map(v => `<div class="poi"><div class="k">${v.historic ? '🏰' : '🏘️'}</div><div class="grow"><b>${esc(v.name)}</b> <span class="muted small">${v.place}${v.population ? ' · ' + num(v.population, 0) + ' ab.' : ''}</span>${v.wikipedia ? ` · <a class="small" href="https://it.wikipedia.org/wiki/${encodeURIComponent(v.wikipedia.replace(/^\w+:/, ''))}" target="_blank" rel="noopener">Wikipedia</a>` : ''}</div></div>`).join('') || '<div class="muted small">Nessun borgo trovato.</div>'}
     <div class="row between" style="margin-top:14px"><div class="row" style="gap:8px;align-items:center">
         <label class="small muted">Raggio</label>
         <select id="poi-raggio" style="width:auto">${[5, 10, 15, 25].map(k => `<option value="${k * 1000}" ${k * 1000 === (p.raggio || 5000) ? 'selected' : ''}>${k} km</option>`).join('')}</select></div>
@@ -2467,7 +2464,7 @@ async function viewSettings() {
       <p class="small muted">Chi si registra con un codice invito entra in attesa finché non lo autorizzi. Ogni utente vede i viaggi condivisi e i propri allenamenti.</p>
       <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th></th></tr></thead><tbody>${adm.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="small">${esc(u.email)}</td><td>${u.role}</td><td>${u.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="num">${u.id !== user.id ? `<button class="btn sm" data-uappr="${u.id}" data-v="${!u.approved}">${u.approved ? 'Sospendi' : 'Autorizza'}</button><button class="btn sm" data-upwd="${u.id}" data-uname="${esc(u.name)}">Reimposta password</button><button class="btn sm ghost danger" data-udel="${u.id}">Elimina</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
       ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).length ? `<div class="small" style="margin-top:10px">Inviti attivi: ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).map(i => `<span class="code">${i.code}</span>`).join(' ')}</div>` : ''}</div>` : ''}
-    <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta e borghi da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
+    <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
   $('#veh').onsubmit = safe(async e => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target));

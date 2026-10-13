@@ -139,7 +139,7 @@ export async function migrate() {
     duration_min INT NOT NULL DEFAULT 0,
     fuel_price NUMERIC(6,3),                       -- €/litro specifico per questa tappa (opzionale)
     geometry JSONB,                                -- polyline [[lat,lon],...]
-    pois JSONB,                                    -- aree sosta e borghi trovati
+    pois JSONB,                                    -- aree sosta trovate all'arrivo
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );

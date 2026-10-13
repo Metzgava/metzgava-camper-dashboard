@@ -175,11 +175,11 @@ export async function percorsiConTappe(punti) {
   });
 }
 
-// POI lungo il percorso: aree sosta camper, campeggi e borghi/paesi attraversati
+// POI lungo il percorso: aree sosta camper, campeggi e camper service.
 // Con un punto solo si cerca intorno a quello: e' il caso della destinazione di
 // una tappa, che e' dove si dorme. Con una traccia si copre tutta la strada.
-export async function poisAlongRoute(geometry, radiusM = 4000, { conBorghi = true } = {}) {
-  if (!geometry || !geometry.length) return { stops: [], villages: [] };
+export async function poisAlongRoute(geometry, radiusM = 4000) {
+  if (!geometry || !geometry.length) return { stops: [] };
   // Quanti centri servono lo decide la lunghezza della strada, non un numero
   // fisso: cerchi piazzati a una volta e mezza il raggio coprono tutto senza
   // sovrapporsi. Con troppi, la richiesta scade dopo novanta secondi.
@@ -189,9 +189,6 @@ export async function poisAlongRoute(geometry, radiusM = 4000, { conBorghi = tru
   const quanti = Math.min(15, Math.max(2, Math.round(lunghezzaKm / passoKm) + 1));
   const around = samplePoints(geometry, quanti).map(([lat, lon]) => `${lat},${lon}`).join(',');
 
-  // Due richieste separate invece di una: i posti dove fermarsi e i paesi
-  // attraversati costano quasi uguale e insieme sforano il tempo massimo del
-  // servizio. Divise, se una non passa l'altra arriva lo stesso.
   const chiedi = async corpoQuery => {
     const query = `[out:json][timeout:90];\n(${corpoQuery}\n);\nout center tags 150;`;
     for (let tentativo = 0; tentativo < 2; tentativo++) {
@@ -216,34 +213,21 @@ export async function poisAlongRoute(geometry, radiusM = 4000, { conBorghi = tru
   nwr["tourism"="caravan_site"](around:${radiusM},${around});
   nwr["tourism"="camp_site"]["caravans"!="no"](around:${radiusM},${around});
   nwr["amenity"="sanitary_dump_station"](around:${radiusM},${around});`);
-  const borghi = conBorghi
-    ? await chiedi(`\n  node["place"~"^(town|village)$"](around:${Math.max(radiusM, 5000)},${samplePoints(geometry, Math.min(8, quanti)).map(([a, b]) => `${a},${b}`).join(',')});`)
-    : { elementi: [] };
-
-  const stops = [], villages = [];
-  for (const el of [...(soste.elementi || []), ...(borghi.elementi || [])]) {
+  const stops = [];
+  for (const el of (soste.elementi || [])) {
     const t = el.tags || {};
     const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
     if (lat == null) continue;
-    if (t.place) {
-      // Borghi: considera "caratteristico" se ha tag storici/turistici o popolazione piccola
-      const pop = Number(t.population) || null;
-      villages.push({ name: t.name || 'Paese', lat, lon, place: t.place, population: pop,
-        historic: !!(t.historic || t['heritage'] || t['wikipedia']), wikipedia: t.wikipedia || null });
-    } else {
-      const kind = t.tourism === 'caravan_site' ? 'area_sosta' : t.amenity ? 'camper_service' : 'campeggio';
-      stops.push({ name: t.name || (kind === 'area_sosta' ? 'Area sosta camper' : kind === 'campeggio' ? 'Campeggio' : 'Camper service'),
-        kind, lat, lon, fee: t.fee || null, website: t.website || t['contact:website'] || null, phone: t.phone || null,
-        opening_hours: t.opening_hours || null, capacity: t.capacity || null, power: t.power_supply || null, drinking_water: t.drinking_water || null });
-    }
+    const kind = t.tourism === 'caravan_site' ? 'area_sosta' : t.amenity ? 'camper_service' : 'campeggio';
+    stops.push({ name: t.name || (kind === 'area_sosta' ? 'Area sosta camper' : kind === 'campeggio' ? 'Campeggio' : 'Camper service'),
+      kind, lat, lon, fee: t.fee || null, website: t.website || t['contact:website'] || null, phone: t.phone || null,
+      opening_hours: t.opening_hours || null, capacity: t.capacity || null, power: t.power_supply || null, drinking_water: t.drinking_water || null });
   }
-  // Ordina i borghi: prima i piccoli con presenza su Wikipedia (più probabilmente "caratteristici"), max 20
-  villages.sort((a, b) => (b.historic - a.historic) || ((a.population || 1e9) - (b.population || 1e9)));
   const seen = new Set();
   const uniq = arr => arr.filter(v => !seen.has(v.name) && seen.add(v.name));
   const avviso = !soste.errore ? null
     : /429/.test(soste.errore) ? 'Il servizio delle mappe sta limitando le richieste: riprova fra qualche minuto'
     : /timed out|timeout/i.test(soste.errore) ? 'Ricerca troppo ampia per il servizio: prova un raggio piu\u2019 stretto'
     : 'Servizio mappe momentaneamente non disponibile';
-  return { stops: uniq(stops).slice(0, 40), villages: uniq(villages).slice(0, 20), ...(avviso ? { warning: avviso } : {}) };
+  return { stops: uniq(stops).slice(0, 40), ...(avviso ? { warning: avviso } : {}) };
 }
