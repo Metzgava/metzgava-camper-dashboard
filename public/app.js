@@ -114,11 +114,21 @@ function geoInput(input, onPick) {
 }
 
 // ---------- Layout ----------
+// La scarpa del menu e' disegnata, non un'emoji: un'emoji il colore ce l'ha
+// gia' dentro e non si cambia. Cosi' invece ogni atleta ha la sua, e i due
+// elenchi si distinguono prima di leggere il nome.
+const ICO_SCARPA = colore => `<svg viewBox="1.5 6.6 21.4 12.8" fill="none" stroke="${colore}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">`
+  + '<path d="M3 16.8v-4.3h3.4l1.9-3 2.6 1.4-1 1.9 4.7 2 3.5 1c.9.3 1.4.9 1.4 1.7v.3H3z"/><path d="M2.4 17.8h19.1"/></svg>';
+// I colori di casa sono scelti; chi arrivasse dopo pesca dalla tavolozza in ordine
+const COLORI_ATLETA = { metz: 'var(--c6)', cate: 'var(--c5)' };
+const coloreAtleta = (nome, i) => COLORI_ATLETA[String(nome || '').trim().toLowerCase()]
+  || ['var(--c3)', 'var(--c4)', 'var(--c7)', 'var(--c10)'][i % 4];
+
 // Il menu ha una voce di allenamenti per atleta: con due persone in casa servono
 // due elenchi distinti, e le copie di uno stesso giro non devono mescolarsi
 const nav = () => [
   ['#/', '🚐', 'Viaggi'],
-  ...atleti.map(a => [`#/allenamenti/${a.id}`, '👟', `Allenamenti ${a.name}`]),
+  ...atleti.map((a, i) => [`#/allenamenti/${a.id}`, ICO_SCARPA(coloreAtleta(a.name, i)), `Allenamenti ${a.name}`]),
   ['#/cruscotto', '🎛️', 'Cruscotto'],
   ['#/riepiloghi', '📊', 'Riepiloghi'],
   ['#/impostazioni', '⚙️', 'Impostazioni'],
@@ -494,7 +504,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v42';
+const VERSIONE = 'v43';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
