@@ -356,6 +356,13 @@ const inChili = (valore, unita) => {
 const nomiMetriche = body => (Array.isArray(body?.data?.metrics) ? body.data.metrics : [])
   .map(m => `${String(m?.name || '?')}[${Array.isArray(m?.data) ? m.data.length : 0}]`);
 
+// Il peso si tiene con un decimale solo, tagliato e non arrotondato: 71,35 resta
+// 71,3, e cosi' 71,38. Il centesimo che la bilancia manda non lo guarda nessuno,
+// e arrotondarlo farebbe comparire nel grafico un numero che sul display della
+// bilancia non c'e' mai stato. Il giro per i millesimi serve a togliere di mezzo
+// la polvere della virgola mobile, che su 71,35 per poco non fa 71,34.
+export const aUnDecimale = kg => Math.floor(Math.round(kg * 1000) / 100) / 10;
+
 export function pesiDaPacchetto(body) {
   const metriche = body?.data?.metrics;
   if (!Array.isArray(metriche)) return [];
@@ -374,7 +381,7 @@ export function pesiDaPacchetto(body) {
       const kg = inChili(valore, m.units || p.units);
       // Una bilancia che sballa non deve inquinare il grafico
       if (kg < 20 || kg > 400) continue;
-      fuori.push({ measured_at: quando, kg: Math.round(kg * 100) / 100 });
+      fuori.push({ measured_at: quando, kg: aUnDecimale(kg) });
     }
   }
   return fuori;
@@ -621,7 +628,7 @@ async function archivioDi(req, res) {
 router.post('/weights', wrap(async (req, res) => {
   const chi = await archivioDi(req, res); if (chi == null) return;
   const giorno = String(req.body?.day || '').slice(0, 10);
-  const kg = Math.round(num(req.body?.kg) * 100) / 100;
+  const kg = aUnDecimale(num(req.body?.kg));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(giorno) || isNaN(new Date(giorno))) return res.status(400).json({ error: 'Data non valida' });
   if (giorno > new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })) return res.status(400).json({ error: 'Non si puo\u2019 pesare un giorno futuro' });
   if (!Number.isFinite(kg) || kg < 20 || kg > 400) return res.status(400).json({ error: 'Peso fuori misura: sono ammessi da 20 a 400 kg' });

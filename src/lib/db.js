@@ -275,12 +275,24 @@ export async function migrate() {
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day DATE NOT NULL,                             -- giorno della pesata, ora italiana
-    kg NUMERIC(5,2) NOT NULL,
+    kg NUMERIC(4,1) NOT NULL,
     measured_at TIMESTAMPTZ,                       -- momento esatto, se la sorgente lo dice
     source TEXT NOT NULL DEFAULT 'health',
     UNIQUE (user_id, day)
   );
   CREATE INDEX IF NOT EXISTS idx_weights_user_day ON weights(user_id, day);
+  -- Un decimale, tagliato: il centesimo della bilancia non lo legge nessuno e
+  -- arrotondarlo mostrerebbe un numero mai apparso sul display. Le pesate gia'
+  -- in archivio si accorciano una volta sola, poi la riga non trova piu' niente.
+  UPDATE weights SET kg = trunc(kg, 1) WHERE kg <> trunc(kg, 1);
+  -- Accorciata la colonna, la regola non dipende piu' da chi scrive: due
+  -- decimali non ci entrano. Si tocca solo se non e' gia' cosi'.
+  DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='weights' AND column_name='kg' AND numeric_scale <> 1) THEN
+      ALTER TABLE weights ALTER COLUMN kg TYPE NUMERIC(4,1);
+    END IF;
+  END $$;
 
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';   -- manual | carlock
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
