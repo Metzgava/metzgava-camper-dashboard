@@ -506,7 +506,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v45';
+const VERSIONE = 'v46';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -979,7 +979,7 @@ const sostaRiga = (s, foto = [], copertina = null) => {
     <div class="grow"><div class="title">${esc(s.name)}${s.stars ? ` <span class="stelle" title="${s.stars} su 5">${stelline(s.stars)}</span>` : ''}</div>
       <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.cost > 0 ? (s.in_spese ? ' \u00b7 <span class="badge ok" title="Il costo \u00e8 fra le spese del viaggio">nelle spese</span>' : ' \u00b7 <span class="badge warn" title="La spesa l\u2019hai tolta: il tasto \ud83d\udcb6 la rimette">fuori dalle spese</span>') : ''}</div>
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
-  <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="Apri il collegamento">\ud83d\udd17</a>` : ''}
+  <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="${s.p4n_id ? `Posto ${esc(s.p4n_id)} su park4night` : 'Apri il collegamento'}">${s.p4n_id ? '\ud83c\udd7f\ufe0f' : '\ud83d\udd17'}</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
   <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="${esc(p.caption || 'Tocca per ingrandire')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a>${stellaCopertina(p, copertina)}<button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
@@ -1016,6 +1016,8 @@ function sostaForm(trip, s = null, preimpostato = null) {
       <div><label class="f">Valuta</label>${scegliValuta('currency', s?.currency)}</div>
     </div>
     <div class="small muted" style="margin-top:-4px">Il costo entra da solo fra le spese del viaggio, e si aggiorna se lo cambi. Dalle spese lo puoi togliere quando vuoi.</div>
+    <div><label class="f">Numero park4night</label><input name="p4n_id" inputmode="numeric" value="${esc(s?.p4n_id || '')}" placeholder="Es. 277443"></div>
+    <div class="small muted" style="margin-top:-4px">È il numero della scheda del posto; va bene anche incollare l’indirizzo intero. Da quello il collegamento qui sotto si rifa’ da sé e apre il posto, non la ricerca intorno.</div>
     <div><label class="f">Collegamento</label><input name="link" value="${esc(s?.link || preimpostato?.park4night || '')}" placeholder="park4night, sito del campeggio, qualunque indirizzo"></div>
     <div><label class="f">Commenti</label><textarea name="notes" rows="2" placeholder="Es. carico acqua, silenzioso, ombra la mattina">${esc(s?.notes || '')}</textarea></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${s ? 'Salva' : 'Aggiungi'}</button></div></form>`,

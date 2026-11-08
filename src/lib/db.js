@@ -326,6 +326,9 @@ export async function migrate() {
   ALTER TABLE expenses ADD COLUMN IF NOT EXISTS stop_id INT REFERENCES stops(id) ON DELETE SET NULL;
   CREATE INDEX IF NOT EXISTS idx_expenses_stop ON expenses(stop_id);
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS senza_spesa BOOLEAN NOT NULL DEFAULT false;
+  -- Il numero con cui park4night conosce quel posto: da li' si costruisce il
+  -- collegamento che apre la scheda, invece della ricerca intorno alle coordinate
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS p4n_id TEXT;
   -- Le spese nate dal vecchio pulsante «aggiungi alle spese» si riattaccano alla
   -- loro sosta. Quelle rimaste uguali al costo lo seguiranno da sole; quelle con
   -- un importo diverso restano come sono: li' qualcuno ha corretto a mano.

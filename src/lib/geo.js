@@ -64,6 +64,18 @@ export async function route(from, to) {
 export const linkPark4night = (lat, lon, zoom = 14) =>
   `https://park4night.com/it/search?lat=${(+lat).toFixed(5)}&lng=${(+lon).toFixed(5)}&z=${zoom}`;
 
+// Ogni posto di park4night ha il suo numero, ed e' l'unica cosa che porta
+// esattamente li': la ricerca per coordinate apre la zona, non il posto. Il
+// numero si accetta come lo si ha sotto mano - nudo, con il cancelletto davanti
+// o dentro l'indirizzo copiato dal sito.
+export const numeroPark4night = v => {
+  const t = String(v ?? '').trim();
+  if (!t) return null;
+  const m = t.match(/(?:place|lieu)\/(\d{2,9})/i) || t.match(/^#?\s*(\d{2,9})$/);
+  return m ? m[1] : null;
+};
+export const linkPark4nightPosto = id => (id ? `https://park4night.com/it/place/${id}` : null);
+
 // ---------- varianti di percorso ----------
 // OSRM sa dare solo la strada piu' veloce. Per avere anche quella che evita i
 // pedaggi serve OpenRouteService: gratuito, stessi dati OpenStreetMap, ma vuole
