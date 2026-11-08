@@ -329,6 +329,10 @@ export async function migrate() {
   -- Il numero con cui park4night conosce quel posto: da li' si costruisce il
   -- collegamento che apre la scheda, invece della ricerca intorno alle coordinate
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS p4n_id TEXT;
+  -- Come inquadrare la foto quando fa da copertina: il punto da tenere al centro
+  -- e quanto ingrandire. Non si tocca il file, che resta intero: il ritaglio e'
+  -- un modo di guardarla, e si puo' sempre rifare.
+  ALTER TABLE photos ADD COLUMN IF NOT EXISTS crop JSONB;
   -- Le spese nate dal vecchio pulsante «aggiungi alle spese» si riattaccano alla
   -- loro sosta. Quelle rimaste uguali al costo lo seguiranno da sole; quelle con
   -- un importo diverso restano come sono: li' qualcuno ha corretto a mano.

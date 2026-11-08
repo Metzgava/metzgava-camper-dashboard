@@ -261,8 +261,19 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .viaggio:hover { transform: translateY(-3px); box-shadow: 0 2px 4px rgba(16,24,40,.07), 0 16px 32px rgba(16,24,40,.12); }
 .viaggio:active { transform: translateY(-1px); }
 .viaggio .copertina { position: relative; aspect-ratio: 16 / 9; background: linear-gradient(135deg, var(--accent-soft), var(--surface-2)); display: grid; place-items: center; overflow: hidden; }
-.viaggio .copertina img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s ease; }
-.viaggio:hover .copertina img { transform: scale(1.05); }
+.viaggio .copertina img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s ease;
+  transform: scale(var(--zoom, 1)); }
+.viaggio:hover .copertina img { transform: scale(calc(var(--zoom, 1) * 1.05)); }
+
+/* Il telaio in cui si sceglie l'inquadratura: stesso 16/9 della copertina, cosi'
+   quello che si vede qui e' quello che si vedra' li' */
+.ritaglio-telaio { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 12px; background: var(--surface-2); touch-action: none; cursor: grab; }
+.ritaglio-telaio:active { cursor: grabbing; }
+.ritaglio-telaio img { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; -webkit-user-drag: none;
+  transform: scale(var(--zoom, 1)); }
+/* Le forbici sulla foto che fa da copertina, accanto alla stella */
+.photos .ritaglia { position: absolute; top: 4px; left: 32px; z-index: 2; background: rgba(0,0,0,.5); color: #fff; border: 0;
+  border-radius: 8px; width: 24px; height: 24px; font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
 .viaggio .copertina .senza { font-size: 34px; opacity: .45; }
 .viaggio .copertina .badge { position: absolute; top: 10px; left: 10px; background: color-mix(in srgb, var(--surface) 92%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); box-shadow: 0 1px 3px rgba(0,0,0,.28); }
 /* Un viaggio in corso si riconosce da lontano, senza bisogno di leggere */

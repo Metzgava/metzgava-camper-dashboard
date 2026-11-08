@@ -307,7 +307,10 @@ router.get('/trips', wrap(async (req, res) => {
       -- prima foto del viaggio, per data di scatto
       coalesce(
         (SELECT filename FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
-        (SELECT filename FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover
+        (SELECT filename FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover,
+      coalesce(
+        (SELECT crop FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
+        (SELECT crop FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_crop
     FROM trips t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
   // Mete e forma dell'itinerario per la scheda. Si prendono i soli estremi delle
   // tappe, non le geometrie: quelle di CarLock pesano quanto tutto il resto e
@@ -359,7 +362,7 @@ router.get('/trips/:id', wrap(async (req, res) => {
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
   const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
   const expenses = (await q('SELECT * FROM expenses WHERE trip_id=$1 ORDER BY date DESC, id DESC', [trip.id])).rows;
-  const photos = (await q('SELECT id,leg_id,stop_id,filename,caption,taken_at,lat,lon,user_id FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
+  const photos = (await q('SELECT id,leg_id,stop_id,filename,caption,taken_at,lat,lon,user_id,crop FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
   // Le copie fatte su un altro atleta rappresentano la stessa uscita gia' elencata:
   // contarle o mostrarle qui raddoppierebbe attivita' e chilometri del viaggio
   const workouts = (await q(`SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id
@@ -569,6 +572,19 @@ async function tragittoTappa(mezzo, from, to, b) {
   }
   return sceltoDaFuori(b?.percorso) || await route(from, to);
 }
+
+// Il ritaglio di una foto: quale parte si vede quando fa da copertina. Il file
+// non si tocca - resta quello intero, che si apre ingrandendo - e il ritaglio
+// si disfa rimandandolo vuoto.
+router.post('/photos/:id/ritaglio', wrap(async (req, res) => {
+  const b = req.body || {};
+  const dentro = (v, min, max, pre) => Math.min(max, Math.max(min, +num(v, pre).toFixed(2)));
+  const crop = b.px == null && b.py == null && b.z == null ? null
+    : { px: dentro(b.px, 0, 100, 50), py: dentro(b.py, 0, 100, 50), z: dentro(b.z, 1, 4, 1) };
+  const r = (await q('UPDATE photos SET crop=$2 WHERE id=$1 RETURNING id, crop', [req.params.id, crop ? JSON.stringify(crop) : null])).rows[0];
+  if (!r) return res.status(404).json({ error: 'Foto non trovata' });
+  res.json(r);
+}));
 
 // La foto di copertina si sceglie. Rimandando la stessa, si torna alla prima
 // caricata: e' la scelta che si disfa, non una seconda decisione da prendere.

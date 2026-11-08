@@ -266,7 +266,7 @@ async function viewTrips() {
   const card = t => {
     const g = giorniViaggio(t);
     return `<a class="viaggio${t.status === 'open' ? ' in-corso' : ''}" href="#/trip/${t.id}">
-      <div class="copertina">${t.cover ? `<img src="/uploads/${esc(t.cover)}" loading="lazy" alt="" data-grande="/uploads/${esc(t.cover)}" data-didascalia="${esc(nomeViaggio(t))}" title="Tocca la foto per ingrandirla">` : rottaSvg(t.rotta) || '<span class="senza">🚐</span>'}
+      <div class="copertina">${t.cover ? `<img src="/uploads/${esc(t.cover)}" loading="lazy" alt="" style="${stileRitaglio(t.cover_crop)}" data-grande="/uploads/${esc(t.cover)}" data-didascalia="${esc(nomeViaggio(t))}" title="Tocca la foto per ingrandirla">` : rottaSvg(t.rotta) || '<span class="senza">🚐</span>'}
         <span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div>
       <div class="corpo">
         <div class="title">${esc(nomeViaggio(t))}</div>
@@ -431,6 +431,49 @@ function tripForm(t = null) {
 
 // La copertina si sceglie fra tutte le foto del viaggio, comprese quelle delle
 // soste: la foto buona e' dove capita, non per forza nella raccolta.
+// Il ritaglio non taglia niente: dice quale punto della foto tenere nel riquadro
+// e quanto avvicinarla. La foto resta intera, e ingrandendola si rivede tutta.
+const stileRitaglio = c => c ? `object-position:${+c.px}% ${+c.py}%;transform-origin:${+c.px}% ${+c.py}%;--zoom:${+c.z || 1}` : '';
+
+// Scegliere l'inquadratura guardandola: il telaio e' lo stesso 16:9 della
+// copertina, e quello che si vede qui dentro e' quello che si vedra' li'.
+function ritagliaFoto(foto, dopo) {
+  let px = foto.crop?.px ?? 50, py = foto.crop?.py ?? 50, z = foto.crop?.z ?? 1;
+  modal(`<h2>Che parte si vede</h2>
+    <p class="small muted">Trascina la foto nel riquadro e usa la leva per avvicinarla: questa e\u2019 l\u2019inquadratura della copertina. Il file non si tocca, e aprendo la foto si rivede intera.</p>
+    <div class="ritaglio-telaio" id="telaio"><img id="rf" src="/uploads/${esc(foto.filename)}" alt="" draggable="false"></div>
+    <div><label class="f">Avvicina</label><input type="range" id="rz" min="1" max="3" step="0.02" value="${z}"></div>
+    <div class="row between"><button type="button" class="btn ghost" id="rvia">Rimetti intera</button>
+      <div class="row"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn primary" id="rok">Salva</button></div></div>`,
+    (el, close) => {
+      const img = $('#rf', el), telaio = $('#telaio', el);
+      const disegna = () => {
+        img.style.objectPosition = `${px}% ${py}%`;
+        img.style.transformOrigin = `${px}% ${py}%`;
+        img.style.setProperty('--zoom', z);
+      };
+      disegna();
+      let preso = null;
+      telaio.addEventListener('pointerdown', e => { preso = { x: e.clientX, y: e.clientY }; telaio.setPointerCapture(e.pointerId); });
+      telaio.addEventListener('pointermove', e => {
+        if (!preso) return;
+        const r = telaio.getBoundingClientRect();
+        px = Math.min(100, Math.max(0, px - (e.clientX - preso.x) / r.width * 100));
+        py = Math.min(100, Math.max(0, py - (e.clientY - preso.y) / r.height * 100));
+        preso = { x: e.clientX, y: e.clientY };
+        disegna();
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => telaio.addEventListener(ev, () => { preso = null; }));
+      $('#rz', el).addEventListener('input', e => { z = +e.target.value; disegna(); });
+      $('[data-x]', el).onclick = close;
+      $('#rvia', el).onclick = safe(async () => { await api(`/photos/${foto.id}/ritaglio`, { method: 'POST', body: {} }); close(); dopo(); });
+      $('#rok', el).onclick = safe(async () => {
+        await api(`/photos/${foto.id}/ritaglio`, { method: 'POST', body: { px, py, z } });
+        close(); dopo();
+      });
+    });
+}
+
 const stellaCopertina = (p, scelta) => `<button class="copertina-scelta${scelta === p.id ? ' scelta' : ''}" data-copertina="${p.id}"
   title="${scelta === p.id ? 'E\u2019 la copertina del viaggio \u00b7 tocca per togliere la scelta' : 'Usa come copertina del viaggio'}">${scelta === p.id ? '\u2605' : '\u2606'}</button>`;
 
@@ -515,7 +558,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v48';
+const VERSIONE = 'v49';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -709,7 +752,7 @@ async function viewTrip(id) {
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
         ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
-        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}${stellaCopertina(p, trip.cover_photo_id)}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
+        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}${stellaCopertina(p, trip.cover_photo_id)}${(trip.cover_photo_id ? p.id === trip.cover_photo_id : p === fotoViaggio[0]) ? `<button class="ritaglia" data-ritaglia="${p.id}" title="Scegli che parte si vede sulla copertina">\u2702\ufe0f</button>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
       ${atletiDelViaggio.length ? atletiDelViaggio.map(nome => {
         const suoi = workouts.filter(w => w.athlete === nome);
         const km = suoi.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000;
@@ -831,6 +874,14 @@ async function viewTrip(id) {
   }));
   // La stella sceglie la copertina del viaggio, ovunque stia la foto: nella
   // raccolta o sotto una sosta
+  // Le forbici aprono l'inquadratura della copertina
+  $('main')?.addEventListener('click', safe(async e => {
+    const b = e.target.closest('[data-ritaglia]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const foto = photos.find(x => x.id === +b.dataset.ritaglia);
+    if (foto) ritagliaFoto(foto, restaQui);
+  }));
   $('main')?.addEventListener('click', safe(async e => {
     const b = e.target.closest('[data-copertina]');
     if (!b) return;
