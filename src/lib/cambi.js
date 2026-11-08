@@ -5,7 +5,7 @@
 // di luglio deve restare quello che e' costata a luglio, anche se la corona poi
 // si muove. Ricalcolare tutto a ogni apertura farebbe ballare i totali di
 // viaggi gia' chiusi.
-import { fetchJson } from './util.js';
+import { fetchJson, num } from './util.js';
 
 const BASE = process.env.CAMBI_URL || 'https://api.frankfurter.dev/v1';
 
@@ -18,6 +18,12 @@ export const VALUTE = {
   NOK: { nome: 'Corone norvegesi', segno: 'kr' },
   SEK: { nome: 'Corone svedesi', segno: 'kr' },
   DKK: { nome: 'Corone danesi', segno: 'kr' },
+  CZK: { nome: 'Corone ceche', segno: 'Kč' },
+  PLN: { nome: 'Zloty polacchi', segno: 'zł' },
+  HUF: { nome: 'Fiorini ungheresi', segno: 'Ft' },
+  RON: { nome: 'Lei romeni', segno: 'lei' },
+  ISK: { nome: 'Corone islandesi', segno: 'kr' },
+  TRY: { nome: 'Lire turche', segno: '₺' },
 };
 export const valutaValida = v => Object.prototype.hasOwnProperty.call(VALUTE, String(v || '').toUpperCase()) ? String(v).toUpperCase() : 'EUR';
 
@@ -46,8 +52,10 @@ export async function cambioVersoEuro(valuta, giorno = null) {
 export async function cambioPerSpesa({ currency, rate, date }) {
   const v = valutaValida(currency);
   if (v === 'EUR') return { currency: 'EUR', rate: 1 };
-  const aMano = Number(rate);
-  if (Number.isFinite(aMano) && aMano > 0) return { currency: v, rate: aMano };
+  // Il cambio scritto a mano arriva come l'ha scritto chi lo scrive: con la
+  // virgola, che Number() da solo non digerisce e buttava via in silenzio
+  const aMano = num(rate, 0);
+  if (aMano > 0) return { currency: v, rate: aMano };
   try {
     return { currency: v, rate: await cambioVersoEuro(v, date) };
   } catch (e) {

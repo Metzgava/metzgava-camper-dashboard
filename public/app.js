@@ -12,7 +12,9 @@ const dur = s => { if (!s) return '—'; const h = Math.floor(s / 3600), m = Mat
 const today = () => iso(new Date());
 // Le valute che si possono scegliere su ogni importo. L'euro e' il metro con
 // cui si fanno i totali: ogni spesa porta il cambio del suo giorno, congelato.
-const VALUTE = { EUR: '\u20ac Euro', CHF: 'CHF Franchi', GBP: '\u00a3 Sterline', NOK: 'kr Corone norvegesi', SEK: 'kr Corone svedesi', DKK: 'kr Corone danesi' };
+// L'elenco vero lo tiene il servizio, che e' anche quello che sa dare i cambi:
+// qui dentro resta solo una scorta per i primi istanti, prima che arrivi.
+let VALUTE = { EUR: '\u20ac Euro', CHF: 'CHF Franchi svizzeri', GBP: '\u00a3 Sterline', NOK: 'kr Corone norvegesi', SEK: 'kr Corone svedesi', DKK: 'kr Corone danesi' };
 const scegliValuta = (nome, scelta) => `<select name="${nome}">${Object.entries(VALUTE).map(([c, e]) => `<option value="${c}" ${c === (scelta || 'EUR') ? 'selected' : ''}>${e}</option>`).join('')}</select>`;
 // Un importo in valuta si legge com'e' stato speso, con accanto quanto fa in euro
 const importoConValuta = (v, valuta, cambio) => valuta && valuta !== 'EUR'
@@ -506,7 +508,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v46';
+const VERSIONE = 'v47';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1401,6 +1403,9 @@ function expenseForm(trip, legs, ex = null, soste = []) {
       <div><label class="f">Importo</label><input type="text" name="amount" required inputmode="decimal" value="${ex?.amount ?? ''}" placeholder="Es. 18,50"></div>
       <div><label class="f">Valuta</label>${scegliValuta('currency', ex?.currency)}</div>
       <div style="align-self:end"><div class="small muted" id="in-euro"></div></div></div>
+    <div id="riga-cambio" hidden><label class="f" id="et-cambio">Cambio</label>
+      <input name="rate" inputmode="decimal" placeholder="Es. 0,0085">
+      <div class="small muted">Il servizio dei cambi non risponde o non conosce questa valuta: scrivi quanti euro vale un\u2019unit\u00e0 e resta scritto nella spesa.</div></div>
     <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${ex?.date ? iso(ex.date) : today()}"></div>
       <div><label class="f">Tappa (opz.)</label><select name="leg_id"><option value="">—</option>${legs.map((l, i) => `<option value="${l.id}" ${ex?.leg_id === l.id ? 'selected' : ''}>${i + 1}. ${esc(l.to_name.split(',')[0])}</option>`).join('')}</select></div></div>
     <div><label class="f">Descrizione</label><input name="description" value="${esc(ex?.description || '')}" placeholder="Es. Traghetto Piombino–Portoferraio"></div>
@@ -1409,18 +1414,34 @@ function expenseForm(trip, legs, ex = null, soste = []) {
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;
-      // Quanto fa in euro, col cambio del giorno della spesa: si vede prima di salvare
+      // Quanto fa in euro, col cambio del giorno della spesa: si vede prima di salvare.
+      // Se il servizio non risponde la spesa non si blocca: compare il campo per
+      // scrivere il cambio a mano, ed e' quello a comandare.
+      const rigaCambio = $('#riga-cambio', el), campoCambio = $('[name=rate]', el);
       const mostraEuro = safe(async () => {
         const valuta = $('[name=currency]', el).value;
         const importo = +String($('[name=amount]', el).value).replace(',', '.');
         const riquadro = $('#in-euro', el);
-        if (valuta === 'EUR' || !(importo > 0)) return riquadro.textContent = '';
-        riquadro.textContent = 'cambio\u2026';
-        try {
-          const c = await api(`/cambio?valuta=${valuta}&data=${$('[name=date]', el).value || today()}`);
-          riquadro.innerHTML = `\u2248 <b>${eur(importo * c.cambio)}</b><br><span class="muted">1 ${valuta} = ${num(c.cambio, 4)} \u20ac</span>`;
-        } catch { riquadro.textContent = 'cambio non disponibile'; }
+        if (valuta === 'EUR') { rigaCambio.hidden = true; return riquadro.textContent = ''; }
+        $('#et-cambio', el).textContent = `Quanti euro vale 1 ${valuta}`;
+        let cambio = +String(campoCambio.value).replace(',', '.');
+        if (!(cambio > 0)) {
+          riquadro.textContent = 'cambio\u2026';
+          try {
+            cambio = (await api(`/cambio?valuta=${valuta}&data=${$('[name=date]', el).value || today()}`)).cambio;
+            rigaCambio.hidden = true;
+          } catch {
+            rigaCambio.hidden = false;
+            return riquadro.textContent = 'cambio non disponibile: scrivilo qui sotto';
+          }
+        }
+        riquadro.innerHTML = importo > 0
+          ? `\u2248 <b>${eur(importo * cambio)}</b><br><span class="muted">1 ${valuta} = ${num(cambio, 4)} \u20ac</span>`
+          : `<span class="muted">1 ${valuta} = ${num(cambio, 4)} \u20ac</span>`;
       });
+      campoCambio.addEventListener('input', mostraEuro);
+      // Cambiata la valuta, il cambio scritto a mano non vale piu': era di un'altra
+      $('[name=currency]', el).addEventListener('change', () => { campoCambio.value = ''; });
       ['[name=currency]', '[name=amount]', '[name=date]'].forEach(sel => {
         $(sel, el).addEventListener('change', mostraEuro);
         $(sel, el).addEventListener('input', mostraEuro);
@@ -2542,7 +2563,10 @@ async function render(opzioni = {}) {
     if (!user) {
       const me = await api('/auth/me');
       if (me.user?.approved) {
-        user = me.user; [settings, atleti] = await Promise.all([api('/settings'), api('/athletes')]);
+        let valute;
+        [settings, atleti, valute] = await Promise.all([api('/settings'), api('/athletes'), api('/valute').catch(() => null)]);
+        user = me.user;
+        if (valute) VALUTE = Object.fromEntries(Object.entries(valute).map(([c, v]) => [c, `${v.segno} ${v.nome}`]));
         // Una riga sola per ogni apertura, con la versione del codice che sta
         // girando davvero: senza, davanti a un guasto non si sa nemmeno se chi
         // lo vede ha in mano l'ultima correzione o quella di ieri
