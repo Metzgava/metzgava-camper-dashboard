@@ -506,7 +506,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v44';
+const VERSIONE = 'v45';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -696,7 +696,7 @@ async function viewTrip(id) {
         const km = suoi.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000;
         return `<div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83d\udc5f ${esc(nome)}</h2>
           <div class="small muted"><i class="segno-atleta" style="border-top-style:${trattoDi(nome)[1]}"></i> ${suoi.length} ${suoi.length === 1 ? 'uscita' : 'uscite'}${km >= 0.1 ? ` \u00b7 ${num(km)} km` : ''}</div></div>
-          <div class="list">${suoi.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} \u00b7 ${num((w.distance_m || 0) / 1000)} km \u00b7 ${dur(w.duration_s)}${w.hr_avg ? ' \u00b7 \u2764\ufe0f ' + w.hr_avg : ''}${w.calories ? ' \u00b7 \ud83d\udd25 ' + w.calories : ''}</div></div></a>`).join('')}</div></div>`;
+          <div class="list">${suoi.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} \u00b7 ${num((w.distance_m || 0) / 1000)} km \u00b7 ${dur(w.duration_s)}${w.elevation_up_m ? ' \u00b7 \u26f0\ufe0f ' + w.elevation_up_m + ' m' : ''}${w.hr_avg ? ' \u00b7 \u2764\ufe0f ' + w.hr_avg : ''}${w.calories ? ' \u00b7 \ud83d\udd25 ' + w.calories : ''}</div></div></a>`).join('')}</div></div>`;
       }).join('') : '<div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div></div>'}
     </div>`);
 

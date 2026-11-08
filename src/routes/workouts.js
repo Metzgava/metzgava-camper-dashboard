@@ -30,6 +30,8 @@ async function saveWorkout(userId, w, tripId = null, opzioni = {}) {
   } else if ((await q(`SELECT 1 FROM deleted_workouts WHERE ${CONDIZIONE_CESTINO} LIMIT 1`, chiavi)).rowCount) {
     return null;
   }
+  // Nessuna app ha dichiarato la salita? La si conta sulla traccia, se porta la quota
+  if (w.elevation_up_m == null) w.elevation_up_m = salitaDallaTraccia(w.track);
   // Il nome dell'attivita' viene ricondotto alla forma unica; il titolo cambia solo
   // se coincideva col tipo, cosi' un nome scelto a mano resta intatto
   const sportNorm = normalizzaSport(w.sport);
@@ -90,6 +92,18 @@ function healthDuration(w) {
   const start = new Date(w.start), end = w.end ? new Date(w.end) : null;
   if (end && !isNaN(start) && !isNaN(end) && end > start) return Math.round((end - start) / 1000);
   return w.duration != null ? Math.round(num(w.duration)) : null;
+}
+
+// Il dislivello non arriva sempre con lo stesso nome, e non tutte le versioni
+// dell'app lo esportano: si guardano i nomi che usa, e l'unita' dichiarata,
+// perche' letta in piedi un'escursione di trecento metri ne dichiarerebbe mille.
+function salitaAllenamento(w) {
+  const q = w?.elevationUp ?? w?.elevationAscended ?? w?.totalAscent ?? w?.elevation?.ascent ?? w?.elevationGain;
+  const valore = num(q?.qty ?? q);
+  if (!Number.isFinite(valore) || valore <= 0) return null;
+  const u = String(q?.units || w?.elevation?.units || 'm').toLowerCase().replace(/[^a-z]/g, '');
+  const metri = (u === 'ft' || u.startsWith('feet') || u.startsWith('foot')) ? valore * 0.3048 : valore;
+  return Math.round(metri);
 }
 
 // Converte la distanza nell’unità dichiarata da HAE (km, miglia, iarde, piedi; altrimenti metri)
@@ -244,10 +258,30 @@ export async function recuperaDaLetture(userId, giorni = 30) {
 function healthTrack(route) {
   if (!Array.isArray(route)) return null;
   const pts = route
-    .map(p => [Number(p?.lat ?? p?.latitude), Number(p?.lon ?? p?.longitude)])
+    .map(p => [Number(p?.lat ?? p?.latitude), Number(p?.lon ?? p?.longitude), Number(p?.altitude ?? p?.alt ?? p?.elevation)])
     .filter(([la, lo]) => Number.isFinite(la) && Number.isFinite(lo))
-    .map(([la, lo]) => [+la.toFixed(5), +lo.toFixed(5)]);
+    // La quota viaggia col punto: e' quella che, a fine giro, dice quanto si e'
+    // salito anche quando nessuna app lo dichiara
+    .map(([la, lo, q]) => Number.isFinite(q) ? [+la.toFixed(5), +lo.toFixed(5), Math.round(q)] : [+la.toFixed(5), +lo.toFixed(5)]);
   return pts.length ? samplePoints(pts, 600) : null;
+}
+
+// La salita contata sulla traccia, quando la traccia porta la quota: si sommano
+// solo i dislivelli positivi, e si ignorano gli scalini sotto la soglia, che
+// sono il tremolio del GPS e non una salita. Serve a chi registra con komoot e
+// in Salute si ritrova l'uscita senza dislivello: il numero c'e' lo stesso,
+// senza doverlo scrivere a mano.
+const SOGLIA_SALITA_M = 2;
+export function salitaDallaTraccia(track) {
+  const quote = (Array.isArray(track) ? track : [])
+    .map(p => (Array.isArray(p) ? Number(p[2]) : NaN)).filter(Number.isFinite);
+  if (quote.length < 10) return null;
+  let totale = 0, riferimento = quote[0];
+  for (const q of quote) {
+    if (q > riferimento + SOGLIA_SALITA_M) { totale += q - riferimento; riferimento = q; }
+    else if (q < riferimento) riferimento = q;
+  }
+  return Math.round(totale) || null;
 }
 
 // Ogni sorgente chiama gli sport a modo suo: Salute traduce alla lettera ("Interno
@@ -296,7 +330,7 @@ export function itemsDaPacchetto(body, origine) {
       calories: energiaAllenamento(w).kcal,
       hr_avg: w.avgHeartRate?.qty != null ? Math.round(num(w.avgHeartRate.qty)) : (w.heartRate?.avg?.qty != null ? Math.round(num(w.heartRate.avg.qty)) : null),
       hr_max: w.maxHeartRate?.qty != null ? Math.round(num(w.maxHeartRate.qty)) : (w.heartRate?.max?.qty != null ? Math.round(num(w.heartRate.max.qty)) : null),
-      elevation_up_m: w.elevationUp?.qty != null ? Math.round(num(w.elevationUp.qty)) : null,
+      elevation_up_m: salitaAllenamento(w),
       track: healthTrack(w.route), hr_track: serieBattiti(w),
       meta: { device: origine, steps: w.stepCount?.qty ?? null, temperature: w.temperature?.qty ?? null,
         nome_originale: w.name !== normalizzaSport(w.name) ? w.name : undefined,
@@ -446,6 +480,11 @@ ingest.post('/health', requireDevice, wrap(async (req, res) => {
   console.log(`ingest: forma=${formaPacchetto(body)} elementi=${items.length} salvati=${r.saved} uniti=${r.merged}`
     + ` scartati=${r.scartati} letture-peso=${pesiTrovati.length} pesate=${pesate} letture=${letture.length}`
     + ` recuperi=${recuperati.battiti}b/${recuperati.calorie}k dispositivo=${req.device.name}`);
+  // Un'uscita all'aperto senza dislivello: sapere quali campi c'erano nel
+  // pacchetto dice se il telefono non lo esporta o se lo scrive con un nome che
+  // non leggiamo. Solo i nomi dei campi, mai un valore.
+  const senzaSalita = (body.data?.workouts || []).find((w, i) => items[i]?.elevation_up_m == null && (w?.route || w?.distance));
+  if (senzaSalita) console.log(`ingest: uscita senza dislivello, campi nel pacchetto -> ${Object.keys(senzaSalita).join(' ').slice(0, 400)}`);
   if (metriche.length && !pesiTrovati.length) {
     console.log(`ingest: nessun peso fra le metriche di ${req.device.name} -> ${metriche.join(' ').slice(0, 400)}`);
   }
@@ -681,6 +720,8 @@ function disciplineCompatibili(s1, s2) {
   return A_PIEDI.includes(f1) && A_PIEDI.includes(f2);
 }
 const CAMPI_DA_TRAVASARE = ['track', 'distance_m', 'duration_s', 'elevation_up_m', 'calories', 'hr_avg', 'hr_max', 'speed_avg_kmh', 'trip_id'];
+// Misure dove uno zero vuol dire «non lo so», non «zero»
+const SALITA_O_SFORZO = ['elevation_up_m', 'calories', 'hr_avg', 'hr_max', 'speed_avg_kmh'];
 
 // Riporta alla forma unica anche i nomi gia' in archivio. Gira all'avvio e usa la
 // stessa funzione dei dati in arrivo, cosi' non esistono due tabelle da tenere allineate.
@@ -731,11 +772,17 @@ export async function rimuoviDoppioniAutomatici(userId = null) {
       (b.source === 'health') - (a.source === 'health') || ricchezza(b) - ricchezza(a) || a.id - b.id);
     const tenuto = ordinati[0], scartati = ordinati.slice(1);
 
+    // Lo zero, su queste misure, non e' un valore: e' un dato che manca. Salute
+    // scrive spesso dislivello zero su una camminata in collina, e finche' lo
+    // zero valeva come numero la cifra vera di komoot finiva nel cestino insieme
+    // al suo record. Distanza e durata invece lo zero se lo tengono: li' non c'e'
+    // niente da indovinare.
+    const vuoto = (w, campo) => w[campo] == null || (SALITA_O_SFORZO.includes(campo) && !w[campo]);
     const mancanti = {};
     for (const campo of CAMPI_DA_TRAVASARE) {
       if (campo === 'track') continue;                       // la traccia ha una strada sua, qui sotto
-      if (tenuto[campo] != null) continue;
-      const donatore = scartati.find(x => x[campo] != null);
+      if (!vuoto(tenuto, campo)) continue;
+      const donatore = scartati.find(x => !vuoto(x, campo));
       if (donatore) mancanti[campo] = donatore[campo];
     }
     // La traccia e la curva del battito si vanno a prendere solo se al superstite
@@ -746,6 +793,12 @@ export async function rimuoviDoppioniAutomatici(userId = null) {
       if (!donatore) continue;
       const v = (await q(`SELECT ${campo} AS v FROM workouts WHERE id=$1`, [donatore.id])).rows[0]?.v;
       if (v) mancanti[campo] = v;
+    }
+    // Con la traccia appena ereditata si puo' contare la salita che non aveva
+    // dichiarato nessuno dei due
+    if (vuoto(tenuto, 'elevation_up_m') && mancanti.elevation_up_m == null && mancanti.track) {
+      const contata = salitaDallaTraccia(mancanti.track);
+      if (contata) mancanti.elevation_up_m = contata;
     }
     const chiavi = Object.keys(mancanti);
     if (chiavi.length) {
