@@ -271,9 +271,14 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .ritaglio-telaio:active { cursor: grabbing; }
 .ritaglio-telaio img { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; -webkit-user-drag: none;
   transform: scale(var(--zoom, 1)); }
-/* Le forbici sulla foto che fa da copertina, accanto alla stella */
-.photos .ritaglia { position: absolute; top: 4px; left: 32px; z-index: 2; background: rgba(0,0,0,.5); color: #fff; border: 0;
-  border-radius: 8px; width: 24px; height: 24px; font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
+/* Le forbici stanno sulla copertina, nell'angolo opposto al distintivo: si
+   sceglie l'inquadratura guardando la scheda, non cercando la foto fra le altre */
+.copertina .ritaglia { position: absolute; top: 10px; right: 10px; z-index: 2; background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); box-shadow: 0 1px 4px rgba(0,0,0,.18); border: 0;
+  border-radius: 9px; width: 28px; height: 28px; font-size: 14px; line-height: 1; cursor: pointer; padding: 0;
+  opacity: 0; transition: opacity .15s; }
+.viaggio:hover .copertina .ritaglia { opacity: 1; }
+@media (hover: none) { .copertina .ritaglia { opacity: 1; } }
 .viaggio .copertina .senza { font-size: 34px; opacity: .45; }
 .viaggio .copertina .badge { position: absolute; top: 10px; left: 10px; background: color-mix(in srgb, var(--surface) 92%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); box-shadow: 0 1px 3px rgba(0,0,0,.28); }
 /* Un viaggio in corso si riconosce da lontano, senza bisogno di leggere */

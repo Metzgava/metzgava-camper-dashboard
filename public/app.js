@@ -267,7 +267,7 @@ async function viewTrips() {
     const g = giorniViaggio(t);
     return `<a class="viaggio${t.status === 'open' ? ' in-corso' : ''}" href="#/trip/${t.id}">
       <div class="copertina">${t.cover ? `<img src="/uploads/${esc(t.cover)}" loading="lazy" alt="" style="${stileRitaglio(t.cover_crop)}" data-grande="/uploads/${esc(t.cover)}" data-didascalia="${esc(nomeViaggio(t))}" title="Tocca la foto per ingrandirla">` : rottaSvg(t.rotta) || '<span class="senza">🚐</span>'}
-        <span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span></div>
+        <span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span>${t.cover_id ? `<button class="ritaglia" data-ritaglia-cover="${t.cover_id}" data-file="${esc(t.cover)}" title="Scegli che parte della foto si vede">\u2702\ufe0f</button>` : ''}</div>
       <div class="corpo">
         <div class="title">${esc(nomeViaggio(t))}</div>
         <div class="meta">${dateCliccabili(t)}${g ? ` · ${g} giorn${g === 1 ? 'o' : 'i'}` : ''}</div>
@@ -303,6 +303,14 @@ async function viewTrips() {
       : open.length ? '' : '<div class="card"><div class="empty">Nessun viaggio.<br>Crea il primo e aggiungi le tappe: distanze, gasolio e pedaggi si calcolano da soli.</div></div>'}`);
   $('#new').onclick = () => tripForm();
   $('#carlock').onclick = () => carlockImport(null, open);
+  // Le forbici sulla copertina: l'inquadratura si sceglie dove la si vede
+  $('main')?.addEventListener('click', safe(e => {
+    const b = e.target.closest('[data-ritaglia-cover]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const t = trips.find(x => x.cover_id === +b.dataset.ritagliaCover);
+    if (t) ritagliaFoto({ id: t.cover_id, filename: t.cover, crop: t.cover_crop }, render);
+  }));
 }
 
 function tripForm(t = null) {
@@ -558,7 +566,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v49';
+const VERSIONE = 'v50';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -752,7 +760,7 @@ async function viewTrip(id) {
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
         ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
-        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}${stellaCopertina(p, trip.cover_photo_id)}${(trip.cover_photo_id ? p.id === trip.cover_photo_id : p === fotoViaggio[0]) ? `<button class="ritaglia" data-ritaglia="${p.id}" title="Scegli che parte si vede sulla copertina">\u2702\ufe0f</button>` : ''}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
+        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}${stellaCopertina(p, trip.cover_photo_id)}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
       ${atletiDelViaggio.length ? atletiDelViaggio.map(nome => {
         const suoi = workouts.filter(w => w.athlete === nome);
         const km = suoi.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000;
@@ -874,14 +882,6 @@ async function viewTrip(id) {
   }));
   // La stella sceglie la copertina del viaggio, ovunque stia la foto: nella
   // raccolta o sotto una sosta
-  // Le forbici aprono l'inquadratura della copertina
-  $('main')?.addEventListener('click', safe(async e => {
-    const b = e.target.closest('[data-ritaglia]');
-    if (!b) return;
-    e.preventDefault(); e.stopPropagation();
-    const foto = photos.find(x => x.id === +b.dataset.ritaglia);
-    if (foto) ritagliaFoto(foto, restaQui);
-  }));
   $('main')?.addEventListener('click', safe(async e => {
     const b = e.target.closest('[data-copertina]');
     if (!b) return;

@@ -310,7 +310,11 @@ router.get('/trips', wrap(async (req, res) => {
         (SELECT filename FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover,
       coalesce(
         (SELECT crop FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
-        (SELECT crop FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_crop
+        (SELECT crop FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_crop,
+      -- Serve alla scheda per aprire l'inquadratura senza passare dalle foto
+      coalesce(
+        (SELECT id FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
+        (SELECT id FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_id
     FROM trips t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
   // Mete e forma dell'itinerario per la scheda. Si prendono i soli estremi delle
   // tappe, non le geometrie: quelle di CarLock pesano quanto tutto il resto e
