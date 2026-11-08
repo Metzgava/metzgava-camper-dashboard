@@ -21,9 +21,16 @@ const importoConValuta = (v, valuta, cambio) => valuta && valuta !== 'EUR'
   ? `${num(v, 2)} ${valuta} <span class="muted">(${eur(v * (cambio || 1))})</span>`
   : eur(v);
 
+// Come si fa una tappa. In camper e' il caso normale; gli altri hanno una
+// compagnia, un orario e un biglietto, e sulla mappa una linea tutta loro.
+const MEZZI = { camper: ['\ud83d\ude90', 'In camper'], traghetto: ['\u26f4\ufe0f', 'Traghetto'],
+  aereo: ['\u2708\ufe0f', 'Aereo'], treno: ['\ud83d\ude86', 'Treno'], bus: ['\ud83d\ude8c', 'Bus'] };
+const mezzoDi = l => MEZZI[l?.mezzo] ? l.mezzo : 'camper';
+const inCamper = l => mezzoDi(l) === 'camper';
+
 const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'],
   // In coda, cosi' le categorie di prima tengono il colore che avevano
-  bus: ['🚌', 'Bus'], treno: ['🚆', 'Treno'] };
+  bus: ['🚌', 'Bus'], treno: ['🚆', 'Treno'], aereo: ['✈️', 'Aereo'] };
 const catLabel = c => CAT[c] ? `${CAT[c][0]} ${CAT[c][1]}` : c;
 const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 12) % 12 + 1})`;
 // Nessuna emoji rappresenta un tapis roulant: lo disegniamo (nastro, montante, console)
@@ -508,7 +515,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v47';
+const VERSIONE = 'v48';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -621,13 +628,21 @@ async function viewTrip(id) {
   // stima sui chilometri di autostrada. Sono due spese separate, e quello che
   // conta per la tappa e' la somma.
   const costiDi = l => {
-    const sue = expenses.filter(e => e.leg_id === l.id && e.auto && (e.category === 'gasolio' || e.category === 'pedaggi'));
+    const sue = expenses.filter(e => e.leg_id === l.id && e.auto);
     const quanto = e => e ? +e.amount * (+e.rate || 1) : null;
     const g = sue.find(e => e.category === 'gasolio'), p = sue.find(e => e.category === 'pedaggi');
-    return { g: quanto(g), p: quanto(p), gMano: !!g?.edited, pMano: !!p?.edited, tot: (quanto(g) || 0) + (quanto(p) || 0) };
+    // Con un mezzo altrui la spesa e' il biglietto, nella categoria del mezzo
+    const b = sue.find(e => e.category !== 'gasolio' && e.category !== 'pedaggi');
+    return { g: quanto(g), p: quanto(p), b: quanto(b), biglietto: b,
+      gMano: !!g?.edited, pMano: !!p?.edited, bMano: !!b?.edited,
+      tot: (quanto(g) || 0) + (quanto(p) || 0) + (quanto(b) || 0) };
   };
   const rigaCosti = l => {
     const c = costiDi(l);
+    if (c.b != null) {
+      const e = c.biglietto;
+      return `<div class="small costi-tappa">${MEZZI[mezzoDi(l)][0]} <b>${importoConValuta(e.amount, e.currency, e.rate)}</b>${c.bMano ? ' <span class="badge warn" title="Importo scritto da te: non viene ricalcolato">a mano</span>' : ''}${l.sconto ? ` \u00b7 <span title="Sconto">\ud83c\udff7\ufe0f ${esc(l.sconto)}</span>` : ''}</div>`;
+    }
     if (c.g == null && c.p == null) return '';
     const mano = ' <span class="badge warn" title="Importo scritto da te: non viene ricalcolato">a mano</span>';
     return `<div class="small costi-tappa">${c.g != null ? `⛽ <b>${eur(c.g)}</b>${c.gMano ? mano : ''}` : ''}${c.p != null ? `${c.g != null ? ' · ' : ''}<span title="${c.pMano ? 'Pedaggio scritto da te' : 'Stima sui chilometri di autostrada: il conto vero lo sai al casello'}">🛣️ <b>${eur(c.p)}</b>${l.pedaggio_km ? ` <span class="muted">(${num(l.pedaggio_km)} km)</span>` : ''}</span>${c.pMano ? mano : ''}` : ''}${c.g != null && c.p != null ? ` · <b>${eur(c.tot)}</b> in tutto` : ''}</div>`;
@@ -637,10 +652,10 @@ async function viewTrip(id) {
       <div class="n">${i + 1}</div>
       <button class="freccia" data-giu="${l.id}" title="Sposta dopo" ${i === legs.length - 1 ? 'disabled' : ''}>\u25bc</button>
     </div><div class="grow">
-      <div class="row between"><div><b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
-      <div class="small muted">${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
+      <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${!inCamper(l) ? 'in ' + MEZZI[mezzoDi(l)][1].toLowerCase().replace('in camper', 'camper') : conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
+      <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
       ${rigaCosti(l)}
-      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>${l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}${inCamper(l) ? `<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>` : ''}${inCamper(l) && l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}${e.place ? `<div class="small muted">\ud83d\udccd ${esc(e.place)}</div>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}<button class="btn sm ghost danger" data-del-ex="${e.id}" data-auto-ex="${e.auto ? 1 : 0}" title="Elimina">🗑</button>`}</td></tr>`;
   $('#app').innerHTML = layout(`
@@ -652,6 +667,7 @@ async function viewTrip(id) {
       <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe \u00b7 ${totals.km && totals.minutes ? num(totals.km / (totals.minutes / 60), 0) + ' km/h di media' : ''}</div></div>
       <div class="tile"><div class="label">Ore di guida</div><div class="value">${dur(totals.minutes * 60)}</div><div class="sub">${totals.minuti_strada > totals.minutes + 5 ? `${dur(totals.minuti_strada * 60)} in strada, soste comprese` : ''}${totals.tappe_con_soste ? `${totals.minuti_strada > totals.minutes + 5 ? '<br>' : ''}su ${totals.tappe_con_soste} tapp${totals.tappe_con_soste === 1 ? 'a' : 'e'} comprende le soste` : ''}</div></div>
       <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
+      ${totals.altri_mezzi ? `<div class="tile"><div class="label">Altri mezzi</div><div class="value">${num(totals.altri_mezzi.km)} km</div><div class="sub">${Object.entries(totals.altri_mezzi.per_mezzo).map(([k, v]) => `${MEZZI[k] ? MEZZI[k][0] : ''} ${num(v.km)} km`).join(' · ')}</div></div>` : ''}
       ${totals.pedaggio_km > 0 || (totals.by_category.find(c => c.category === 'pedaggi')?.total || 0) > 0
         ? `<div class="tile"><div class="label">Autostrada</div><div class="value">${eur(totals.by_category.find(c => c.category === 'pedaggi')?.total || 0)}</div><div class="sub">${[totals.pedaggio_km > 0 ? `${num(totals.pedaggio_km)} km a pedaggio` : '', expenses.some(e => e.category === 'pedaggi' && e.edited) ? '' : 'stima'].filter(Boolean).join(' · ')}</div></div>`
         : ''}
@@ -663,7 +679,8 @@ async function viewTrip(id) {
         const conPosto = photos.filter(p => p.lat != null).length;
         if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
         return `<div class="legenda-mappa">
-          ${legs.length ? `<span class="voce"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
+          ${legs.some(inCamper) ? `<span class="voce"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
+          ${legs.some(l => !inCamper(l)) ? `<span class="voce"><i class="tratteggio" style="border-top-color:${COLORE_ALTRI_MEZZI}"></i>${[...new Set(legs.filter(l => !inCamper(l)).map(l => MEZZI[mezzoDi(l)][0] + ' ' + MEZZI[mezzoDi(l)][1]))].join(', ')}</span>` : ''}
           ${discipline.map(d => `<span class="voce"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
           ${atletiDelViaggio.length > 1 ? '<span class="stacco"></span>' + atletiDelViaggio.map(nome => `<span class="voce"><i class="tratteggio" style="border-top-color:var(--muted);border-top-style:${trattoDi(nome)[1]}"></i>${esc(nome)}</span>`).join('') : ''}
           ${conPosto ? `<span class="voce">\ud83d\udcf7 ${conPosto} fot${conPosto === 1 ? 'o' : 'o'} nel punto dello scatto</span>` : ''}
@@ -707,7 +724,12 @@ async function viewTrip(id) {
   const bounds = [];
   legs.forEach((l, i) => {
     const g = l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]];
-    L.polyline(g, { color: '#0f766e', weight: 5, opacity: .85 }).addTo(map).bindPopup(`<b>Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}`);
+    // Il traghetto e l'aereo non seguono la strada: linea dritta e tratteggiata,
+    // perche' quella non e' una strada che si puo' percorrere
+    const suGomma = inCamper(l);
+    L.polyline(g, suGomma ? { color: COLORE_CAMPER, weight: 5, opacity: .85 }
+      : { color: COLORE_ALTRI_MEZZI, weight: 4, opacity: .9, dashArray: '10 8' })
+      .addTo(map).bindPopup(`<b>${suGomma ? '' : MEZZI[mezzoDi(l)][0] + ' '}Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}${l.compagnia || l.codice ? `<br>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}` : ''}${l.start_time ? `<br>${esc(l.start_time)}–${esc(l.end_time || '')}` : ''}`);
     L.marker([l.from_lat, l.from_lon], { icon: pin('#0f766e', i + 1) }).addTo(map).bindPopup(esc(l.from_name));
     if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(map).bindPopup(esc(l.to_name));
     g.forEach(p => bounds.push(p));
@@ -1166,12 +1188,28 @@ function legForm(trip, legs, leg = null, costi = null) {
   // un tasto per avere l'unica cosa che serve.
   let varianti = [], scelta = null, sceltaEsplicita = false, cercandoPer = '';
   modal(`<h2>${leg ? 'Modifica tappa' : 'Nuova tappa'}</h2><form id="f" class="stack" style="margin-top:14px">
+    <div><label class="f">Come</label><select name="mezzo" id="mezzo">${Object.entries(MEZZI).map(([k, [ico, nome]]) => `<option value="${k}" ${k === mezzoDi(leg) ? 'selected' : ''}>${ico} ${nome}</option>`).join('')}</select></div>
     <div><label class="f">Partenza</label><input id="from" required value="${esc(from?.name || '')}" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
     <div><label class="f">Arrivo</label><input id="to" required value="${esc(to?.name || '')}" placeholder="Cerca citt\u00e0 o luogo\u2026" autocomplete="off"></div>
     <div class="form-grid"><div><label class="f">Data</label><input type="date" name="date" value="${leg?.date ? iso(leg.date) : (last?.date ? iso(last.date) : (trip.start_date ? iso(trip.start_date) : today()))}"></div>
-      <div><label class="f">Gasolio \u20ac/l (vuoto = ${trip.fuel_price ?? settings.vehicle?.fuel_price})</label><input type="number" step="0.001" name="fuel_price" value="${leg?.fuel_price ?? ''}" placeholder="${trip.fuel_price ?? settings.vehicle?.fuel_price}"></div></div>
+      <div id="riga-gasolio"><label class="f">Gasolio \u20ac/l (vuoto = ${trip.fuel_price ?? settings.vehicle?.fuel_price})</label><input type="number" step="0.001" name="fuel_price" value="${leg?.fuel_price ?? ''}" placeholder="${trip.fuel_price ?? settings.vehicle?.fuel_price}"></div></div>
+    <div id="biglietto" hidden class="stack">
+      <div class="form-grid">
+        <div><label class="f">Compagnia</label><input name="compagnia" value="${esc(leg?.compagnia || '')}" placeholder="Es. Moby, ITA Airways, Trenitalia"></div>
+        <div><label class="f">Numero</label><input name="codice" value="${esc(leg?.codice || '')}" placeholder="Es. MY 512, AZ 1234, IC 589"></div>
+      </div>
+      <div class="form-grid">
+        <div><label class="f">Partenza (ora)</label><input type="time" name="start_time" value="${esc(leg?.start_time || '')}"></div>
+        <div><label class="f">Arrivo (ora)</label><input type="time" name="end_time" value="${esc(leg?.end_time || '')}"></div>
+        <div><label class="f">Tariffa</label><input type="text" inputmode="decimal" name="tariffa" value="${leg?.tariffa ?? ''}" placeholder="Es. 180,50"></div>
+        <div><label class="f">Valuta</label>${scegliValuta('tariffa_currency', leg?.tariffa_currency)}</div>
+      </div>
+      <div><label class="f">Sconto</label><input name="sconto" value="${esc(leg?.sconto || '')}" placeholder="Es. socio Touring -10%, bimbi gratis"></div>
+      <div><label class="f">Condizioni</label><textarea name="condizioni" rows="2" placeholder="Es. cabina interna, camper fino a 7 m, modificabile entro 48 h, bagaglio 20 kg">${esc(leg?.condizioni || '')}</textarea></div>
+      <p class="small muted" style="margin:-4px 0 0">La tariffa entra da sola fra le spese del viaggio, nella categoria del mezzo. I chilometri di questa tappa non contano come chilometri di camper, e le ore non sono ore di guida.</p>
+    </div>
     <div><label class="f">Note</label><input name="notes" value="${esc(leg?.notes || '')}"></div>
-    ${leg ? `<div class="form-grid">
+    <div id="costi-camper">${leg ? `<div class="form-grid">
       <div><label class="f">Costo gasolio €</label><input type="number" step="0.01" min="0" name="costo_gasolio" value="${costi?.gMano && costi.g != null ? (+costi.g).toFixed(2) : ''}" placeholder="${costi?.g != null ? (+costi.g).toFixed(2) : 'calcolato'}"></div>
       <div><label class="f">Km in autostrada</label><input type="number" step="0.1" min="0" name="pedaggio_km" value="${leg.pedaggio_km ?? ''}" placeholder="0"></div>
       <div><label class="f">Costo pedaggi €</label><input type="number" step="0.01" min="0" name="costo_pedaggio" value="${costi?.pMano && costi.p != null ? (+costi.p).toFixed(2) : ''}" placeholder="${costi?.p != null ? (+costi.p).toFixed(2) : 'calcolato'}"></div></div>
@@ -1179,7 +1217,7 @@ function legForm(trip, legs, leg = null, costi = null) {
     <label class="riga-scelta"><input type="checkbox" name="gasolio" ${leg.senza_gasolio ? '' : 'checked'}> Calcola da solo il gasolio di questa tappa
       <span class="small muted">${leg.senza_gasolio ? 'Ora e\u2019 spento: la spesa l\u2019hai tolta a mano.' : 'La spesa si aggiorna con i chilometri e il prezzo.'}</span></label>
     <label class="riga-scelta"><input type="checkbox" name="pedaggio" ${leg.senza_pedaggio ? '' : 'checked'}> Calcola da solo il pedaggio di questa tappa
-      <span class="small muted">${leg.senza_pedaggio ? 'Ora e\u2019 spento: la spesa l\u2019hai tolta a mano.' : 'Senza chilometri di autostrada non viene nessuna spesa.'}</span></label>` : ''}
+      <span class="small muted">${leg.senza_pedaggio ? 'Ora e\u2019 spento: la spesa l\u2019hai tolta a mano.' : 'Senza chilometri di autostrada non viene nessuna spesa.'}</span></label>` : ''}</div>
     <div id="strade"></div><div id="pmap" class="map sm" style="display:none"></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${leg ? 'Salva' : 'Aggiungi'}</button></div></form>`,
     (el, close) => {
@@ -1216,7 +1254,22 @@ function legForm(trip, legs, leg = null, costi = null) {
         });
       };
 
+      // Un traghetto o un volo non hanno strade fra cui scegliere e non
+      // consumano gasolio: i pezzi che parlano di strada se ne vanno, e al loro
+      // posto compare il biglietto
+      const mezzo = () => $('#mezzo', el).value;
+      const mostraMezzo = () => {
+        const camper = mezzo() === 'camper';
+        $('#biglietto', el).hidden = camper;
+        $('#riga-gasolio', el).hidden = !camper;
+        $('#costi-camper', el).hidden = !camper;
+        $('#strade', el).hidden = !camper;
+        if (!camper) $('#pmap', el).style.display = 'none';
+        if (camper) cerca();
+      };
+
       const cerca = safe(async () => {
+        if (mezzo() !== 'camper') return;
         if (!from?.lat || !to?.lat) { $('#strade', el).innerHTML = '<div class="small muted">Scegli partenza e arrivo dai suggerimenti: le strade possibili le trovo da sola.</div>'; return; }
         const chiave = `${from.lat},${from.lon}>${to.lat},${to.lon}`;
         if (chiave === cercandoPer) return;
@@ -1239,13 +1292,17 @@ function legForm(trip, legs, leg = null, costi = null) {
       geoInput($('#from', el), r => { from = r; cerca(); });
       geoInput($('#to', el), r => { to = r; cerca(); });
       $('[name=fuel_price]', el).addEventListener('input', () => { if (varianti.length) mostra(); });
-      cerca();
+      $('#mezzo', el).onchange = mostraMezzo;
+      mostraMezzo();
 
       $('#f', el).onsubmit = safe(async e => {
         e.preventDefault();
         if (!from?.lat || !to?.lat) return toast('Scegli partenza e arrivo dai suggerimenti', true);
         const fd = Object.fromEntries(new FormData(e.target));
-        const body = { from, to, date: fd.date || null, fuel_price: fd.fuel_price || null, notes: fd.notes };
+        const body = { from, to, date: fd.date || null, fuel_price: fd.fuel_price || null, notes: fd.notes,
+          mezzo: fd.mezzo, compagnia: fd.compagnia, codice: fd.codice, tariffa: fd.tariffa,
+          tariffa_currency: fd.tariffa_currency, condizioni: fd.condizioni, sconto: fd.sconto,
+          start_time: fd.start_time, end_time: fd.end_time };
         if (leg) {
           body.senza_gasolio = !fd.gasolio;
           body.senza_pedaggio = !fd.pedaggio;
@@ -1258,7 +1315,7 @@ function legForm(trip, legs, leg = null, costi = null) {
         // La strada scelta si porta dietro il suo disegno. Su una tappa che
         // esiste gia' si manda solo se e' stata scelta davvero: una tappa di
         // CarLock ha il tracciato vero, e non va sostituito da uno previsto.
-        if (scelta?.tratte?.[0]?.geometry && (!leg || sceltaEsplicita)) {
+        if (fd.mezzo === 'camper' && scelta?.tratte?.[0]?.geometry && (!leg || sceltaEsplicita)) {
           body.percorso = { distance_km: scelta.distance_km, duration_min: scelta.duration_min, geometry: scelta.tratte[0].geometry, stimato: scelta.stimato,
             pedaggio_km: scelta.tratte[0].pedaggio_km ?? scelta.pedaggio_km ?? null };
         }
@@ -1590,6 +1647,9 @@ const numeriRiga = w => `<b>${num((w.distance_m || 0) / 1000)} km</b> · ${dur(w
 // ciascuna il suo, e chi non e' in elenco ne riceve uno stabile ricavato dal
 // nome, cosi' lo scialpinismo non cambia tinta a ogni apertura.
 const COLORE_CAMPER = '#0f766e';
+// Le tappe fatte con un mezzo altrui: un colore solo per tutte, tanto a dire
+// quale mezzo e' ci pensa l'icona nel riquadro che si apre
+const COLORE_ALTRI_MEZZI = '#6366f1';
 const COLORI_SPORT = {
   'Bicicletta': '#2563eb',
   'Escursione': '#16a34a',

@@ -343,6 +343,20 @@ export async function migrate() {
   -- sono due costi di natura diversa - i litri si contano, l'autostrada si stima
   -- a tariffa chilometrica - e tenuti insieme non si capiva quale dei due pesa.
   -- Il costo della tappa resta la loro somma.
+  -- Non tutte le tappe si fanno in camper. Il traghetto, l'aereo e il treno
+  -- hanno una compagnia, un numero, un orario e un biglietto, non consumano
+  -- gasolio e non pagano pedaggi, e i loro chilometri non sono chilometri di
+  -- guida. Quello che si sa del biglietto sta accanto alla tappa, dove serve:
+  -- al gabbiotto dell'imbarco, non in fondo a un quaderno.
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS mezzo TEXT NOT NULL DEFAULT 'camper';
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS compagnia TEXT;
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS codice TEXT;
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS tariffa NUMERIC(10,2);
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS tariffa_currency TEXT NOT NULL DEFAULT 'EUR';
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS condizioni TEXT;
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS sconto TEXT;
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS senza_tariffa BOOLEAN NOT NULL DEFAULT false;
+
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS pedaggio_km NUMERIC(10,1);
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS senza_pedaggio BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS start_time TEXT;
@@ -380,9 +394,9 @@ export async function migrate() {
 
   await q(`INSERT INTO settings(key, value) VALUES
     ('vehicle', '{"length_m": 6, "km_per_liter": 10, "fuel_price": 1.75}'),
-    ('categories', '["gasolio","traghetto","bus","treno","area_sosta","campeggio","pedaggi","vitto","spesa","visite","manutenzione","altro"]')
+    ('categories', '["gasolio","traghetto","bus","treno","aereo","area_sosta","campeggio","pedaggi","vitto","spesa","visite","manutenzione","altro"]')
     ON CONFLICT (key) DO NOTHING`);
 
-  await categorieNuove(['bus', 'treno'], 'traghetto');
+  await categorieNuove(['bus', 'treno', 'aereo'], 'traghetto');
   await spesePerSosteGiaScritte();
 }

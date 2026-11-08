@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
-import { wrap, num } from '../lib/util.js';
+import { wrap, num, haversineKm } from '../lib/util.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
@@ -19,10 +19,72 @@ async function getSettings() {
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
 }
 
+// Una tappa non si fa per forza in camper: il traghetto, l'aereo e il treno
+// hanno un biglietto invece del gasolio, e i loro chilometri non si guidano.
+// La categoria della spesa e' quella del mezzo, cosi' nei riepiloghi il
+// traghetto sta col traghetto e non in un calderone.
+export const MEZZI = {
+  camper: { nome: 'In camper', icona: '\ud83d\ude90' },
+  traghetto: { nome: 'Traghetto', icona: '\u26f4\ufe0f', categoria: 'traghetto' },
+  aereo: { nome: 'Aereo', icona: '\u2708\ufe0f', categoria: 'aereo' },
+  treno: { nome: 'Treno', icona: '\ud83d\ude86', categoria: 'treno' },
+  bus: { nome: 'Bus', icona: '\ud83d\ude8c', categoria: 'bus' },
+};
+const mezzoValido = m => Object.prototype.hasOwnProperty.call(MEZZI, String(m || '')) ? String(m) : 'camper';
+const testoCorto = (v, n) => { const t = String(v ?? '').trim(); return t ? t.slice(0, n) : null; };
+// Quello che si sa del viaggio altrui: chi lo fa, con che numero, a che ora,
+// quanto costa, a quali condizioni e con quale sconto
+const datiMezzo = b => ({
+  mezzo: mezzoValido(b?.mezzo),
+  compagnia: testoCorto(b?.compagnia, 120),
+  codice: testoCorto(b?.codice, 60),
+  tariffa: b?.tariffa === '' || b?.tariffa == null ? null : num(b.tariffa),
+  tariffa_currency: valutaValida(b?.tariffa_currency),
+  condizioni: testoCorto(b?.condizioni, 2000),
+  sconto: testoCorto(b?.sconto, 300),
+  start_time: oraValida(b?.start_time),
+  end_time: oraValida(b?.end_time),
+});
+const inCamper = l => mezzoValido(l?.mezzo) === 'camper';
+
+// Il biglietto di una tappa fatta con un mezzo altrui: compagnia, numero e
+// tariffa diventano una spesa del viaggio, come il gasolio per il camper.
+// Condizioni e sconti restano sulla tappa: servono a chi parte, non ai conti.
+async function syncTariffaSpesa(legId) {
+  const leg = (await q('SELECT * FROM legs WHERE id=$1', [legId])).rows[0];
+  if (!leg) return;
+  const categoria = MEZZI[mezzoValido(leg.mezzo)].categoria;
+  const ex = (await q(`SELECT * FROM expenses WHERE leg_id=$1 AND auto=true AND category NOT IN ('gasolio','pedaggi')`, [legId])).rows[0];
+  const importo = num(leg.tariffa);
+  if (!categoria || leg.senza_tariffa || !(importo > 0)) {
+    if (ex && !ex.edited) await q('DELETE FROM expenses WHERE id=$1', [ex.id]);
+    return;
+  }
+  const dove = `${leg.from_name.split(',')[0]} \u2192 ${leg.to_name.split(',')[0]}`;
+  const chi = [leg.compagnia, leg.codice].filter(Boolean).join(' ') || MEZZI[mezzoValido(leg.mezzo)].nome;
+  const c = await cambioPerSpesa({ currency: leg.tariffa_currency, date: leg.date });
+  const meta = { mezzo: mezzoValido(leg.mezzo), compagnia: leg.compagnia || undefined, codice: leg.codice || undefined };
+  if (!ex) {
+    await q(`INSERT INTO expenses(trip_id,leg_id,date,category,description,amount,currency,rate,auto,meta)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9)`,
+      [leg.trip_id, legId, leg.date || new Date(), categoria, `${chi} \u00b7 ${dove}`, importo, c.currency, c.rate ?? 1, meta]);
+  } else if (!ex.edited) {
+    await q(`UPDATE expenses SET category=$2, description=$3, amount=$4, currency=$5, rate=$6, meta=$7, date=COALESCE($8,date) WHERE id=$1`,
+      [ex.id, categoria, `${chi} \u00b7 ${dove}`, importo, c.currency, c.rate ?? 1, meta, leg.date]);
+  }
+}
+
 // Ricalcola la spesa gasolio automatica di una tappa (se non modificata a mano)
 async function syncFuelExpense(legId) {
   const leg = (await q('SELECT l.*, t.fuel_price AS trip_fuel_price, t.km_per_liter FROM legs l JOIN trips t ON t.id=l.trip_id WHERE l.id=$1', [legId])).rows[0];
-  if (!leg || leg.senza_gasolio) return;      // spesa cancellata a mano: non torna
+  if (!leg) return;
+  // Un traghetto non consuma il gasolio del camper: se la tappa cambia mezzo,
+  // la stima che c'era se ne va con lui
+  if (!inCamper(leg)) {
+    await q(`DELETE FROM expenses WHERE leg_id=$1 AND category='gasolio' AND auto=true AND NOT edited`, [legId]);
+    return;
+  }
+  if (leg.senza_gasolio) return;              // spesa cancellata a mano: non torna
   const s = await getSettings();
   const price = num(leg.fuel_price) || num(leg.trip_fuel_price) || num(s.vehicle?.fuel_price, 1.75);
   const kml = num(leg.km_per_liter, 10) || 10;
@@ -47,7 +109,7 @@ export async function syncTollExpense(legId) {
   const km = num(leg.pedaggio_km);
   // Senza autostrada non c'e' pedaggio da stimare: la stima di prima se ne va,
   // tranne quando dentro c'e' un importo scritto a mano
-  if (leg.senza_pedaggio || !(km > 0)) {
+  if (!inCamper(leg) || leg.senza_pedaggio || !(km > 0)) {
     if (ex && !ex.edited) await q('DELETE FROM expenses WHERE id=$1', [ex.id]);
     return;
   }
@@ -62,7 +124,7 @@ export async function syncTollExpense(legId) {
 }
 
 // I costi che una tappa si calcola da sola: gasolio e pedaggio, sempre insieme
-const costiTappa = async legId => { await syncFuelExpense(legId); await syncTollExpense(legId); };
+const costiTappa = async legId => { await syncFuelExpense(legId); await syncTollExpense(legId); await syncTariffaSpesa(legId); };
 
 // Un costo scritto a mano sulla tappa prende il posto di quello calcolato: la
 // spesa resta automatica ma «modificata», cosi' nessun ricalcolo la tocca piu'
@@ -107,22 +169,34 @@ async function tripTotals(tripId) {
   // Le ore di guida sono la somma delle durate delle tappe. Il tempo in strada
   // e' un'altra cosa: fra la partenza e l'arrivo di una tappa che unisce piu'
   // tragitti ci sono anche le soste, e quelle non si guidano.
-  const tappe = (await q('SELECT distance_km, duration_min, start_time, end_time, external_id, pedaggio_km FROM legs WHERE trip_id=$1', [tripId])).rows;
+  const tappe = (await q('SELECT distance_km, duration_min, start_time, end_time, external_id, pedaggio_km, mezzo FROM legs WHERE trip_id=$1', [tripId])).rows;
+  // I chilometri di un traghetto o di un aereo non sono chilometri di camper, e
+  // le sue ore non sono ore di guida: si contano a parte, altrimenti un volo
+  // farebbe credere di aver guidato per tutta Europa
+  const guidate = tappe.filter(inCamper), altre = tappe.filter(l => !inCamper(l));
   const legs = {
-    km: tappe.reduce((a, l) => a + (+l.distance_km || 0), 0),
-    minutes: tappe.reduce((a, l) => a + (l.duration_min || 0), 0),
+    km: guidate.reduce((a, l) => a + (+l.distance_km || 0), 0),
+    minutes: guidate.reduce((a, l) => a + (l.duration_min || 0), 0),
     n: tappe.length,
   };
-  const strada = tappe.reduce((a, l) => a + (minutiInStrada(l) ?? l.duration_min ?? 0), 0);
+  const kmAltri = altre.reduce((a, l) => a + (+l.distance_km || 0), 0);
+  const perMezzo = {};
+  for (const l of altre) {
+    const k = mezzoValido(l.mezzo);
+    perMezzo[k] = { n: (perMezzo[k]?.n || 0) + 1, km: +((perMezzo[k]?.km || 0) + (+l.distance_km || 0)).toFixed(1), minuti: (perMezzo[k]?.minuti || 0) + (l.duration_min || 0) };
+  }
+  const strada = guidate.reduce((a, l) => a + (minutiInStrada(l) ?? l.duration_min ?? 0), 0);
   // Una tappa che unisce piu' tragitti e la cui durata copre tutto l'intervallo
   // fra partenza e arrivo non sta dicendo il tempo di guida: dentro ci sono le
   // soste fra un tragitto e l'altro. Si conta a parte, e si dice.
   const soloStrada = tappe.filter(l => String(l.external_id || '').includes('+') && (minutiInStrada(l) ?? 0) <= (l.duration_min || 0)).length;
   const fuel = (await q(`SELECT coalesce(sum((meta->>'liters')::float),0) AS liters FROM expenses WHERE trip_id=$1 AND category='gasolio' AND auto=true`, [tripId])).rows[0];
   const total = byCat.reduce((a, b) => a + b.total, 0);
+  const kmTotali = legs.km + kmAltri;
   return { total: +total.toFixed(2), by_category: byCat, km: +legs.km.toFixed(1), minutes: legs.minutes, minuti_strada: strada, tappe_con_soste: soloStrada,
     pedaggio_km: +tappe.reduce((a, l) => a + (+l.pedaggio_km || 0), 0).toFixed(1),
-    legs: legs.n, liters: +(+fuel.liters).toFixed(1), cost_per_km: legs.km ? +(total / legs.km).toFixed(3) : null };
+    altri_mezzi: altre.length ? { n: altre.length, km: +kmAltri.toFixed(1), per_mezzo: perMezzo } : null,
+    legs: legs.n, liters: +(+fuel.liters).toFixed(1), cost_per_km: kmTotali ? +(total / kmTotali).toFixed(3) : null };
 }
 
 // ---- impostazioni veicolo ----
@@ -481,6 +555,21 @@ const sceltoDaFuori = p => (p && Array.isArray(p.geometry) && p.geometry.length 
       warning: p.stimato ? 'Distanza stimata: il servizio dei percorsi non ha risposto' : null }
   : null;
 
+// Il tragitto di una tappa. In camper lo calcola la strada; con gli altri mezzi
+// no: una rotta e un volo le statali non le seguono, e disegnare l'autostrada
+// sotto un aereo sarebbe un racconto falso. Resta la linea fra i due punti, e i
+// chilometri sono quelli in linea d'aria quando nessuno li dichiara.
+async function tragittoTappa(mezzo, from, to, b) {
+  if (mezzoValido(mezzo) !== 'camper') {
+    const km = num(b?.distance_km) > 0 ? num(b.distance_km)
+      : +haversineKm([+from.lat, +from.lon], [+to.lat, +to.lon]).toFixed(1);
+    const oreDichiarate = minutiInStrada({ start_time: oraValida(b?.start_time), end_time: oraValida(b?.end_time) });
+    return { distance_km: km, geometry: [[+from.lat, +from.lon], [+to.lat, +to.lon]], pedaggio_km: null,
+      duration_min: oreDichiarate ?? (num(b?.duration_min) > 0 ? Math.round(num(b.duration_min)) : null) };
+  }
+  return sceltoDaFuori(b?.percorso) || await route(from, to);
+}
+
 // La foto di copertina si sceglie. Rimandando la stessa, si torna alla prima
 // caricata: e' la scelta che si disfa, non una seconda decisione da prendere.
 router.post('/trips/:id/copertina', wrap(async (req, res) => {
@@ -501,12 +590,15 @@ router.post('/trips/:id/legs', wrap(async (req, res) => {
   if (!from?.lat || !to?.lat) return res.status(400).json({ error: 'Partenza e arrivo obbligatori' });
   // Se chi chiama ha gia' scelto una strada fra quelle proposte, si prende
   // quella: ricalcolarla darebbe la piu' rapida, cioe' proprio quella scartata
-  const r = sceltoDaFuori(b.percorso) || await route(from, to);
+  const m = datiMezzo(b);
+  const r = await tragittoTappa(m.mezzo, from, to, b);
   const pos = (await q('SELECT coalesce(max(position),0)+1 AS p FROM legs WHERE trip_id=$1', [req.params.id])).rows[0].p;
-  const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,distance_km,duration_min,fuel_price,geometry,notes,pedaggio_km)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+  const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,distance_km,duration_min,fuel_price,geometry,notes,pedaggio_km,
+      mezzo,compagnia,codice,tariffa,tariffa_currency,condizioni,sconto,start_time,end_time)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING *`,
     [req.params.id, pos, b.date || null, from.name, from.lat, from.lon, to.name, to.lat, to.lon, r.distance_km, r.duration_min, b.fuel_price ? num(b.fuel_price) : null, JSON.stringify(r.geometry), b.notes || null,
-      r.pedaggio_km != null ? num(r.pedaggio_km) : null])).rows[0];
+      r.pedaggio_km != null ? num(r.pedaggio_km) : null,
+      m.mezzo, m.compagnia, m.codice, m.tariffa, m.tariffa_currency, m.condizioni, m.sconto, m.start_time, m.end_time])).rows[0];
   await costiTappa(leg.id);
   // POI in background: non blocca la risposta
   cercaSosteArrivo(leg.id, to.name, to.lat, to.lon).catch(e => console.warn('soste all\u2019arrivo:', e.message));
@@ -516,21 +608,36 @@ router.put('/legs/:id', wrap(async (req, res) => {
   const b = req.body || {};
   const cur = (await q('SELECT * FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
+  const m = datiMezzo({ ...cur, ...b });
   let geo = { distance_km: b.distance_km != null ? num(b.distance_km) : cur.distance_km, duration_min: cur.duration_min, geometry: cur.geometry };
   const scelto = sceltoDaFuori(b.percorso);
   const changedPts = b.from?.lat && b.to?.lat && (b.from.lat !== cur.from_lat || b.from.lon !== cur.from_lon || b.to.lat !== cur.to_lat || b.to.lon !== cur.to_lon);
-  if (scelto) geo = scelto;
-  else if (changedPts) { const r = await route(b.from, b.to); geo = r; }
+  // Cambiato il mezzo, il disegno va rifatto: la strada per il camper, la linea
+  // dritta per chi vola o naviga
+  const cambiaMezzo = m.mezzo !== mezzoValido(cur.mezzo);
+  if (m.mezzo !== 'camper') {
+    if (cambiaMezzo || changedPts || b.distance_km != null || b.start_time !== undefined || b.end_time !== undefined) {
+      // Cambiando mezzo i chilometri di prima non valgono piu': quelli di strada
+      // non sono quelli in linea d'aria. Si ricontano, a meno che non arrivino
+      // scritti adesso
+      geo = await tragittoTappa(m.mezzo, b.from || { lat: cur.from_lat, lon: cur.from_lon }, b.to || { lat: cur.to_lat, lon: cur.to_lon },
+        { ...b, distance_km: b.distance_km ?? (cambiaMezzo ? null : cur.distance_km), start_time: m.start_time, end_time: m.end_time });
+    }
+  } else if (scelto) geo = scelto;
+  else if (changedPts || cambiaMezzo) { const r = await route(b.from || { lat: cur.from_lat, lon: cur.from_lon }, b.to || { lat: cur.to_lat, lon: cur.to_lon }); geo = r; }
   // I chilometri di autostrada: quelli scritti a mano comandano, poi quelli
   // della strada appena scelta, altrimenti restano quelli che c'erano
   const pedKm = b.pedaggio_km !== undefined
     ? (String(b.pedaggio_km).trim() === '' ? null : num(b.pedaggio_km))
     : (scelto ? (scelto.pedaggio_km != null ? num(scelto.pedaggio_km) : null) : (changedPts ? null : cur.pedaggio_km));
-  const leg = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8, distance_km=$9, duration_min=$10, fuel_price=$11, geometry=$12, notes=$13, position=coalesce($14,position), senza_gasolio=$15, pedaggio_km=$16, senza_pedaggio=$17 WHERE id=$1 RETURNING *`,
+  const leg = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8, distance_km=$9, duration_min=$10, fuel_price=$11, geometry=$12, notes=$13, position=coalesce($14,position), senza_gasolio=$15, pedaggio_km=$16, senza_pedaggio=$17,
+      mezzo=$18, compagnia=$19, codice=$20, tariffa=$21, tariffa_currency=$22, condizioni=$23, sconto=$24, start_time=$25, end_time=$26, senza_tariffa=$27 WHERE id=$1 RETURNING *`,
     [cur.id, b.date ?? cur.date, b.from?.name ?? cur.from_name, b.from?.lat ?? cur.from_lat, b.from?.lon ?? cur.from_lon, b.to?.name ?? cur.to_name, b.to?.lat ?? cur.to_lat, b.to?.lon ?? cur.to_lon,
       geo.distance_km, geo.duration_min, b.fuel_price != null && b.fuel_price !== '' ? num(b.fuel_price) : null, JSON.stringify(geo.geometry), b.notes ?? cur.notes, b.position,
       b.senza_gasolio != null ? !!b.senza_gasolio : cur.senza_gasolio, pedKm,
-      b.senza_pedaggio != null ? !!b.senza_pedaggio : cur.senza_pedaggio])).rows[0];
+      b.senza_pedaggio != null ? !!b.senza_pedaggio : cur.senza_pedaggio,
+      m.mezzo, m.compagnia, m.codice, m.tariffa, m.tariffa_currency, m.condizioni, m.sconto, m.start_time, m.end_time,
+      b.senza_tariffa != null ? !!b.senza_tariffa : cur.senza_tariffa])).rows[0];
   await costiTappa(leg.id);
   // I costi scritti a mano vengono dopo il ricalcolo: sono loro a dover restare
   await costoAMano(leg.id, 'gasolio', b.costo_gasolio);
@@ -894,7 +1001,10 @@ router.delete('/expenses/:id', wrap(async (req, res) => {
   const ex = (await q('DELETE FROM expenses WHERE id=$1 RETURNING auto, leg_id, stop_id, category', [req.params.id])).rows[0];
   if (!ex) return res.status(404).json({ error: 'Spesa non trovata' });
   const spenta = !!(ex.auto && (ex.leg_id || ex.stop_id));
-  if (ex.auto && ex.leg_id) await q(`UPDATE legs SET ${ex.category === 'pedaggi' ? 'senza_pedaggio' : 'senza_gasolio'}=true WHERE id=$1`, [ex.leg_id]);
+  if (ex.auto && ex.leg_id) {
+    const campo = ex.category === 'pedaggi' ? 'senza_pedaggio' : ex.category === 'gasolio' ? 'senza_gasolio' : 'senza_tariffa';
+    await q(`UPDATE legs SET ${campo}=true WHERE id=$1`, [ex.leg_id]);
+  }
   if (ex.auto && ex.stop_id) await q('UPDATE stops SET senza_spesa=true WHERE id=$1', [ex.stop_id]);
   res.json({ ok: true, calcolo_spento: spenta, da: ex.stop_id ? 'sosta' : ex.leg_id ? 'tappa' : null });
 }));
