@@ -582,9 +582,15 @@ async function tragittoTappa(mezzo, from, to, b) {
 // si disfa rimandandolo vuoto.
 router.post('/photos/:id/ritaglio', wrap(async (req, res) => {
   const b = req.body || {};
-  const dentro = (v, min, max, pre) => Math.min(max, Math.max(min, +num(v, pre).toFixed(2)));
-  const crop = b.px == null && b.py == null && b.z == null ? null
-    : { px: dentro(b.px, 0, 100, 50), py: dentro(b.py, 0, 100, 50), z: dentro(b.z, 1, 4, 1) };
+  const frazione = (v, min, pre) => Math.min(1, Math.max(min, +num(v, pre).toFixed(4)));
+  // Il rettangolo sta dentro la foto: quello che sborda si riporta dentro, cosi'
+  // nessun conto strano arriva fino al disegno della copertina
+  let crop = null;
+  if (b.w != null && b.h != null) {
+    const w = frazione(b.w, 0.05, 1), h = frazione(b.h, 0.05, 1);
+    crop = { x: frazione(b.x, 0, 0) > 1 - w ? +(1 - w).toFixed(4) : frazione(b.x, 0, 0),
+      y: frazione(b.y, 0, 0) > 1 - h ? +(1 - h).toFixed(4) : frazione(b.y, 0, 0), w, h };
+  }
   const r = (await q('UPDATE photos SET crop=$2 WHERE id=$1 RETURNING id, crop', [req.params.id, crop ? JSON.stringify(crop) : null])).rows[0];
   if (!r) return res.status(404).json({ error: 'Foto non trovata' });
   res.json(r);

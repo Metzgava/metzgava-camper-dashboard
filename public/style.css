@@ -265,12 +265,21 @@ input[type=checkbox], input[type=radio] { width: auto; }
   transform: scale(var(--zoom, 1)); }
 .viaggio:hover .copertina img { transform: scale(calc(var(--zoom, 1) * 1.05)); }
 
-/* Il telaio in cui si sceglie l'inquadratura: stesso 16/9 della copertina, cosi'
-   quello che si vede qui e' quello che si vedra' li' */
-.ritaglio-telaio { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 12px; background: var(--surface-2); touch-action: none; cursor: grab; }
-.ritaglio-telaio:active { cursor: grabbing; }
-.ritaglio-telaio img { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; -webkit-user-drag: none;
-  transform: scale(var(--zoom, 1)); }
+/* Si sceglie l'inquadratura sulla foto intera: il riquadro si sposta e si
+   stringe, e quello che resta dentro e' la copertina */
+.ritaglio-area { position: relative; border-radius: 12px; overflow: hidden; background: var(--surface-2); touch-action: none; }
+.ritaglio-area img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+.ritaglio-box { position: absolute; border: 2px solid #fff; border-radius: 4px; cursor: move;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 1px 6px rgba(0,0,0,.35); }
+.ritaglio-box i { position: absolute; width: 14px; height: 14px; background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.45); }
+.ritaglio-box .m-nw { left: -8px; top: -8px; cursor: nwse-resize; }
+.ritaglio-box .m-ne { right: -8px; top: -8px; cursor: nesw-resize; }
+.ritaglio-box .m-se { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.ritaglio-box .m-sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.ritaglio-box .m-n { left: 50%; top: -8px; margin-left: -7px; cursor: ns-resize; }
+.ritaglio-box .m-s { left: 50%; bottom: -8px; margin-left: -7px; cursor: ns-resize; }
+.ritaglio-box .m-w { left: -8px; top: 50%; margin-top: -7px; cursor: ew-resize; }
+.ritaglio-box .m-e { right: -8px; top: 50%; margin-top: -7px; cursor: ew-resize; }
 /* Le forbici stanno sulla copertina, nell'angolo opposto al distintivo: si
    sceglie l'inquadratura guardando la scheda, non cercando la foto fra le altre */
 .copertina .ritaglia { position: absolute; top: 10px; right: 10px; z-index: 2; background: color-mix(in srgb, var(--surface) 88%, transparent);

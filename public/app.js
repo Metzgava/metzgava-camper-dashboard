@@ -439,44 +439,96 @@ function tripForm(t = null) {
 
 // La copertina si sceglie fra tutte le foto del viaggio, comprese quelle delle
 // soste: la foto buona e' dove capita, non per forza nella raccolta.
-// Il ritaglio non taglia niente: dice quale punto della foto tenere nel riquadro
-// e quanto avvicinarla. La foto resta intera, e ingrandendola si rivede tutta.
-const stileRitaglio = c => c ? `object-position:${+c.px}% ${+c.py}%;transform-origin:${+c.px}% ${+c.py}%;--zoom:${+c.z || 1}` : '';
+// Il ritaglio non taglia niente: dice quale rettangolo della foto si vede nella
+// copertina. Il file resta intero, e l'inquadratura si rifa' quando si vuole.
+// Il rettangolo ha le stesse proporzioni del riquadro della scheda, percio'
+// basta allargarlo o stringerlo: quello che c'e' dentro ci finisce preciso.
+const stileRitaglio = c => {
+  if (!c) return '';
+  if (c.w > 0 && c.h > 0) return `position:absolute;left:${(-c.x * 100 / c.w).toFixed(2)}%;top:${(-c.y * 100 / c.h).toFixed(2)}%;`
+    + `width:${(100 / c.w).toFixed(2)}%;height:${(100 / c.h).toFixed(2)}%;max-width:none;object-fit:fill`;
+  // Le prime inquadrature erano un punto e un ingrandimento: restano buone
+  return `object-position:${+c.px}% ${+c.py}%;transform-origin:${+c.px}% ${+c.py}%;--zoom:${+c.z || 1}`;
+};
 
-// Scegliere l'inquadratura guardandola: il telaio e' lo stesso 16:9 della
-// copertina, e quello che si vede qui dentro e' quello che si vedra' li'.
+const PROPORZIONE_COPERTINA = 16 / 9;
+const MIN_LATO = 48;   // pixel: sotto questa misura il riquadro non si afferra piu'
+
+// Si sceglie l'inquadratura sulla foto intera: il riquadro si sposta
+// trascinandolo e si cambia di misura dagli angoli o dai lati. Le proporzioni
+// restano quelle della copertina - altrimenti la foto ci entrerebbe schiacciata.
 function ritagliaFoto(foto, dopo) {
-  let px = foto.crop?.px ?? 50, py = foto.crop?.py ?? 50, z = foto.crop?.z ?? 1;
+  const MANIGLIE = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   modal(`<h2>Che parte si vede</h2>
-    <p class="small muted">Trascina la foto nel riquadro e usa la leva per avvicinarla: questa e\u2019 l\u2019inquadratura della copertina. Il file non si tocca, e aprendo la foto si rivede intera.</p>
-    <div class="ritaglio-telaio" id="telaio"><img id="rf" src="/uploads/${esc(foto.filename)}" alt="" draggable="false"></div>
-    <div><label class="f">Avvicina</label><input type="range" id="rz" min="1" max="3" step="0.02" value="${z}"></div>
+    <p class="small muted">Sposta il riquadro trascinandolo, e cambialo di misura dagli angoli o dai lati: quello che resta dentro e\u2019 la copertina. La foto non viene tagliata.</p>
+    <div class="ritaglio-area" id="area"><img id="rf" src="/uploads/${esc(foto.filename)}" alt="" draggable="false">
+      <div class="ritaglio-box" id="box">${MANIGLIE.map(m => `<i data-maniglia="${m}" class="m-${m}"></i>`).join('')}</div></div>
     <div class="row between"><button type="button" class="btn ghost" id="rvia">Rimetti intera</button>
       <div class="row"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn primary" id="rok">Salva</button></div></div>`,
     (el, close) => {
-      const img = $('#rf', el), telaio = $('#telaio', el);
+      const area = $('#area', el), img = $('#rf', el), riquadro = $('#box', el);
+      let A = { w: 0, h: 0 }, B = { x: 0, y: 0, w: 0, h: 0 };
+
       const disegna = () => {
-        img.style.objectPosition = `${px}% ${py}%`;
-        img.style.transformOrigin = `${px}% ${py}%`;
-        img.style.setProperty('--zoom', z);
+        riquadro.style.left = `${B.x}px`; riquadro.style.top = `${B.y}px`;
+        riquadro.style.width = `${B.w}px`; riquadro.style.height = `${B.h}px`;
       };
-      disegna();
-      let preso = null;
-      telaio.addEventListener('pointerdown', e => { preso = { x: e.clientX, y: e.clientY }; telaio.setPointerCapture(e.pointerId); });
-      telaio.addEventListener('pointermove', e => {
-        if (!preso) return;
-        const r = telaio.getBoundingClientRect();
-        px = Math.min(100, Math.max(0, px - (e.clientX - preso.x) / r.width * 100));
-        py = Math.min(100, Math.max(0, py - (e.clientY - preso.y) / r.height * 100));
-        preso = { x: e.clientX, y: e.clientY };
+      // Il riquadro resta dentro la foto e non si schiaccia: prima la misura,
+      // poi la posizione
+      const sistema = r => {
+        r.w = Math.max(MIN_LATO, Math.min(r.w, A.w, A.h * PROPORZIONE_COPERTINA));
+        r.h = r.w / PROPORZIONE_COPERTINA;
+        r.x = Math.max(0, Math.min(r.x, A.w - r.w));
+        r.y = Math.max(0, Math.min(r.y, A.h - r.h));
+        return r;
+      };
+      const parti = () => {
+        const r = img.getBoundingClientRect();
+        if (!r.width) return;
+        A = { w: r.width, h: r.height };
+        const c = foto.crop;
+        B = c?.w > 0
+          ? sistema({ x: c.x * A.w, y: c.y * A.h, w: c.w * A.w, h: c.h * A.h })
+          : sistema({ x: 0, y: 0, w: A.w, h: 0 });
+        if (!(c?.w > 0)) { B.x = (A.w - B.w) / 2; B.y = (A.h - B.h) / 2; }
+        disegna();
+      };
+      if (img.complete && img.naturalWidth) parti(); else img.onload = parti;
+      addEventListener('resize', parti);
+
+      let presa = null;
+      area.addEventListener('pointerdown', e => {
+        const m = e.target.closest('[data-maniglia]');
+        if (!m && !e.target.closest('#box')) return;
+        e.preventDefault();
+        presa = { m: m?.dataset.maniglia || null, x: e.clientX, y: e.clientY, da: { ...B } };
+        area.setPointerCapture(e.pointerId);
+      });
+      area.addEventListener('pointermove', e => {
+        if (!presa) return;
+        const dx = e.clientX - presa.x, dy = e.clientY - presa.y, d = presa.da;
+        if (!presa.m) { B = sistema({ ...d, x: d.x + dx, y: d.y + dy }); disegna(); return; }
+        const m = presa.m;
+        // Dai lati comanda quel lato, dagli angoli comanda la larghezza; il
+        // resto segue, perche' le proporzioni non si toccano
+        let w = m === 'n' || m === 's' ? (d.h + (m === 's' ? dy : -dy)) * PROPORZIONE_COPERTINA
+          : d.w + (m.includes('e') ? dx : 0) + (m.includes('w') ? -dx : 0);
+        const r = sistema({ x: d.x, y: d.y, w, h: 0 });
+        // L'angolo o il lato opposto sta fermo: si tira da una parte sola
+        if (m.includes('w')) r.x = d.x + d.w - r.w;
+        if (m.includes('n')) r.y = d.y + d.h - r.h;
+        if (m === 'n' || m === 's') r.x = d.x + (d.w - r.w) / 2;
+        if (m === 'e' || m === 'w') r.y = d.y + (d.h - r.h) / 2;
+        B = sistema(r);
         disegna();
       });
-      ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => telaio.addEventListener(ev, () => { preso = null; }));
-      $('#rz', el).addEventListener('input', e => { z = +e.target.value; disegna(); });
+      ['pointerup', 'pointercancel'].forEach(ev => area.addEventListener(ev, () => { presa = null; }));
+
       $('[data-x]', el).onclick = close;
       $('#rvia', el).onclick = safe(async () => { await api(`/photos/${foto.id}/ritaglio`, { method: 'POST', body: {} }); close(); dopo(); });
       $('#rok', el).onclick = safe(async () => {
-        await api(`/photos/${foto.id}/ritaglio`, { method: 'POST', body: { px, py, z } });
+        if (!A.w) return close();
+        await api(`/photos/${foto.id}/ritaglio`, { method: 'POST', body: { x: B.x / A.w, y: B.y / A.h, w: B.w / A.w, h: B.h / A.h } });
         close(); dopo();
       });
     });
@@ -566,7 +618,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v50';
+const VERSIONE = 'v51';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
