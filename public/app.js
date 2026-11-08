@@ -462,6 +462,7 @@ function ritagliaFoto(foto, dopo) {
   modal(`<h2>Che parte si vede</h2>
     <p class="small muted">Sposta il riquadro trascinandolo, e cambialo di misura dagli angoli o dai lati: quello che resta dentro e\u2019 la copertina. La foto non viene tagliata.</p>
     <div class="ritaglio-area" id="area"><img id="rf" src="/uploads/${esc(foto.filename)}" alt="" draggable="false">
+      ${['su', 'giu', 'sx', 'dx'].map(v => `<div class="velo" id="v-${v}"></div>`).join('')}
       <div class="ritaglio-box" id="box">${MANIGLIE.map(m => `<i data-maniglia="${m}" class="m-${m}"></i>`).join('')}</div></div>
     <div class="row between"><button type="button" class="btn ghost" id="rvia">Rimetti intera</button>
       <div class="row"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn primary" id="rok">Salva</button></div></div>`,
@@ -469,9 +470,22 @@ function ritagliaFoto(foto, dopo) {
       const area = $('#area', el), img = $('#rf', el), riquadro = $('#box', el);
       let A = { w: 0, h: 0 }, B = { x: 0, y: 0, w: 0, h: 0 };
 
+      // Lo spento intorno al riquadro sono quattro bande, non un'ombra larga
+      // quanto lo schermo: un'ombra obbliga a tagliare quello che esce dal
+      // telaio, e a farne le spese erano le maniglie di sopra e di sotto, che
+      // sul bordo della foto restavano mezze fuori e non si riuscivano a prendere
+      const banda = (id, x, y, w, h) => {
+        const e = $(`#v-${id}`, el);
+        e.style.left = `${Math.max(0, x)}px`; e.style.top = `${Math.max(0, y)}px`;
+        e.style.width = `${Math.max(0, w)}px`; e.style.height = `${Math.max(0, h)}px`;
+      };
       const disegna = () => {
         riquadro.style.left = `${B.x}px`; riquadro.style.top = `${B.y}px`;
         riquadro.style.width = `${B.w}px`; riquadro.style.height = `${B.h}px`;
+        banda('su', 0, 0, A.w, B.y);
+        banda('giu', 0, B.y + B.h, A.w, A.h - B.y - B.h);
+        banda('sx', 0, B.y, B.x, B.h);
+        banda('dx', B.x + B.w, B.y, A.w - B.x - B.w, B.h);
       };
       // Il riquadro resta dentro la foto e non si schiaccia: prima la misura,
       // poi la posizione
@@ -618,7 +632,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v51';
+const VERSIONE = 'v52';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
