@@ -23,6 +23,10 @@ const importoConValuta = (v, valuta, cambio) => valuta && valuta !== 'EUR'
 
 // Come si fa una tappa. In camper e' il caso normale; gli altri hanno una
 // compagnia, un orario e un biglietto, e sulla mappa una linea tutta loro.
+// Un viaggio ha tre momenti: lo si pensa, lo si fa, e poi resta.
+const STATI = { bozza: 'in costruzione', open: 'in corso', closed: 'concluso' };
+const nomeStato = t => STATI[t?.status] || t?.status || '';
+
 const MEZZI = { camper: ['\ud83d\ude90', 'In camper'], traghetto: ['\u26f4\ufe0f', 'Traghetto'],
   aereo: ['\u2708\ufe0f', 'Aereo'], treno: ['\ud83d\ude86', 'Treno'], bus: ['\ud83d\ude8c', 'Bus'] };
 const mezzoDi = l => MEZZI[l?.mezzo] ? l.mezzo : 'camper';
@@ -262,12 +266,14 @@ const itinerario = mete => {
 
 async function viewTrips() {
   const trips = await api('/trips');
-  const open = trips.filter(t => t.status === 'open'), closed = trips.filter(t => t.status !== 'open');
+  const open = trips.filter(t => t.status === 'open');
+  const bozze = trips.filter(t => t.status === 'bozza');
+  const closed = trips.filter(t => t.status !== 'open' && t.status !== 'bozza');
   const card = t => {
     const g = giorniViaggio(t);
     return `<a class="viaggio${t.status === 'open' ? ' in-corso' : ''}" href="#/trip/${t.id}">
       <div class="copertina">${t.cover ? `<img src="/uploads/${esc(t.cover)}" loading="lazy" alt="" style="${stileRitaglio(t.cover_crop)}" data-grande="/uploads/${esc(t.cover)}" data-didascalia="${esc(nomeViaggio(t))}" title="Tocca la foto per ingrandirla">` : rottaSvg(t.rotta) || '<span class="senza">🚐</span>'}
-        <span class="badge ${t.status}">${t.status === 'open' ? 'in corso' : 'concluso'}</span>${t.cover_id ? `<button class="ritaglia" data-ritaglia-cover="${t.cover_id}" data-file="${esc(t.cover)}" title="Scegli che parte della foto si vede">\u2702\ufe0f</button>` : ''}</div>
+        <span class="badge ${t.status}">${nomeStato(t)}</span>${t.cover_id ? `<button class="ritaglia" data-ritaglia-cover="${t.cover_id}" data-file="${esc(t.cover)}" title="Scegli che parte della foto si vede">\u2702\ufe0f</button>` : ''}</div>
       <div class="corpo">
         <div class="title">${esc(nomeViaggio(t))}</div>
         <div class="meta">${dateCliccabili(t)}${g ? ` · ${g} giorn${g === 1 ? 'o' : 'i'}` : ''}</div>
@@ -298,6 +304,7 @@ async function viewTrips() {
       <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub">${totKm ? eur(totSp / totKm) + '/km' : ''}</div></div>
     </div>
     ${open.length ? `<div class="section"><div class="anno">In corso</div><div class="viaggi">${open.map(card).join('')}</div></div>` : ''}
+    ${bozze.length ? `<div class="section"><div class="anno">\ud83e\uddf0 In costruzione \u00b7 <span>${bozze.length} viagg${bozze.length === 1 ? 'io' : 'i'} che stiamo preparando</span></div><div class="viaggi">${bozze.map(card).join('')}</div></div>` : ''}
     ${closed.length
       ? [...perAnno.entries()].map(([anno, lista]) => `<div class="section"><div class="anno">${esc(anno)} · <span>${lista.length} viagg${lista.length === 1 ? 'io' : 'i'}</span></div><div class="viaggi">${lista.map(card).join('')}</div></div>`).join('')
       : open.length ? '' : '<div class="card"><div class="empty">Nessun viaggio.<br>Crea il primo e aggiungi le tappe: distanze, gasolio e pedaggi si calcolano da soli.</div></div>'}`);
@@ -337,6 +344,8 @@ function tripForm(t = null) {
   modal(`<h2>${t ? 'Modifica viaggio' : 'Nuovo viaggio'}</h2><form id="f" class="stack" style="margin-top:14px">
     <div><label class="f">Titolo</label><input name="title" required value="${esc(t?.title || '')}" placeholder="Es. Giro della Puglia"></div>
     <div class="form-grid"><div><label class="f">Inizio</label><input type="date" name="start_date" value="${t?.start_date ? iso(t.start_date) : today()}"></div><div><label class="f">Fine</label><input type="date" name="end_date" value="${t?.end_date ? iso(t.end_date) : ''}"></div></div>
+    ${t ? '' : `<label class="riga-scelta"><input type="checkbox" name="stato" value="bozza"> \ud83e\uddf0 Ancora da organizzare
+      <span class="small muted">Finisce fra i viaggi in costruzione: ci si mette dentro il materiale, e quando si parte basta un tocco.</span></label>`}
     <div class="form-grid"><div><label class="f">Prezzo gasolio \u20ac/l</label><input type="number" step="0.001" name="fuel_price" value="${t?.fuel_price ?? v.fuel_price ?? 1.75}"></div><div><label class="f">Consumo km/l</label><input type="number" step="0.1" name="km_per_liter" value="${t?.km_per_liter ?? v.km_per_liter ?? 10}"></div></div>
     ${sezionePercorso}
     <div><label class="f">Note</label><textarea name="notes" rows="2">${esc(t?.notes || '')}</textarea></div>
@@ -428,6 +437,7 @@ function tripForm(t = null) {
         e.preventDefault();
         const body = Object.fromEntries(new FormData(e.target));
         if (!t && scelta) body.percorso = scelta;
+        if (body.stato !== 'bozza') delete body.stato;
         const r = t ? await api('/trips/' + t.id, { method: 'PUT', body }) : await api('/trips', { method: 'POST', body });
         close();
         if (r.tappe_create) toast(`Viaggio creato con ${r.tappe_create} tappe`);
@@ -632,7 +642,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v52';
+const VERSIONE = 'v53';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -698,7 +708,7 @@ async function caricaFoto(tripId, elenco, extra = {}) {
 async function viewTrip(id) {
   const d = await api('/trips/' + id);
   const { trip, legs, expenses, photos, workouts, totals } = d;
-  const soste = d.soste || [];
+  const soste = d.soste || [], materiali = d.materiali || [];
   // Una foto sta in un posto solo: se e' di una sosta, sta sotto la sosta e non
   // anche nella raccolta del viaggio, che sarebbe la stessa foto due volte
   const fotoSosta = new Map();
@@ -773,12 +783,35 @@ async function viewTrip(id) {
       <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
       ${rigaCosti(l)}
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}${inCamper(l) ? `<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>` : ''}${inCamper(l) && l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
+  // Ogni materiale si presenta per quello che e': l'appunto si legge, il link
+  // si apre, l'immagine si guarda, il file si scarica
+  const pesoFile = n => !n ? '' : n > 1048576 ? `${num(n / 1048576, 1)} MB` : `${num(n / 1024, 0)} kB`;
+  const rigaMateriale = m => {
+    const ico = m.tipo === 'nota' ? '\ud83d\udcdd' : m.tipo === 'link' ? '\ud83d\udd17' : m.tipo === 'immagine' ? '\ud83d\uddbc\ufe0f' : '\ud83d\udcc4';
+    const quando = `${fdate(m.created_at)}${m.chi ? ' \u00b7 ' + esc(m.chi) : ''}`;
+    const corpo = m.tipo === 'nota'
+      ? `<div class="meta">${quando}</div>${m.testo ? `<div class="appunto">${esc(m.testo)}</div>` : ''}`
+      : m.tipo === 'link'
+        ? `<div class="meta">${esc((() => { try { return new URL(m.url).hostname.replace(/^www\./, ''); } catch { return m.url; } })())} \u00b7 ${quando}</div>`
+        : `<div class="meta">${pesoFile(m.dimensione)}${m.mime ? ' \u00b7 ' + esc(String(m.mime).split('/').pop().toUpperCase()) : ''} \u00b7 ${quando}</div>`;
+    const apri = m.tipo === 'link' ? `<a class="btn ghost icon" href="${esc(m.url)}" target="_blank" rel="noopener" title="Apri il sito">\u2197\ufe0f</a>`
+      : m.filename ? `<a class="btn ghost icon" href="/uploads/${esc(m.filename)}" target="_blank" rel="noopener" download title="Scarica">\u2b07\ufe0f</a>` : '';
+    const faccia = m.tipo === 'immagine'
+      ? `<img class="miniatura" src="/uploads/${esc(m.filename)}" alt="" loading="lazy" data-grande="/uploads/${esc(m.filename)}" data-didascalia="${esc(m.titolo || '')}" title="Tocca per ingrandire">`
+      : `<div class="sport-ico">${ico}</div>`;
+    return `<div class="item materiale"><div class="item-main" style="cursor:default">${faccia}
+      <div class="grow"><div class="title">${esc(m.titolo || (m.tipo === 'nota' ? 'Appunto' : m.filename || m.url || ''))}</div>${corpo}</div></div>
+      <div class="item-actions">${apri}${m.tipo === 'nota' ? `<button class="btn ghost icon" data-mod-mat="${m.id}" title="Modifica">\u270f\ufe0f</button>` : ''}
+        <button class="btn ghost danger icon" data-del-mat="${m.id}" title="Elimina">\ud83d\uddd1</button></div></div>`;
+  };
   const exRow = e => `<tr data-ex="${e.id}"><td class="nowrap">${fdate(e.date)}</td><td>${catLabel(e.category)}</td><td>${esc(e.description || '')}${e.auto ? ` <span class="badge ${e.edited ? 'warn' : 'ok'}" title="${e.edited ? 'Calcolo automatico sostituito da te' : 'Calcolata automaticamente'}">${e.edited ? 'modificata' : 'auto'}</span>` : ''}${e.place ? `<div class="small muted">\ud83d\udccd ${esc(e.place)}</div>` : ''}</td><td class="num"><b>${importoConValuta(e.amount, e.currency, e.rate)}</b></td>
     <td class="num">${`<button class="btn sm ghost" data-edit-ex="${e.id}">✏️</button>${e.auto && e.edited ? `<button class="btn sm ghost" title="Ripristina calcolo automatico" data-reset-ex="${e.id}">↺</button>` : ''}<button class="btn sm ghost danger" data-del-ex="${e.id}" data-auto-ex="${e.auto ? 1 : 0}" title="Elimina">🗑</button>`}</td></tr>`;
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(nomeViaggio(trip))}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
       <div class="muted small">${dateCliccabili(trip)} · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
-      <div class="row"><button class="btn" id="edit">✏️ Modifica</button>${closed ? '<button class="btn" id="reopen">Riapri</button>' : '<button class="btn primary" id="close">Concludi viaggio</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
+      <div class="row"><button class="btn" id="edit">✏️ Modifica</button>${trip.status === 'bozza' ? '<button class="btn primary" id="parti" title="Il viaggio comincia: passa fra quelli in corso">\ud83d\ude80 Si parte</button>'
+        : closed ? '<button class="btn" id="reopen">Riapri</button>'
+        : '<button class="btn primary" id="close">Concludi viaggio</button>'}${trip.status === 'bozza' ? '' : '<button class="btn" id="incostruzione" title="Rimettilo fra i viaggi che stiamo preparando">\ud83e\uddf0 In costruzione</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
       <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe \u00b7 ${totals.km && totals.minutes ? num(totals.km / (totals.minutes / 60), 0) + ' km/h di media' : ''}</div></div>
@@ -815,6 +848,12 @@ async function viewTrip(id) {
             .filter(x => x.lat != null)
             .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div></div>` : ''}
         <div class="list" id="soste">${soste.length ? soste.map(s => sostaRiga(s, fotoSosta.get(s.id), trip.cover_photo_id)).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
+
+      <div class="card pad-0" style="grid-column:1/-1" id="materiali"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83d\udcce Info e dati utili</h2>
+        <div class="row"><button class="btn sm" id="m-nota">\uff0b Nota</button><button class="btn sm" id="m-link">\uff0b Link</button><button class="btn sm primary" id="m-file">\uff0b File</button>
+          <input type="file" id="m-input" multiple hidden></div></div>
+        <div class="list">${materiali.length ? materiali.map(rigaMateriale).join('')
+          : `<div class="empty">Qui sta il materiale con cui si prepara il viaggio: appunti, indirizzi di siti, il pdf del traghetto, la pagina di una rivista fotografata. Quando si parte \u00e8 tutto in un posto solo.</div>`}</div></div>
 
       <div class="card pad-0" style="grid-column:1/-1"><div class="row between" style="padding:14px 16px 6px"><h2>Spese</h2><button class="btn primary sm" id="addex">＋ Spesa</button></div>
         ${catRows ? `<div class="legend" style="padding:0 16px 10px">${catRows}</div>` : ''}
@@ -926,6 +965,29 @@ async function viewTrip(id) {
       <table>${t.by_category.map(c => `<tr><td>${catLabel(c.category)}</td><td class="num">${eur(c.total)}</td></tr>`).join('')}</table><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary" data-x>Ok</button></div>`, (el, close) => $('[data-x]', el).onclick = () => { close(); render(); });
   }));
   $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
+  $('#parti')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/stato`, { method: 'POST', body: { stato: 'open' } }); toast('Buon viaggio'); render(); }));
+  $('#incostruzione')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/stato`, { method: 'POST', body: { stato: 'bozza' } }); toast('Torna fra i viaggi in costruzione'); render(); }));
+
+  // ---- info e dati utili ----
+  $('#m-file')?.addEventListener('click', () => $('#m-input').click());
+  $('#m-input')?.addEventListener('change', safe(async e => {
+    const scelti = [...(e.target.files || [])];
+    if (!scelti.length) return;
+    const fd = new FormData();
+    scelti.forEach(f => fd.append('file', f));
+    toast(scelti.length === 1 ? 'Carico il file\u2026' : `Carico ${scelti.length} file\u2026`);
+    const r = await api(`/trips/${id}/materiali/file`, { method: 'POST', body: fd });
+    toast(`${r.length} fra file e immagini nel materiale`);
+    restaQui();
+  }));
+  $('#m-nota')?.addEventListener('click', () => materialeForm(id, 'nota'));
+  $('#m-link')?.addEventListener('click', () => materialeForm(id, 'link'));
+  $$('[data-mod-mat]').forEach(b => b.onclick = safe(() => materialeForm(id, 'nota', materiali.find(m => m.id === +b.dataset.modMat))));
+  $$('[data-del-mat]').forEach(b => b.onclick = safe(async () => {
+    if (!await confirmDlg('Togliere questo materiale dal viaggio?')) return;
+    await api('/materiali/' + b.dataset.delMat, { method: 'DELETE' });
+    toast('Tolto'); restaQui();
+  }));
   $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
   $('#damaps')?.addEventListener('click', () => tappeDaMaps(trip, legs));
   $('#carlock')?.addEventListener('click', () => carlockImport({ ...trip, legs }));
@@ -1294,6 +1356,27 @@ function tappeDaMaps(trip, legs) {
       restaQui();
     });
   });
+}
+
+// Un appunto o un indirizzo. Del link basta l'indirizzo: il titolo, se non lo
+// si scrive, lo va a leggere il servizio sulla pagina stessa.
+function materialeForm(tripId, tipo, m = null) {
+  const link = tipo === 'link';
+  modal(`<h2>${m ? 'Modifica appunto' : link ? 'Nuovo link' : 'Nuovo appunto'}</h2><form id="f" class="stack" style="margin-top:14px">
+    ${link ? `<div><label class="f">Indirizzo</label><input name="url" required placeholder="www.esempio.it/pagina" autocomplete="off"></div>` : ''}
+    <div><label class="f">Titolo${link ? ' (vuoto = quello della pagina)' : ''}</label><input name="titolo" value="${esc(m?.titolo || '')}" placeholder="${link ? 'Lo leggo dal sito' : 'Es. traghetti per la Sardegna'}"></div>
+    ${link ? '' : `<div><label class="f">Appunto</label><textarea name="testo" rows="7" placeholder="Quello che non deve andare perso: orari, numeri, prezzi, chi ha detto cosa">${esc(m?.testo || '')}</textarea></div>`}
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        if (m) await api('/materiali/' + m.id, { method: 'PUT', body: { titolo: fd.titolo, testo: fd.testo } });
+        else await api(`/trips/${tripId}/materiali`, { method: 'POST', body: { ...fd, tipo } });
+        close(); restaQui();
+      });
+    });
 }
 
 function legForm(trip, legs, leg = null, costi = null) {

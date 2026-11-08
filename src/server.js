@@ -8,6 +8,7 @@ import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR, completaExifMancanti } from './routes/photos.js';
+import { router as materiali } from './routes/materiali.js';
 import { sannoEvitareIPedaggi } from './lib/geo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,7 @@ app.use('/api/ingest', ingest);
 app.use('/api', trips);
 app.use('/api', workouts);
 app.use('/api', photos);
+app.use('/api', materiali);
 app.use('/uploads', requireAuth, express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true }));
 
 // La pagina e il suo codice cambiano a ogni pubblicazione: vanno riconvalidati a

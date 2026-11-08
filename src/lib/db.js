@@ -131,7 +131,7 @@ export async function migrate() {
     title TEXT NOT NULL,
     start_date DATE,
     end_date DATE,
-    status TEXT NOT NULL DEFAULT 'open',          -- open | closed
+    status TEXT NOT NULL DEFAULT 'open',          -- bozza | open | closed
     fuel_price NUMERIC(6,3),                       -- €/litro predefinito per il viaggio
     km_per_liter NUMERIC(5,2) NOT NULL DEFAULT 10,
     notes TEXT,
@@ -333,6 +333,25 @@ export async function migrate() {
   -- e quanto ingrandire. Non si tocca il file, che resta intero: il ritaglio e'
   -- un modo di guardarla, e si puo' sempre rifare.
   ALTER TABLE photos ADD COLUMN IF NOT EXISTS crop JSONB;
+
+  -- Quello che serve per preparare un viaggio e che non sta da nessun'altra
+  -- parte: un appunto, l'indirizzo di un sito, il pdf del traghetto, la pagina
+  -- di una rivista fotografata. Non sono le foto del viaggio - quelle vengono
+  -- dopo - e non sono spese: sono il materiale con cui lo si pensa.
+  CREATE TABLE IF NOT EXISTS materiali (
+    id SERIAL PRIMARY KEY,
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    tipo TEXT NOT NULL,                            -- nota | link | file | immagine
+    titolo TEXT,
+    testo TEXT,                                    -- il corpo dell'appunto
+    url TEXT,                                      -- l'indirizzo, per i link
+    filename TEXT,                                 -- il file caricato, per file e immagini
+    mime TEXT,
+    dimensione INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_materiali_trip ON materiali(trip_id, created_at);
   -- Le spese nate dal vecchio pulsante «aggiungi alle spese» si riattaccano alla
   -- loro sosta. Quelle rimaste uguali al costo lo seguiranno da sole; quelle con
   -- un importo diverso restano come sono: li' qualcuno ha corretto a mano.

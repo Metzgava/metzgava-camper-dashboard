@@ -7,6 +7,7 @@ import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } 
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
+import { materialiDi } from './materiali.js';
 
 export const router = Router();
 router.use(requireAuth);
@@ -337,8 +338,11 @@ router.get('/trips', wrap(async (req, res) => {
 router.post('/trips', wrap(async (req, res) => {
   const s = await getSettings();
   const b = req.body || {};
-  const row = (await q('INSERT INTO trips(user_id,title,start_date,end_date,fuel_price,km_per_liter,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [req.user.id, String(b.title || 'Nuovo viaggio').trim(), b.start_date || null, b.end_date || null, b.fuel_price ? num(b.fuel_price) : null, num(b.km_per_liter, s.vehicle?.km_per_liter || 10) || 10, b.notes || null])).rows[0];
+  // Un viaggio puo' nascere gia' «in costruzione»: lo si prepara per mesi prima
+  // di partire, e intanto non e' ne' in corso ne' concluso
+  const stato = ['bozza', 'open'].includes(b.stato) ? b.stato : 'open';
+  const row = (await q('INSERT INTO trips(user_id,title,start_date,end_date,fuel_price,km_per_liter,notes,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+    [req.user.id, String(b.title || 'Nuovo viaggio').trim(), b.start_date || null, b.end_date || null, b.fuel_price ? num(b.fuel_price) : null, num(b.km_per_liter, s.vehicle?.km_per_liter || 10) || 10, b.notes || null, stato])).rows[0];
   // Se il viaggio nasce da un percorso gia' scelto, le tappe si creano subito:
   // le tratte arrivano calcolate da /route/opzioni e non si ricalcola nulla
   const tratte = Array.isArray(b.percorso?.tratte) ? b.percorso.tratte : [];
@@ -375,7 +379,7 @@ router.get('/trips/:id', wrap(async (req, res) => {
   // che distingue «costa dieci euro» da «dieci euro nel totale del viaggio»
   const soste = (await q(`SELECT s.*, EXISTS (SELECT 1 FROM expenses e WHERE e.stop_id = s.id) AS in_spese
     FROM stops s WHERE s.trip_id=$1 ORDER BY s.from_date NULLS LAST, s.id`, [trip.id])).rows;
-  res.json({ trip, legs, expenses, photos, workouts, soste, totals: await tripTotals(trip.id) });
+  res.json({ trip, legs, expenses, photos, workouts, soste, materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) });
 }));
 router.put('/trips/:id', wrap(async (req, res) => {
   const b = req.body || {};
@@ -386,6 +390,22 @@ router.put('/trips/:id', wrap(async (req, res) => {
   await agganciaAllenamenti();
   res.json(row);
 }));
+// Un viaggio si pensa prima di farlo: finche' e' in costruzione sta nella sua
+// sezione, con dentro il materiale con cui lo si prepara. Diventa «in corso»
+// quando si parte, e concluso quando si torna.
+const STATI = ['bozza', 'open', 'closed'];
+router.post('/trips/:id/stato', wrap(async (req, res) => {
+  const stato = STATI.includes(req.body?.stato) ? req.body.stato : null;
+  if (!stato) return res.status(400).json({ error: 'Stato non valido' });
+  const row = (await q(`UPDATE trips SET status=$2,
+      closed_at = CASE WHEN $2='closed' THEN coalesce(closed_at, now()) ELSE NULL END,
+      end_date = CASE WHEN $2='closed' THEN coalesce(end_date, CURRENT_DATE) ELSE end_date END
+    WHERE id=$1 RETURNING *`, [req.params.id, stato])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Viaggio non trovato' });
+  await agganciaAllenamenti();
+  res.json({ trip: row, totals: await tripTotals(row.id) });
+}));
+
 router.post('/trips/:id/close', wrap(async (req, res) => {
   const reopen = req.body?.reopen === true;
   const row = (await q(`UPDATE trips SET status=$2, closed_at=$3, end_date=coalesce(end_date, CURRENT_DATE) WHERE id=$1 RETURNING *`,
