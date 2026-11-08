@@ -71,6 +71,22 @@ async function spesePerSosteGiaScritte() {
   return r.rowCount;
 }
 
+// Le categorie di spesa stanno nelle impostazioni, e quelle di un archivio gia'
+// avviato l'INSERT iniziale non le tocca. Le nuove si infilano qui, una volta
+// sola, accanto a quella a cui somigliano: chi ha riordinato le sue se le ritrova
+// come le aveva lasciate, con due voci in piu'.
+async function categorieNuove(nuove, dopo) {
+  const riga = (await q(`SELECT value FROM settings WHERE key='categories'`)).rows[0];
+  const elenco = Array.isArray(riga?.value) ? [...riga.value] : null;
+  if (!elenco) return;
+  const mancanti = nuove.filter(c => !elenco.includes(c));
+  if (!mancanti.length) return;
+  const dove = elenco.indexOf(dopo);
+  elenco.splice(dove < 0 ? elenco.length : dove + 1, 0, ...mancanti);
+  await q(`UPDATE settings SET value=$1::jsonb WHERE key='categories'`, [JSON.stringify(elenco)]);
+  console.log(`spese: categorie aggiunte (${mancanti.join(', ')})`);
+}
+
 export async function migrate() {
   await q(`
   CREATE TABLE IF NOT EXISTS users (
@@ -361,8 +377,9 @@ export async function migrate() {
 
   await q(`INSERT INTO settings(key, value) VALUES
     ('vehicle', '{"length_m": 6, "km_per_liter": 10, "fuel_price": 1.75}'),
-    ('categories', '["gasolio","traghetto","area_sosta","campeggio","pedaggi","vitto","spesa","visite","manutenzione","altro"]')
+    ('categories', '["gasolio","traghetto","bus","treno","area_sosta","campeggio","pedaggi","vitto","spesa","visite","manutenzione","altro"]')
     ON CONFLICT (key) DO NOTHING`);
 
+  await categorieNuove(['bus', 'treno'], 'traghetto');
   await spesePerSosteGiaScritte();
 }

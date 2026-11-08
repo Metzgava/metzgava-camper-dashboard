@@ -19,9 +19,11 @@ const importoConValuta = (v, valuta, cambio) => valuta && valuta !== 'EUR'
   ? `${num(v, 2)} ${valuta} <span class="muted">(${eur(v * (cambio || 1))})</span>`
   : eur(v);
 
-const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'] };
+const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'],
+  // In coda, cosi' le categorie di prima tengono il colore che avevano
+  bus: ['🚌', 'Bus'], treno: ['🚆', 'Treno'] };
 const catLabel = c => CAT[c] ? `${CAT[c][0]} ${CAT[c][1]}` : c;
-const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 10) % 10 + 1})`;
+const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 12) % 12 + 1})`;
 // Nessuna emoji rappresenta un tapis roulant: lo disegniamo (nastro, montante, console)
 const ICO_TAPIS = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="15" width="14" height="5" rx="2.5"/><path d="M16.5 17.2 19.6 7.4"/><path d="M17.6 7.4h4.2"/></svg>';
 // Salute manda i nomi nella lingua del telefono, Komoot in inglese: qui stanno entrambi
@@ -504,7 +506,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v43';
+const VERSIONE = 'v44';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
