@@ -297,7 +297,8 @@ export async function agganciaAllenamenti() {
   return r.rowCount;
 }
 
-router.get('/trips', wrap(async (req, res) => {
+router.get('/trips', wrap(async (req, res) => { res.json(await elencoViaggi()); }));
+export async function elencoViaggi() {
   const trips = (await q(`SELECT t.*, u.name AS owner,
       (SELECT coalesce(sum(distance_km),0)::float FROM legs WHERE trip_id=t.id) AS km,
       (SELECT coalesce(sum(amount * rate),0)::float FROM expenses WHERE trip_id=t.id) AS total,
@@ -333,8 +334,8 @@ router.get('/trips', wrap(async (req, res) => {
     v.minuti_guida += l.duration_min || 0;
     v.minuti_strada += minutiInStrada(l) ?? l.duration_min ?? 0;
   }
-  res.json(trips.map(t => ({ ...t, ...(perViaggio.get(t.id) || { mete: [], rotta: [], minuti_guida: 0, minuti_strada: 0 }) })));
-}));
+  return trips.map(t => ({ ...t, ...(perViaggio.get(t.id) || { mete: [], rotta: [], minuti_guida: 0, minuti_strada: 0 }) }));
+}
 router.post('/trips', wrap(async (req, res) => {
   const s = await getSettings();
   const b = req.body || {};
@@ -366,8 +367,13 @@ router.post('/trips', wrap(async (req, res) => {
   res.json({ ...row, tappe_create: pos });
 }));
 router.get('/trips/:id', wrap(async (req, res) => {
-  const trip = (await q('SELECT t.*, u.name AS owner FROM trips t JOIN users u ON u.id=t.user_id WHERE t.id=$1', [req.params.id])).rows[0];
-  if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
+  const d = await datiViaggio(req.params.id);
+  if (!d) return res.status(404).json({ error: 'Viaggio non trovato' });
+  res.json(d);
+}));
+export async function datiViaggio(id) {
+  const trip = (await q('SELECT t.*, u.name AS owner FROM trips t JOIN users u ON u.id=t.user_id WHERE t.id=$1', [id])).rows[0];
+  if (!trip) return null;
   const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
   const expenses = (await q('SELECT * FROM expenses WHERE trip_id=$1 ORDER BY date DESC, id DESC', [trip.id])).rows;
   const photos = (await q('SELECT id,leg_id,stop_id,filename,caption,taken_at,lat,lon,user_id,crop,mime FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
@@ -379,8 +385,8 @@ router.get('/trips/:id', wrap(async (req, res) => {
   // che distingue «costa dieci euro» da «dieci euro nel totale del viaggio»
   const soste = (await q(`SELECT s.*, EXISTS (SELECT 1 FROM expenses e WHERE e.stop_id = s.id) AS in_spese
     FROM stops s WHERE s.trip_id=$1 ORDER BY s.from_date NULLS LAST, s.id`, [trip.id])).rows;
-  res.json({ trip, legs, expenses, photos, workouts, soste, materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) });
-}));
+  return { trip, legs, expenses, photos, workouts, soste, materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) };
+}
 router.put('/trips/:id', wrap(async (req, res) => {
   const b = req.body || {};
   const row = (await q(`UPDATE trips SET title=coalesce($2,title), start_date=$3, end_date=$4, fuel_price=$5, km_per_liter=coalesce($6,km_per_liter), notes=$7 WHERE id=$1 RETURNING *`,

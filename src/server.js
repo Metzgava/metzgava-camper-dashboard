@@ -2,13 +2,14 @@ import express from 'express';
 import cookieSession from 'cookie-session';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { migrate, sistemaDurateCarlock } from './lib/db.js';
-import { SECRET } from './lib/util.js';
+import { migrate, sistemaDurateCarlock, q } from './lib/db.js';
+import { SECRET, wrap } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR, completaExifMancanti } from './routes/photos.js';
 import { router as materiali } from './routes/materiali.js';
+import { router as share, linkValido, viaggiVisibili, segnaVisita } from './routes/share.js';
 import { sannoEvitareIPedaggi } from './lib/geo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,11 +41,38 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
 app.use('/api/auth', auth);
 app.use('/api/ingest', ingest);
+// I link di sola lettura stanno davanti agli altri: le rotte dei viaggi
+// chiedono il nome di chi le apre a chiunque passi di li', e un ospite un nome
+// non ce l'ha
+app.use('/api', share);
 app.use('/api', trips);
 app.use('/api', workouts);
 app.use('/api', photos);
 app.use('/api', materiali);
-app.use('/uploads', requireAuth, express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true }));
+
+// I file: a chi e' di casa si aprono tutti. A un ospite si apre una foto solo
+// se e' di un viaggio che il suo link comprende e se le foto gliele hai date -
+// altrimenti basterebbe indovinare un nome di file per girare tutto l'archivio.
+const accessoAiFile = wrap(async (req, res, next) => {
+  if (req.session?.uid) return next();
+  const s = await linkValido(req.session?.ospite);
+  if (!s || !s.foto) return res.status(401).json({ error: 'Non autorizzato' });
+  const nome = decodeURIComponent(req.path.replace(/^\//, ''));
+  const suoi = await viaggiVisibili(s);
+  const ok = (await q('SELECT 1 FROM photos WHERE filename=$1 AND trip_id = ANY($2) LIMIT 1', [nome, suoi])).rowCount;
+  if (!ok) return res.status(403).json({ error: 'Non autorizzato' });
+  next();
+});
+app.use('/uploads', accessoAiFile, express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true }));
+
+// L'indirizzo che mandi a chi deve guardare. Apre la pagina dell'ospite e
+// lascia nel browser il segno del link, che serve solo a farsi aprire le foto.
+const paginaOspite = path.join(__dirname, '..', 'public', 'ospite.html');
+app.get('/v/:token', wrap(async (req, res) => {
+  const s = await linkValido(req.params.token);
+  if (s) { req.session.ospite = req.params.token; segnaVisita(s.id); }
+  res.set('Cache-Control', 'no-cache').sendFile(paginaOspite);
+}));
 
 // La pagina e il suo codice cambiano a ogni pubblicazione: vanno riconvalidati a
 // ogni visita, altrimenti dopo un aggiornamento il browser continua a mostrare la

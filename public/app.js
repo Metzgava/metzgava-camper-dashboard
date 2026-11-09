@@ -934,7 +934,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v66';
+const VERSIONE = 'v67';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -3177,6 +3177,7 @@ async function viewSettings() {
     history.replaceState(null, '', '#/impostazioni');
   }
   const adm = user.role === 'admin' ? await api('/auth/users') : null;
+  const condivisioni = adm ? await api('/shares') : null;
   const endpoint = location.origin + '/api/ingest/health';
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Impostazioni</h1>
     <div class="grid cols-2">
@@ -3213,6 +3214,31 @@ async function viewSettings() {
       <p class="small muted">Chi si registra con un codice invito entra in attesa finché non lo autorizzi. Ogni utente vede i viaggi condivisi e i propri allenamenti.</p>
       <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th></th></tr></thead><tbody>${adm.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="small">${esc(u.email)}</td><td>${u.role}</td><td>${u.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="num">${u.id !== user.id ? `<button class="btn sm" data-uappr="${u.id}" data-v="${!u.approved}">${u.approved ? 'Sospendi' : 'Autorizza'}</button><button class="btn sm" data-upwd="${u.id}" data-uname="${esc(u.name)}">Reimposta password</button><button class="btn sm ghost danger" data-udel="${u.id}">Elimina</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
       ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).length ? `<div class="small" style="margin-top:10px">Inviti attivi: ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).map(i => `<span class="code">${i.code}</span>`).join(' ')}</div>` : ''}</div>` : ''}
+    ${condivisioni ? (() => {
+      const nomeAtleta = id => (condivisioni.atleti.find(a => a.id === +id) || {}).name || '?';
+      // Cosa apre un link, detto in una riga: e' quello che si rilegge fra sei
+      // mesi per decidere se quel link puo' restare acceso
+      const riassunto = x => [
+        !x.viaggi ? 'tutti i viaggi' : `${x.viaggi.length} viagg${x.viaggi.length === 1 ? 'io' : 'i'}`,
+        x.tracciati ? 'percorsi da rivedere' : null,
+        x.foto ? 'foto e video' : 'senza foto',
+        x.spese ? 'con le spese' : null,
+        (x.allenamenti || []).length ? 'allenamenti di ' + x.allenamenti.map(nomeAtleta).join(' e ') : null,
+      ].filter(Boolean).join(' \u00b7 ');
+      const stato = x => x.revoked_at ? '<span class="badge warn">spento</span>'
+        : x.expires_at && new Date(x.expires_at) < Date.now() ? '<span class="badge warn">scaduto</span>'
+        : '<span class="badge ok">attivo</span>';
+      return `<div class="card" style="margin-top:14px"><div class="row between"><h2>\ud83d\udd17 Link di sola lettura</h2><button class="btn primary sm" id="newshare">\uff0b Nuovo link</button></div>
+      <p class="small muted">Un indirizzo da mandare a chi deve solo guardare: niente registrazione, niente password, e vede soltanto quello che spunti tu. Si spegne quando vuoi, anche dopo averlo mandato.</p>
+      <div class="table-wrap"><table><thead><tr><th>Per chi</th><th>Cosa apre</th><th>Scadenza</th><th>Aperture</th><th></th></tr></thead><tbody>${condivisioni.shares.map(x => `<tr>
+        <td><b>${esc(x.nome || 'Senza nome')}</b><div class="small muted">${stato(x)} \u00b7 creato ${fdate(x.created_at)}</div></td>
+        <td class="small">${esc(riassunto(x))}</td>
+        <td class="small">${x.expires_at ? fdate(x.expires_at) : 'nessuna'}</td>
+        <td class="small">${x.viste || 0}${x.ultima_vista ? `<div class="muted">${fdt(x.ultima_vista)}</div>` : ''}</td>
+        <td class="num nowrap"><button class="btn sm" data-copia-link="${esc(x.token)}" title="Copia l\u2019indirizzo da mandare">\ud83d\udccb Copia</button>
+          <button class="btn sm ghost" data-spegni-link="${x.id}" data-acceso="${x.revoked_at ? 0 : 1}">${x.revoked_at ? 'Riaccendi' : 'Spegni'}</button>
+          <button class="btn sm ghost danger" data-elimina-link="${x.id}" title="Elimina">\ud83d\uddd1</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun link. Creane uno per far vedere un viaggio a chi non ha un posto qui dentro.</td></tr>'}</tbody></table></div></div>`;
+    })() : ''}
     <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
   $('#veh').onsubmit = safe(async e => {
     e.preventDefault();
@@ -3243,6 +3269,68 @@ async function viewSettings() {
       (el2, close2) => { $('#cp', el2).onclick = () => { navigator.clipboard?.writeText(r.token); toast('Copiato'); }; $('[data-x]', el2).onclick = () => { close2(); render(); }; });
   }));
   };
+  // ---- i link di sola lettura ----
+  const indirizzoLink = t => `${location.origin}/v/${t}`;
+  $$('[data-copia-link]').forEach(b => b.onclick = safe(async () => {
+    const url = indirizzoLink(b.dataset.copiaLink);
+    try { await navigator.clipboard.writeText(url); toast('Indirizzo copiato'); }
+    catch { modal(`<h2>L\u2019indirizzo da mandare</h2><div class="code" style="word-break:break-all">${esc(url)}</div><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" data-x>Fatto</button></div>`, (el, close) => $('[data-x]', el).onclick = close); }
+  }));
+  $$('[data-spegni-link]').forEach(b => b.onclick = safe(async () => {
+    const acceso = b.dataset.acceso === '1';
+    if (acceso && !await confirmDlg('Spegnere questo link? Da subito non apre piu\u2019 niente, nemmeno a chi ce l\u2019ha gi\u00e0.')) return;
+    await api(`/shares/${b.dataset.spegniLink}/revoca`, { method: 'POST', body: { riacceso: !acceso } });
+    toast(acceso ? 'Link spento' : 'Link riacceso');
+    render();
+  }));
+  $$('[data-elimina-link]').forEach(b => b.onclick = safe(async () => {
+    if (!await confirmDlg('Eliminare questo link? Chi ce l\u2019ha non vedr\u00e0 piu\u2019 niente.')) return;
+    await api('/shares/' + b.dataset.eliminaLink, { method: 'DELETE' });
+    render();
+  }));
+  $('#newshare')?.addEventListener('click', () => {
+    const viaggi = condivisioni.viaggi, atleti = condivisioni.atleti;
+    modal(`<h2>\ud83d\udd17 Nuovo link di sola lettura</h2>
+      <form id="f" class="stack" style="margin-top:12px">
+        <div><label class="f">Per chi \u00e8 (serve solo a te, per ricordartelo)</label><input name="nome" maxlength="80" placeholder="Es. I nonni"></div>
+        <div><label class="f">Quali viaggi</label>
+          <label class="scelta"><input type="checkbox" id="tutti-viaggi" checked> <span><b>Tutti</b> <span class="small muted">\u2014 anche quelli che farete poi. Restano fuori quelli in costruzione.</span></span></label>
+          <div id="lista-viaggi" class="lista-scelte" hidden>${viaggi.map(t => `<label class="scelta"><input type="checkbox" name="viaggi" value="${t.id}"> <span>${esc(t.title)}${t.start_date ? ` <span class="small muted">${fdate(t.start_date)}</span>` : ''}${t.status === 'bozza' ? ' <span class="badge">in costruzione</span>' : ''}</span></label>`).join('')}</div></div>
+        <div><label class="f">Cosa pu\u00f2 vedere</label>
+          <label class="scelta"><input type="checkbox" name="tracciati" checked> <span>I percorsi da rivedere sulla mappa</span></label>
+          <label class="scelta"><input type="checkbox" name="foto" checked> <span>Le foto e i video</span></label>
+          <label class="scelta"><input type="checkbox" name="spese"> <span>Le spese, i totali e i biglietti</span></label></div>
+        <div><label class="f">Allenamenti</label>
+          ${atleti.map(a => `<label class="scelta"><input type="checkbox" name="allenamenti" value="${a.id}"> <span>Quelli di ${esc(a.name)}</span></label>`).join('')}
+          <div class="small muted">Senza spunte, degli allenamenti non vede niente.</div></div>
+        <div><label class="f">Scadenza</label><select name="giorni"><option value="">Nessuna, finch\u00e9 non lo spengo</option><option value="7">7 giorni</option><option value="30" selected>30 giorni</option><option value="90">3 mesi</option><option value="365">1 anno</option></select></div>
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Crea il link</button></div>
+      </form>`, (el, close) => {
+      $('[data-x]', el).onclick = close;
+      const tutti = $('#tutti-viaggi', el);
+      tutti.onchange = () => { $('#lista-viaggi', el).hidden = tutti.checked; };
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const r = await api('/shares', { method: 'POST', body: {
+          nome: fd.get('nome'),
+          viaggi: tutti.checked ? [] : fd.getAll('viaggi').map(Number),
+          tracciati: fd.get('tracciati') === 'on',
+          foto: fd.get('foto') === 'on',
+          spese: fd.get('spese') === 'on',
+          allenamenti: fd.getAll('allenamenti').map(Number),
+          giorni: fd.get('giorni') || null,
+        } });
+        close();
+        const url = indirizzoLink(r.token);
+        modal(`<h2>Il link \u00e8 pronto</h2><p class="small muted">Mandalo a chi deve guardare: chi lo apre non deve registrarsi n\u00e9 installare niente.</p>
+          <div class="code" style="word-break:break-all">${esc(url)}</div>
+          <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="cp">\ud83d\udccb Copia</button><button class="btn primary" data-x>Fatto</button></div>`,
+          (el2, close2) => { $('#cp', el2).onclick = () => { navigator.clipboard?.writeText(url); toast('Copiato'); }; $('[data-x]', el2).onclick = () => { close2(); render(); }; });
+      });
+    });
+  });
+
   $('#pwd')?.addEventListener('submit', safe(async e => {
     e.preventDefault();
     await api('/auth/password', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
@@ -3420,7 +3508,7 @@ window.addEventListener('error', e => segnala('errore', `${e.message} \u2014 ${e
 window.addEventListener('unhandledrejection', e => segnala('promessa', String(e.reason?.message || e.reason || '')));
 window.addEventListener('blur', nascondiVelo);
 window.addEventListener('drop', safe(async e => {
-  if (!conFile(e)) return;
+  if (window.OSPITE || !conFile(e)) return;
   e.preventDefault();
   nascondiVelo();
   const id = viaggioAperto();
@@ -3441,7 +3529,7 @@ window.addEventListener('drop', safe(async e => {
 // \u2318V vuol dire incollare testo.
 document.addEventListener('paste', e => {
   const viaggio = location.hash.match(/^#\/trip\/(\d+)/);
-  if (!viaggio || !e.clipboardData || document.querySelector('.modal')) return;
+  if (window.OSPITE || !viaggio || !e.clipboardData || document.querySelector('.modal')) return;
   if (/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '') || document.activeElement?.isContentEditable) return;
   const foto = [...e.clipboardData.files].filter(paionoFoto);
   if (!foto.length) return;
@@ -3450,6 +3538,18 @@ document.addEventListener('paste', e => {
 });
 
 document.addEventListener('click', e => { const a = e.target.closest('[data-logout]'); if (a) { e.preventDefault(); api('/auth/logout', { method: 'POST' }).then(() => { user = null; location.hash = '#/'; render(); }); } });
-window.addEventListener('hashchange', render);
-render();
+// Chi arriva da un link di sola lettura apre un'altra pagina, che pero' usa
+// questa stessa mappa, queste stesse foto e lo stesso modo di rivedere un
+// percorso: invece di riscriverli, glieli si passa. E l'app di casa, li', non
+// si avvia nemmeno: non c'e' nessuno da far entrare.
+window.Camper = { $, $$, esc, num, eur, dur, fdate, fdt, iso, notti, toast, apriLente,
+  legendaViaggio, mappaDelViaggio, rottaSvg, sportIco, coloreSport, ICO_SCARPA, coloreAtleta,
+  atletiDi, trattoFra, MEZZI, mezzoDi, inCamper, nomeViaggio, nomeStato, giorniViaggio,
+  itinerario, stileRitaglio, eVideo, facciaMedia, datiLente };
+if (window.OSPITE) {
+  document.body.classList.add('pagina-ospite');
+} else {
+  window.addEventListener('hashchange', render);
+  render();
+}
 })();

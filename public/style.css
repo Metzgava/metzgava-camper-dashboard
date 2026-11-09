@@ -506,3 +506,18 @@ input[type=checkbox], input[type=radio] { width: auto; }
 /* Il pannello sta largo quanto il campo: in una finestra stretta non deve
    andarsene per i fatti suoi */
 #m-tipo .tendina-corpo { left: 0; right: 0; min-width: 0; max-width: none; }
+
+/* La pagina di chi guarda da un link: niente menu, niente tasti, solo il
+   viaggio. La cornice e' la stessa dell'app - stesse schede, stessa mappa -
+   ma larga su tutta la pagina, che qui non c'e' nessuna colonna di sinistra. */
+.pagina-ospite #app { display: block; }
+.pagina-ospite main { padding: 18px 0 40px; max-width: none; }
+.pagina-ospite .wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 40px); }
+.ospite-testa { border-bottom: 1px solid var(--line); background: var(--surface); padding: 16px 0 14px; }
+.ospite-testa h1 { margin: 4px 0 0; font-size: clamp(20px, 3.4vw, 28px); }
+.ospite-piede { border-top: 1px solid var(--line); padding: 18px 0 30px; margin-top: 20px; }
+
+/* Le spunte di un modulo lungo: una riga per scelta, cliccabile tutta */
+.scelta { display: flex; gap: 9px; align-items: flex-start; padding: 5px 0; cursor: pointer; }
+.scelta input { margin-top: 3px; flex: none; }
+.lista-scelte { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin-top: 4px; }

@@ -417,7 +417,32 @@ export async function migrate() {
 
   -- I nomi delle attivita' li uniforma normalizzaNomiEsistenti() all'avvio del servizio
 
+  -- Un viaggio si fa guardare anche da chi non ha un posto qui dentro: si
+  -- genera un indirizzo lungo e si manda a chi deve vederlo. Non e' un
+  -- account - non si registra, non scrive niente - e quello che vede lo
+  -- decide chi lo manda: quali viaggi, se le foto, se i conti, gli
+  -- allenamenti di chi. Si spegne con una data o a mano, e da quel momento
+  -- l'indirizzo non apre piu' niente.
+  CREATE TABLE IF NOT EXISTS shares (
+    id SERIAL PRIMARY KEY,
+    token TEXT UNIQUE NOT NULL,
+    nome TEXT,
+    created_by INT REFERENCES users(id) ON DELETE SET NULL,
+    viaggi JSONB,                               -- null = tutti quelli in corso e conclusi
+    tracciati BOOLEAN NOT NULL DEFAULT true,
+    foto BOOLEAN NOT NULL DEFAULT true,
+    spese BOOLEAN NOT NULL DEFAULT false,
+    allenamenti JSONB NOT NULL DEFAULT '[]',    -- gli id di chi si puo' vedere
+    expires_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    viste INT NOT NULL DEFAULT 0,
+    ultima_vista TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
   CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
+  -- Serve a dire in fretta di che viaggio e' un file, quando a chiederlo e' un ospite
+  CREATE INDEX IF NOT EXISTS idx_photos_filename ON photos(filename);
   CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
   CREATE INDEX IF NOT EXISTS idx_legs_trip ON legs(trip_id, position);
   CREATE INDEX IF NOT EXISTS idx_workouts_started ON workouts(started_at);
