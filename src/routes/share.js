@@ -63,6 +63,63 @@ function ripulisci(d, s) {
   };
 }
 
+// Un numero di telefono si scrive in mille modi: con gli spazi, con i
+// trattini, con lo zero zero davanti, senza prefisso. Qui dentro ne esiste uno
+// solo, in forma internazionale, cosi' lo stesso numero non finisce due volte
+// in rubrica e un link non parte per un numero che non e' quello.
+export function numeroPulito(v) {
+  let t = String(v || '').replace(/[^\d+]/g, '');
+  if (t.startsWith('00')) t = '+' + t.slice(2);
+  // Senza prefisso si intende l'Italia: e' da li' che si scrivono i numeri
+  if (!t.startsWith('+')) t = t.length >= 9 && t.length <= 11 ? '+39' + t : '';
+  const cifre = t.slice(1);
+  return /^\d{8,15}$/.test(cifre) ? '+' + cifre : null;
+}
+
+// ---- la rubrica ----
+router.get('/rubrica', requireAuth, requireAdmin, wrap(async (req, res) => {
+  res.json((await q(`SELECT r.*,
+      (SELECT count(*)::int FROM shares s WHERE s.contatto_id=r.id) AS link,
+      (SELECT count(*)::int FROM shares s WHERE s.contatto_id=r.id AND s.revoked_at IS NULL
+        AND (s.expires_at IS NULL OR s.expires_at > now())) AS link_attivi
+    FROM rubrica r ORDER BY lower(r.nick)`)).rows);
+}));
+
+router.post('/rubrica', requireAuth, requireAdmin, wrap(async (req, res) => {
+  const b = req.body || {};
+  const nick = String(b.nick || '').trim().slice(0, 60);
+  const telefono = numeroPulito(b.telefono);
+  if (!nick) return res.status(400).json({ error: 'Serve un nome: un numero da solo, fra un anno, non dice a chi appartiene' });
+  if (!telefono) return res.status(400).json({ error: 'Questo numero non sembra un numero di telefono' });
+  const gia = (await q('SELECT nick FROM rubrica WHERE telefono=$1', [telefono])).rows[0];
+  if (gia) return res.status(400).json({ error: `Questo numero e\u2019 gia\u2019 in rubrica, come ${gia.nick}` });
+  const row = (await q(`INSERT INTO rubrica(nick, telefono, note, created_by) VALUES($1,$2,$3,$4) RETURNING *`,
+    [nick, telefono, String(b.note || '').trim().slice(0, 200) || null, req.user.id])).rows[0];
+  res.json(row);
+}));
+
+router.put('/rubrica/:id', requireAuth, requireAdmin, wrap(async (req, res) => {
+  const b = req.body || {};
+  const nick = String(b.nick || '').trim().slice(0, 60);
+  const telefono = numeroPulito(b.telefono);
+  if (!nick || !telefono) return res.status(400).json({ error: 'Servono il nome e un numero valido' });
+  const gia = (await q('SELECT id, nick FROM rubrica WHERE telefono=$1 AND id<>$2', [telefono, req.params.id])).rows[0];
+  if (gia) return res.status(400).json({ error: `Questo numero e\u2019 gia\u2019 in rubrica, come ${gia.nick}` });
+  const row = (await q(`UPDATE rubrica SET nick=$2, telefono=$3, note=$4 WHERE id=$1 RETURNING *`,
+    [req.params.id, nick, telefono, String(b.note || '').trim().slice(0, 200) || null])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Contatto non trovato' });
+  res.json(row);
+}));
+
+// Togliere qualcuno dalla rubrica vuol dire che non deve piu' vedere niente:
+// i suoi link si spengono insieme a lui, altrimenti resterebbero accesi senza
+// che in nessun posto si veda piu' di chi erano.
+router.delete('/rubrica/:id', requireAuth, requireAdmin, wrap(async (req, res) => {
+  const spenti = (await q(`UPDATE shares SET revoked_at=now() WHERE contatto_id=$1 AND revoked_at IS NULL`, [req.params.id])).rowCount;
+  await q('DELETE FROM rubrica WHERE id=$1', [req.params.id]);
+  res.json({ ok: true, spenti });
+}));
+
 // ---- quello che vede l'ospite ----
 const conLink = wrap(async (req, res, next) => {
   const s = await linkValido(req.params.token);
@@ -97,12 +154,14 @@ router.get('/pubblico/:token/trips/:id', conLink, wrap(async (req, res) => {
 
 // ---- i link, dalla parte di chi li manda ----
 router.get('/shares', requireAuth, requireAdmin, wrap(async (req, res) => {
-  const righe = (await q(`SELECT s.*, u.name AS chi FROM shares s LEFT JOIN users u ON u.id=s.created_by
+  const righe = (await q(`SELECT s.*, u.name AS chi, r.nick AS contatto_nick, r.telefono AS contatto_telefono
+    FROM shares s LEFT JOIN users u ON u.id=s.created_by LEFT JOIN rubrica r ON r.id=s.contatto_id
     ORDER BY s.revoked_at IS NOT NULL, s.id DESC`)).rows;
   const atleti = (await q(`SELECT id, name FROM users ORDER BY id`)).rows;
   const viaggi = (await q(`SELECT id, title, start_date, status FROM trips
     ORDER BY coalesce(start_date, created_at::date) DESC, id DESC`)).rows;
-  res.json({ shares: righe, atleti, viaggi });
+  const rubrica = (await q('SELECT id, nick, telefono FROM rubrica ORDER BY lower(nick)')).rows;
+  res.json({ shares: righe, atleti, viaggi, rubrica });
 }));
 
 router.post('/shares', requireAuth, requireAdmin, wrap(async (req, res) => {
@@ -110,12 +169,40 @@ router.post('/shares', requireAuth, requireAdmin, wrap(async (req, res) => {
   const giorni = Number(b.giorni) > 0 ? Math.min(3650, Math.round(Number(b.giorni))) : null;
   const viaggi = Array.isArray(b.viaggi) && b.viaggi.length ? b.viaggi.map(Number).filter(Boolean) : null;
   const allenamenti = Array.isArray(b.allenamenti) ? b.allenamenti.map(Number).filter(Boolean) : [];
-  const row = (await q(`INSERT INTO shares(token, nome, created_by, viaggi, tracciati, foto, spese, allenamenti, expires_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $9::int IS NULL THEN NULL ELSE now() + ($9::int * interval '1 day') END) RETURNING *`,
-    [randomToken(18), String(b.nome || '').trim().slice(0, 80) || null, req.user.id,
+  const chiesti = Array.isArray(b.contatti) ? [...new Set(b.contatti.map(Number).filter(Boolean))] : [];
+
+  // A chi si manda deve stare in rubrica. Non e' una formalita': un numero
+  // sbagliato di una cifra e' un viaggio di famiglia finito a uno sconosciuto,
+  // e un indirizzo mandato non si richiama indietro.
+  const destinatari = chiesti.length
+    ? (await q('SELECT id, nick, telefono FROM rubrica WHERE id = ANY($1)', [chiesti])).rows
+    : [];
+  if (destinatari.length !== chiesti.length) {
+    return res.status(400).json({ error: 'Qualcuno di quelli scelti non e\u2019 piu\u2019 in rubrica: ricarica la pagina e riprova' });
+  }
+
+  // Un link per ciascuno: cosi' si vede chi ha aperto e si puo' spegnere quello
+  // di uno senza togliere il viaggio a tutti gli altri
+  const nomeBase = String(b.nome || '').trim().slice(0, 80);
+  const crea = async contatto => (await q(`INSERT INTO shares(token, nome, created_by, viaggi, tracciati, foto, spese, allenamenti, contatto_id, expires_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9, CASE WHEN $10::int IS NULL THEN NULL ELSE now() + ($10::int * interval '1 day') END) RETURNING *`,
+    [randomToken(18), (contatto ? nomeBase || contatto.nick : nomeBase) || null, req.user.id,
       viaggi ? JSON.stringify(viaggi) : null, b.tracciati !== false, b.foto !== false, b.spese === true,
-      JSON.stringify(allenamenti), giorni])).rows[0];
-  console.log(`link di sola lettura creato dall'utente ${req.user.id}`);
+      JSON.stringify(allenamenti), contatto?.id || null, giorni])).rows[0];
+
+  const links = destinatari.length
+    ? await Promise.all(destinatari.map(async c => ({ ...(await crea(c)), contatto_nick: c.nick, contatto_telefono: c.telefono })))
+    : [await crea(null)];
+  console.log(`${links.length} link di sola lettura creati dall'utente ${req.user.id}`);
+  res.json({ links });
+}));
+
+// Segna che il link e' stato mandato: il momento in cui si apre WhatsApp e'
+// l'unica cosa che l'app puo' sapere davvero, e basta a ricordarsi chi e' gia'
+// stato avvisato e chi no.
+router.post('/shares/:id/inviato', requireAuth, requireAdmin, wrap(async (req, res) => {
+  const row = (await q('UPDATE shares SET inviato_at=now() WHERE id=$1 RETURNING id, inviato_at', [req.params.id])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Link non trovato' });
   res.json(row);
 }));
 

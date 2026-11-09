@@ -934,7 +934,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v67';
+const VERSIONE = 'v68';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -3178,6 +3178,7 @@ async function viewSettings() {
   }
   const adm = user.role === 'admin' ? await api('/auth/users') : null;
   const condivisioni = adm ? await api('/shares') : null;
+  const rubrica = adm ? await api('/rubrica') : null;
   const endpoint = location.origin + '/api/ingest/health';
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Impostazioni</h1>
     <div class="grid cols-2">
@@ -3214,6 +3215,12 @@ async function viewSettings() {
       <p class="small muted">Chi si registra con un codice invito entra in attesa finché non lo autorizzi. Ogni utente vede i viaggi condivisi e i propri allenamenti.</p>
       <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th></th></tr></thead><tbody>${adm.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="small">${esc(u.email)}</td><td>${u.role}</td><td>${u.approved ? '<span class="badge ok">autorizzato</span>' : '<span class="badge warn">in attesa</span>'}</td><td class="num">${u.id !== user.id ? `<button class="btn sm" data-uappr="${u.id}" data-v="${!u.approved}">${u.approved ? 'Sospendi' : 'Autorizza'}</button><button class="btn sm" data-upwd="${u.id}" data-uname="${esc(u.name)}">Reimposta password</button><button class="btn sm ghost danger" data-udel="${u.id}">Elimina</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
       ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).length ? `<div class="small" style="margin-top:10px">Inviti attivi: ${adm.invites.filter(i => !i.used_by && new Date(i.expires_at) > Date.now()).map(i => `<span class="code">${i.code}</span>`).join(' ')}</div>` : ''}</div>` : ''}
+    ${rubrica ? `<div class="card" style="margin-top:14px"><div class="row between"><h2>\ud83d\udcd2 Rubrica</h2><button class="btn primary sm" id="newcontatto">\uff0b Numero</button></div>
+      <p class="small muted">Un link si puo\u2019 mandare solo a un numero scritto qui. Un numero sbagliato di una cifra e\u2019 un viaggio di famiglia finito a uno sconosciuto, e un indirizzo mandato non si richiama indietro: prima si scrive chi e\u2019, poi gli si manda qualcosa. Togliendo qualcuno dalla rubrica, i suoi link si spengono.</p>
+      <div class="table-wrap"><table><thead><tr><th>Chi \u00e8</th><th>Numero</th><th>Nota</th><th>Link</th><th></th></tr></thead><tbody>${rubrica.map(c => `<tr>
+        <td><b>${esc(c.nick)}</b></td><td class="nowrap">${esc(c.telefono)}</td><td class="small muted">${esc(c.note || '')}</td>
+        <td class="small">${c.link_attivi ? `<span class="badge ok">${c.link_attivi} attiv${c.link_attivi === 1 ? 'o' : 'i'}</span>` : c.link ? `<span class="muted">${c.link} spent${c.link === 1 ? 'o' : 'i'}</span>` : '<span class="muted">\u2014</span>'}</td>
+        <td class="num nowrap"><button class="btn sm ghost icon" data-mod-contatto="${c.id}" title="Modifica">\u270f\ufe0f</button><button class="btn sm ghost danger icon" data-del-contatto="${c.id}" title="Togli dalla rubrica">\ud83d\uddd1</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Rubrica vuota. Aggiungi il numero di chi deve poter guardare i viaggi: finch\u00e9 non \u00e8 qui, non gli si pu\u00f2 mandare niente.</td></tr>'}</tbody></table></div></div>` : ''}
     ${condivisioni ? (() => {
       const nomeAtleta = id => (condivisioni.atleti.find(a => a.id === +id) || {}).name || '?';
       // Cosa apre un link, detto in una riga: e' quello che si rilegge fra sei
@@ -3231,11 +3238,12 @@ async function viewSettings() {
       return `<div class="card" style="margin-top:14px"><div class="row between"><h2>\ud83d\udd17 Link di sola lettura</h2><button class="btn primary sm" id="newshare">\uff0b Nuovo link</button></div>
       <p class="small muted">Un indirizzo da mandare a chi deve solo guardare: niente registrazione, niente password, e vede soltanto quello che spunti tu. Si spegne quando vuoi, anche dopo averlo mandato.</p>
       <div class="table-wrap"><table><thead><tr><th>Per chi</th><th>Cosa apre</th><th>Scadenza</th><th>Aperture</th><th></th></tr></thead><tbody>${condivisioni.shares.map(x => `<tr>
-        <td><b>${esc(x.nome || 'Senza nome')}</b><div class="small muted">${stato(x)} \u00b7 creato ${fdate(x.created_at)}</div></td>
+        <td><b>${esc(x.contatto_nick || x.nome || 'Senza nome')}</b>${x.contatto_telefono ? `<div class="small muted">${esc(x.contatto_telefono)}</div>` : ''}
+          <div class="small muted">${stato(x)} \u00b7 ${x.inviato_at ? 'mandato ' + fdate(x.inviato_at) : 'creato ' + fdate(x.created_at)}</div></td>
         <td class="small">${esc(riassunto(x))}</td>
         <td class="small">${x.expires_at ? fdate(x.expires_at) : 'nessuna'}</td>
         <td class="small">${x.viste || 0}${x.ultima_vista ? `<div class="muted">${fdt(x.ultima_vista)}</div>` : ''}</td>
-        <td class="num nowrap"><button class="btn sm" data-copia-link="${esc(x.token)}" title="Copia l\u2019indirizzo da mandare">\ud83d\udccb Copia</button>
+        <td class="num nowrap">${x.contatto_telefono && !x.revoked_at ? `<button class="btn sm" data-manda-link="${x.id}" data-tel="${esc(x.contatto_telefono)}" data-nick="${esc(x.contatto_nick || '')}" data-token="${esc(x.token)}" title="Mandaglielo su WhatsApp">\ud83d\udcf1 Manda</button>` : ''}<button class="btn sm" data-copia-link="${esc(x.token)}" title="Copia l\u2019indirizzo da mandare">\ud83d\udccb Copia</button>
           <button class="btn sm ghost" data-spegni-link="${x.id}" data-acceso="${x.revoked_at ? 0 : 1}">${x.revoked_at ? 'Riaccendi' : 'Spegni'}</button>
           <button class="btn sm ghost danger" data-elimina-link="${x.id}" title="Elimina">\ud83d\uddd1</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun link. Creane uno per far vedere un viaggio a chi non ha un posto qui dentro.</td></tr>'}</tbody></table></div></div>`;
     })() : ''}
@@ -3269,8 +3277,45 @@ async function viewSettings() {
       (el2, close2) => { $('#cp', el2).onclick = () => { navigator.clipboard?.writeText(r.token); toast('Copiato'); }; $('[data-x]', el2).onclick = () => { close2(); render(); }; });
   }));
   };
+  // ---- la rubrica ----
+  const contattoForm = (c = null) => modal(`<h2>${c ? 'Modifica il contatto' : '\ud83d\udcd2 Nuovo numero in rubrica'}</h2>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Chi \u00e8</label><input name="nick" maxlength="60" required placeholder="Es. Nonna Lucia" value="${esc(c?.nick || '')}"></div>
+      <div><label class="f">Numero di telefono</label><input name="telefono" required placeholder="Es. 333 1234567" value="${esc(c?.telefono || '')}">
+        <div class="small muted">Senza prefisso si intende l\u2019Italia. Il numero serve a mandare il link su WhatsApp: non esce da qui.</div></div>
+      <div><label class="f">Nota (facoltativa)</label><input name="note" maxlength="200" placeholder="Es. mamma di Cate" value="${esc(c?.note || '')}"></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${c ? 'Salva' : 'Aggiungi'}</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = close;
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(e.target));
+      await api(c ? '/rubrica/' + c.id : '/rubrica', { method: c ? 'PUT' : 'POST', body });
+      close(); toast(c ? 'Contatto aggiornato' : 'Numero in rubrica'); render();
+    });
+  });
+  $('#newcontatto')?.addEventListener('click', () => contattoForm());
+  $$('[data-mod-contatto]').forEach(b => b.onclick = () => contattoForm(rubrica.find(c => c.id === +b.dataset.modContatto)));
+  $$('[data-del-contatto]').forEach(b => b.onclick = safe(async () => {
+    const c = rubrica.find(x => x.id === +b.dataset.delContatto);
+    if (!await confirmDlg(`Togliere ${c.nick} dalla rubrica?${c.link_attivi ? ` I suoi ${c.link_attivi} link si spengono subito.` : ''}`)) return;
+    const r = await api('/rubrica/' + c.id, { method: 'DELETE' });
+    toast(r.spenti ? `Tolto dalla rubrica \u00b7 ${r.spenti} link spenti` : 'Tolto dalla rubrica');
+    render();
+  }));
+
   // ---- i link di sola lettura ----
   const indirizzoLink = t => `${location.origin}/v/${t}`;
+  // Il messaggio con cui parte un link: due righe, il nome di chi lo riceve e
+  // l'indirizzo. WhatsApp si apre gia' scritto, mandarlo resta a te.
+  const messaggio = (nick, url) => `Ciao${nick ? ' ' + nick : ''}! Qui ci sono i nostri viaggi in camper, da guardare quando vuoi: ${url}`;
+  const suWhatsapp = (tel, nick, url) => `https://wa.me/${String(tel).replace(/\D/g, '')}?text=${encodeURIComponent(messaggio(nick, url))}`;
+  const viaSms = (tel, nick, url) => `sms:${tel}${/iPhone|iPad|Macintosh/.test(navigator.userAgent) ? '&' : '?'}body=${encodeURIComponent(messaggio(nick, url))}`;
+  $$('[data-manda-link]').forEach(b => b.onclick = safe(async () => {
+    const url = indirizzoLink(b.dataset.token);
+    window.open(suWhatsapp(b.dataset.tel, b.dataset.nick, url), '_blank', 'noopener');
+    await api(`/shares/${b.dataset.mandaLink}/inviato`, { method: 'POST', body: {} }).catch(() => {});
+  }));
   $$('[data-copia-link]').forEach(b => b.onclick = safe(async () => {
     const url = indirizzoLink(b.dataset.copiaLink);
     try { await navigator.clipboard.writeText(url); toast('Indirizzo copiato'); }
@@ -3303,7 +3348,11 @@ async function viewSettings() {
         <div><label class="f">Allenamenti</label>
           ${atleti.map(a => `<label class="scelta"><input type="checkbox" name="allenamenti" value="${a.id}"> <span>Quelli di ${esc(a.name)}</span></label>`).join('')}
           <div class="small muted">Senza spunte, degli allenamenti non vede niente.</div></div>
-        <div><label class="f">Scadenza</label><select name="giorni"><option value="">Nessuna, finch\u00e9 non lo spengo</option><option value="7">7 giorni</option><option value="30" selected>30 giorni</option><option value="90">3 mesi</option><option value="365">1 anno</option></select></div>
+        <div><label class="f">A chi lo mandi</label>
+          ${rubrica.length ? `<div class="lista-scelte">${rubrica.map(c => `<label class="scelta"><input type="checkbox" name="contatti" value="${c.id}"> <span>${esc(c.nick)} <span class="small muted">${esc(c.telefono)}</span></span></label>`).join('')}</div>
+            <div class="small muted">Ognuno riceve il suo indirizzo: cos\u00ec vedi chi apre, e puoi spegnere quello di uno senza togliere niente agli altri. Senza spunte viene creato un indirizzo solo, da copiare a mano.</div>`
+            : '<div class="small muted">La rubrica \u00e8 vuota: aggiungi un numero l\u00ec sopra per poter mandare il link. Senza, viene creato solo un indirizzo da copiare a mano.</div>'}</div>
+        <div><label class="f">Scadenza</label><select name="giorni"><option value="">Nessuna, finch\u00e9 non lo spengo</option><option value="7">7 giorni</option><option value="15" selected>15 giorni</option><option value="30">30 giorni</option><option value="90">3 mesi</option><option value="365">1 anno</option></select></div>
         <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Crea il link</button></div>
       </form>`, (el, close) => {
       $('[data-x]', el).onclick = close;
@@ -3319,14 +3368,27 @@ async function viewSettings() {
           foto: fd.get('foto') === 'on',
           spese: fd.get('spese') === 'on',
           allenamenti: fd.getAll('allenamenti').map(Number),
+          contatti: fd.getAll('contatti').map(Number),
           giorni: fd.get('giorni') || null,
         } });
         close();
-        const url = indirizzoLink(r.token);
-        modal(`<h2>Il link \u00e8 pronto</h2><p class="small muted">Mandalo a chi deve guardare: chi lo apre non deve registrarsi n\u00e9 installare niente.</p>
-          <div class="code" style="word-break:break-all">${esc(url)}</div>
-          <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="cp">\ud83d\udccb Copia</button><button class="btn primary" data-x>Fatto</button></div>`,
-          (el2, close2) => { $('#cp', el2).onclick = () => { navigator.clipboard?.writeText(url); toast('Copiato'); }; $('[data-x]', el2).onclick = () => { close2(); render(); }; });
+        const fatti = r.links.map(x => ({ ...x, url: indirizzoLink(x.token) }));
+        modal(`<h2>${fatti.length === 1 ? 'Il link \u00e8 pronto' : `Pronti ${fatti.length} link`}</h2>
+          <p class="small muted">Chi lo apre non deve registrarsi n\u00e9 installare niente. WhatsApp si apre gi\u00e0 scritto: mandarlo resta a te.</p>
+          <div class="list">${fatti.map(x => `<div class="item"><div class="item-main" style="cursor:default"><div class="grow">
+            <div class="title">${esc(x.contatto_nick || 'Indirizzo da copiare')}${x.contatto_telefono ? ` <span class="small muted">${esc(x.contatto_telefono)}</span>` : ''}</div>
+            <div class="meta code" style="word-break:break-all">${esc(x.url)}</div></div></div>
+            <div class="item-actions">${x.contatto_telefono ? `<a class="btn sm primary" target="_blank" rel="noopener" href="${esc(suWhatsapp(x.contatto_telefono, x.contatto_nick, x.url))}" data-inviato="${x.id}">\ud83d\udcf1 WhatsApp</a>
+              <a class="btn sm" href="${esc(viaSms(x.contatto_telefono, x.contatto_nick, x.url))}" data-inviato="${x.id}">\ud83d\udcac SMS</a>` : ''}
+              <button class="btn sm ghost icon" data-cp="${esc(x.url)}" title="Copia l\u2019indirizzo">\ud83d\udccb</button></div></div>`).join('')}</div>
+          <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" data-x>Fatto</button></div>`,
+          (el2, close2) => {
+            $$('[data-cp]', el2).forEach(b2 => b2.onclick = () => { navigator.clipboard?.writeText(b2.dataset.cp); toast('Copiato'); });
+            $$('[data-inviato]', el2).forEach(a2 => a2.addEventListener('click', () => {
+              api(`/shares/${a2.dataset.inviato}/inviato`, { method: 'POST', body: {} }).catch(() => {});
+            }));
+            $('[data-x]', el2).onclick = () => { close2(); render(); };
+          });
       });
     });
   });

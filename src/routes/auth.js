@@ -113,7 +113,7 @@ router.post('/users/:id/password', requireAuth, requireAdmin, wrap(async (req, r
 
 router.post('/invites', requireAuth, requireAdmin, wrap(async (req, res) => {
   const code = randomCode();
-  const row = (await q(`INSERT INTO invites(code,created_by,expires_at) VALUES($1,$2,now()+interval '7 days') RETURNING *`, [code, req.user.id])).rows[0];
+  const row = (await q(`INSERT INTO invites(code,created_by,expires_at) VALUES($1,$2,now()+interval '15 days') RETURNING *`, [code, req.user.id])).rows[0];
   res.json(row);
 }));
 router.post('/users/:id/approve', requireAuth, requireAdmin, wrap(async (req, res) => {

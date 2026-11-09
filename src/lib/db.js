@@ -440,6 +440,25 @@ export async function migrate() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 
+  -- La rubrica: i numeri a cui si puo' mandare un link, e basta quelli. Un
+  -- numero sbagliato di una cifra e' un viaggio di famiglia finito a uno
+  -- sconosciuto, e un indirizzo mandato non si richiama indietro. Chi non e'
+  -- qui dentro non si puo' invitare: prima lo si scrive, con un nome che dica
+  -- a chi corrisponde, poi eventualmente gli si manda qualcosa.
+  CREATE TABLE IF NOT EXISTS rubrica (
+    id SERIAL PRIMARY KEY,
+    nick TEXT NOT NULL,
+    telefono TEXT NOT NULL UNIQUE,              -- in forma internazionale: +39...
+    note TEXT,
+    created_by INT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  -- A chi e' stato mandato questo link: serve a sapere chi sta guardando cosa,
+  -- e a spegnere il link di uno senza toccare quello degli altri
+  ALTER TABLE shares ADD COLUMN IF NOT EXISTS contatto_id INT REFERENCES rubrica(id) ON DELETE SET NULL;
+  ALTER TABLE shares ADD COLUMN IF NOT EXISTS inviato_at TIMESTAMPTZ;
+
   CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
   -- Serve a dire in fretta di che viaggio e' un file, quando a chiederlo e' un ospite
   CREATE INDEX IF NOT EXISTS idx_photos_filename ON photos(filename);
