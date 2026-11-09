@@ -125,11 +125,31 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-cartello { background: rgba(17,24,39,.82); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap;
   padding: 3px 8px; border-radius: 8px; transform: translateX(-50%); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .corsa-cartello.arrivo { background: rgba(220,38,38,.88); }
-.corsa-foto { width: 260px; background: #fff; border-radius: 12px; padding: 5px; box-shadow: 0 8px 28px rgba(0,0,0,.45);
-  animation: entra-foto .25s ease; }
-.corsa-foto img { width: 100%; height: 170px; object-fit: cover; border-radius: 9px; display: block; }
-.corsa-foto span { display: block; font-size: 13px; color: #111; padding: 5px 5px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@keyframes entra-foto { from { opacity: 0; transform: translateY(8px) scale(.92); } to { opacity: 1; transform: none; } }
+/* La cartolina si stringe addosso alla foto: niente riquadro fisso, niente
+   ritaglio, niente bianco intorno. La didascalia ci sta sopra, in fondo. */
+.foto-icona { pointer-events: none; }
+.foto-icona .corsa-foto { pointer-events: auto; }
+.corsa-foto { position: absolute; left: 50%; bottom: 0; background: #fff; border-radius: 12px; padding: 5px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.45); line-height: 0; cursor: zoom-in; animation: entra-foto .25s ease; }
+/* Leaflet toglie il limite di larghezza a tutte le immagini dentro la mappa,
+   per via delle tessere: alla cartolina quel limite serve, e va riaffermato */
+.leaflet-container .corsa-foto img { display: block; width: auto; height: auto; border-radius: 9px;
+  max-width: min(320px, 72vw) !important; max-height: min(240px, 40vh) !important; }
+.corsa-foto span { position: absolute; left: 5px; right: 5px; bottom: 5px; border-radius: 0 0 9px 9px; line-height: 1.3;
+  font-size: 13px; color: #fff; padding: 16px 9px 6px; background: linear-gradient(transparent, rgba(0,0,0,.78));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes entra-foto { from { opacity: 0; transform: translate(-50%, 8px) scale(.92); } to { opacity: 1; transform: translateX(-50%); } }
+.corsa-foto { transform: translateX(-50%); }
+
+/* Guardata grande: riempie la mappa, e un tocco qualsiasi fa ripartire il viaggio */
+.corsa-grande { position: absolute; inset: 0; z-index: 1300; display: grid; place-items: center; padding: 16px;
+  background: rgba(8,12,20,.92); cursor: zoom-out; animation: appare .25s ease; }
+.corsa-grande img { max-width: 100% !important; max-height: 100%; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+.corsa-grande span { position: absolute; left: 16px; right: 16px; bottom: 56px; text-align: center; color: #fff;
+  font-size: 15px; text-shadow: 0 1px 6px rgba(0,0,0,.9); }
+.corsa-grande .riprendi { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; color: #fff;
+  background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.4); padding: 7px 16px; border-radius: 999px; font-size: 14px; }
+@keyframes appare { from { opacity: 0; } to { opacity: 1; } }
 
 /* Un video nella raccolta: la miniatura e' il primo fotogramma, e il segno del
    play dice che si muove. La cornice e' la stessa delle foto, cosi' la raccolta

@@ -101,10 +101,12 @@ const confirmDlg = msg => new Promise(res => modal(`<h2>${esc(msg)}</h2><div cla
 function makeMap(el, opts = {}) {
   const map = L.map(el, { zoomControl: !opts.simple, attributionControl: true, ...opts });
   const strada = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-  // La veduta dall'alto con i nomi sopra: per rivedere un viaggio conta piu' il
-  // mare e la montagna che il nome delle strade, e le foto ci si posano meglio
+  // La veduta dall'alto, con sopra i nomi dei paesi e le strade con la loro
+  // sigla: rivedendo un viaggio si vuole il mare e la montagna, ma anche sapere
+  // che quello era il passo del Tonale e che si e' scesi per la A4.
   const ibrida = L.layerGroup([
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '© Esri' }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '' }),
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '' }),
   ]);
   map.strati_sfondo = { strada, ibrida };
@@ -397,21 +399,58 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const scia = L.polyline([], { color: '#fbbf24', weight: 5, opacity: .95 }).addTo(map);
   const segnale = L.marker(pezzi[0].punti[0], { icon: iconaCorsa(pezzi[0].faccia), zIndexOffset: 1000 }).addTo(map);
   const avanzamento = barra.querySelector('.avanzamento i'), quando = barra.querySelector('.quando');
+  const tastoPausa = barra.querySelector('[data-ferma]');
 
   // La musica parte con la riproduzione, si ferma con la pausa e sfuma alla
   // fine. Chi non la vuole la spegne, e l'app se lo ricorda per la volta dopo.
   const vuoleMusica = () => { try { return localStorage.getItem('musica') !== 'no'; } catch { return true; } };
   let suono = vuoleMusica() ? musichetta() : null;
 
-  let iP = -1, frame = 0, fatti = 0, fermo = false, attesa = 0, chiuso = false, prossimo = 0;
+  // Mettere in pausa e riprendere: lo fanno il tasto e il tocco sulla foto, e
+  // sono la stessa cosa. Il tempo che restava da guardare si congela: senza,
+  // una foto aperta durante la pausa scadrebbe mentre la si sta guardando.
+  const metti = inPausa => {
+    if (fermo === inPausa || chiuso) return;
+    fermo = inPausa;
+    tastoPausa.textContent = fermo ? '\u25b6' : '\u23f8';
+    if (fermo) { restante = finoA ? Math.max(0, finoA - performance.now()) : 0; finoA = 0; suono?.pausa(); }
+    else { if (restante) { finoA = performance.now() + restante; restante = 0; } suono?.riprendi(); }
+  };
+
+  let iP = -1, frame = 0, fatti = 0, fermo = false, chiuso = false, prossimo = 0;
+  // Quanto resta da guardare prima di ripartire. Si misura in secondi veri e
+  // non in fotogrammi: su uno schermo che ne disegna centoventi al secondo,
+  // tre secondi contati a fotogrammi durerebbero un secondo e mezzo.
+  let finoA = 0, restante = 0;
+  const aspetta = ms => { finoA = ms ? performance.now() + ms : 0; };
   const totaleFrames = pezzi.reduce((a, p) => a + p.frames, 0);
   let fotoAperta = null;
   const chiudiFoto = () => { if (fotoAperta) { map.removeLayer(fotoAperta); fotoAperta = null; } };
 
+  // Tre secondi sono pochi per una foto che vale: toccandola la corsa si ferma
+  // e la foto si apre grande quanto la mappa. Un altro tocco la chiude e il
+  // viaggio riprende da dove era rimasto.
+  let grande = null;
+  const chiudiGrande = () => { grande?.remove(); grande = null; };
+  const ingrandisci = sc => {
+    if (grande) return riprendiDallaFoto();
+    metti(true);
+    grande = document.createElement('div');
+    grande.className = 'corsa-grande';
+    grande.innerHTML = `<img src="/uploads/${sc.filename}" alt="">${sc.caption ? `<span>${esc(sc.caption)}</span>` : ''}<div class="riprendi">\u25b6 Tocca per riprendere</div>`;
+    grande.onclick = riprendiDallaFoto;
+    map.getContainer().appendChild(grande);
+  };
+  const riprendiDallaFoto = () => {
+    chiudiGrande();
+    metti(false);
+    aspetta(1);                        // la cartolina piccola si chiude e si riparte
+  };
+
   const fine = () => {
     if (chiuso) return;
     chiuso = true;
-    chiudiFoto();
+    chiudiFoto(); chiudiGrande();
     viaCartelli(); viaScheda();
     suono?.ferma(); suono = null;
     [velo, scia, segnale].forEach(l => map.removeLayer(l));
@@ -453,7 +492,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       ${p.chi ? `<div class="sotto">${esc(p.chi)}</div>` : ''}
       <div class="numeri">${p.numeri.map(([v, u]) => `<div><b>${v}</b><span>${esc(u)}</span></div>`).join('')}</div>`;
     map.getContainer().appendChild(scheda);
-    return 180;
+    return 3000;
   };
   const cartello = (punto, testo, arrivo) => L.marker(punto, {
     icon: L.divIcon({ className: '', html: `<div class="corsa-cartello${arrivo ? ' arrivo' : ''}">${esc(testo)}</div>`, iconSize: [0, 0], iconAnchor: [0, arrivo ? -6 : 34] }),
@@ -467,8 +506,12 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scheda.className = 'corsa-scheda annuncio';
     scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>${p.nome ? `<div class="sotto">${esc([p.nome, p.quando].filter(Boolean).join(' \u00b7 '))}</div>` : ''}`;
     map.getContainer().appendChild(scheda);
-    return 110;
+    return 1800;
   };
+
+  // Quanto bisogna stare bassi perche' si legga: su una statale basta meno
+  // altezza che su un'autostrada, e su una camminata ancora meno
+  const zoomDaVicino = lung => lung > 120000 ? 11 : lung > 25000 ? 12 : lung > 6000 ? 13 : 14;
 
   const apriPezzo = n => {
     iP = n; frame = 0;
@@ -482,24 +525,38 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
     if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
     // Chi sta camminando si dice prima di partire, non alla fine
-    attesa = mostraTitolo(p);
+    aspetta(mostraTitolo(p));
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
     // chilometri e una camminata di tre non si guardano dalla stessa altezza
     map.flyToBounds(L.latLngBounds(p.punti), { padding: [50, 50], duration: .8, maxZoom: 15 });
+    // Poi pero' scende a seguire da vicino. Da duecento chilometri d'altezza si
+    // vede la forma del viaggio ma non si legge niente: i nomi dei paesi e le
+    // sigle delle strade - A4, SP270 - compaiono solo stando bassi. Prima la
+    // veduta d'insieme per capire dove si va, poi il passo dell'automobilista.
+    setTimeout(() => {
+      if (chiuso || iP !== n) return;
+      map.flyTo(doveA(p, frame / p.frames), zoomDaVicino(p.lung), { duration: 1.1 });
+    }, 1500);
   };
 
   const passo = () => {
     if (chiuso) return;
     requestAnimationFrame(passo);
     if (fermo) return;
-    if (attesa > 0) { attesa--; if (!attesa) { chiudiFoto(); if (scheda?.classList.contains('annuncio')) viaScheda(); } return; }
+    if (finoA) {
+      if (performance.now() < finoA) return;
+      finoA = 0;
+      chiudiFoto();
+      if (scheda?.classList.contains('annuncio')) viaScheda();
+      return;
+    }
     if (iP < 0 || frame >= pezzi[iP].frames) {
       // Finito un allenamento, i suoi numeri restano un momento sullo schermo
-      if (iP >= 0 && pezzi[iP].numeri?.length && !scheda) { attesa = mostraScheda(pezzi[iP]); if (attesa) return; }
+      if (iP >= 0 && pezzi[iP].numeri?.length && !scheda) { aspetta(mostraScheda(pezzi[iP])); if (finoA) return; }
       // Arrivati: se c'e' il conto del viaggio resta li' finche' non si chiude,
       // altrimenti l'ultima immagine dura un momento e la mappa torna com'era
       if (iP + 1 >= pezzi.length) {
-        avanzamento.style.width = '100%'; fermo = true;
+        avanzamento.style.width = '100%'; metti(true);
         if (!mostraFinale()) setTimeout(fine, scheda ? 3200 : 2200);
         return;
       }
@@ -512,30 +569,30 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scia.addLatLng(pt);
     segnale.setLatLng(pt);
     avanzamento.style.width = `${(fatti / totaleFrames * 100).toFixed(1)}%`;
-    if (!map.getBounds().pad(-0.2).contains(pt)) map.panTo(pt, { animate: true, duration: .6 });
+    if (!map.getBounds().pad(-0.28).contains(pt)) map.panTo(pt, { animate: true, duration: .6 });
     // La foto compare quando l'icona le arriva accanto, e si aspetta un momento
     const sc = scatti[prossimo];
     if (sc && (sc.iP < iP || (sc.iP === iP && sc.f <= f))) {
       prossimo++;
       chiudiFoto();
       fotoAperta = L.marker([sc.lat, sc.lon], {
-        icon: L.divIcon({ className: '', html: `<div class="corsa-foto"><img src="/uploads/${sc.filename}" alt="">${sc.caption ? `<span>${esc(sc.caption)}</span>` : ''}</div>`, iconSize: [260, 200], iconAnchor: [130, 210] }),
+        // La cornice si stringe addosso alla foto: cosi' la foto si vede
+        // intera e intorno non resta bianco. Il riquadro dell'icona e' solo lo
+        // spazio in cui la cartolina sta appesa sopra il suo punto.
+        icon: L.divIcon({ className: 'foto-icona', html: `<div class="corsa-foto"><img src="/uploads/${sc.filename}" alt="">${sc.caption ? `<span>${esc(sc.caption)}</span>` : ''}</div>`, iconSize: [340, 260], iconAnchor: [170, 272] }),
         zIndexOffset: 1200,
       }).addTo(map);
+      fotoAperta.on('click', () => ingrandisci(sc));
       // Una foto scattata lontano dalla strada - una gita, una deviazione a
       // piedi - non si vedrebbe nemmeno: la mappa ci si sposta sopra
       if (!map.getBounds().pad(-0.1).contains([sc.lat, sc.lon])) map.panTo([sc.lat, sc.lon], { animate: true, duration: .8 });
-      attesa = 230;
+      aspetta(3000);
     }
   };
   apriPezzo(0);
   requestAnimationFrame(passo);
 
-  barra.querySelector('[data-ferma]').onclick = e => {
-    fermo = !fermo;
-    e.currentTarget.textContent = fermo ? '\u25b6' : '\u23f8';
-    if (fermo) suono?.pausa(); else suono?.riprendi();
-  };
+  tastoPausa.onclick = () => metti(!fermo);
   const tastoMusica = barra.querySelector('[data-musica]');
   const segnaMusica = () => {
     tastoMusica.textContent = suono ? '\ud83d\udd0a' : '\ud83d\udd07';
@@ -1105,7 +1162,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v70';
+const VERSIONE = 'v72';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
