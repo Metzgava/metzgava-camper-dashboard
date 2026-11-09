@@ -394,6 +394,10 @@ export async function migrate() {
   -- telefono ne' l'uniformazione dei nomi la riscrivono. Un'escursione che era
   -- in realta' il tapis roulant lo sa solo chi l'ha fatta.
   ALTER TABLE workouts ADD COLUMN IF NOT EXISTS sport_manual BOOLEAN NOT NULL DEFAULT false;
+  -- Dove e' successo: un'escursione si chiama «Escursione» su tutti i telefoni,
+  -- e fra dieci anni nessuno si ricordera' quale era quella della Sacra. Il nome
+  -- del posto si legge dalle coordinate della traccia, una volta sola.
+  ALTER TABLE workouts ADD COLUMN IF NOT EXISTS luogo TEXT;
 
   -- Le letture che l'orologio prende tutto il giorno per conto suo: battito e
   -- energia attiva. Non sono un allenamento, ma quando un giro e' stato

@@ -194,10 +194,21 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (chiuso) return;
     chiuso = true;
     chiudiFoto();
+    viaCartelli();
     [velo, scia, segnale].forEach(l => map.removeLayer(l));
     barra.remove();
     if (strati && eraStrada) { map.removeLayer(strati.ibrida); strati.strada.addTo(map); }
   };
+
+  // I cartelli dei due capi: il posto da cui si parte e quello dove si arriva,
+  // scritti sulla mappa e non solo nella barra, perche' e' li' che si guarda -
+  // e perche' chi registra lo schermo si ritrova il nome dentro al filmato
+  let cartelli = [];
+  const viaCartelli = () => { cartelli.forEach(c => map.removeLayer(c)); cartelli = []; };
+  const cartello = (punto, testo, arrivo) => L.marker(punto, {
+    icon: L.divIcon({ className: '', html: `<div class="corsa-cartello${arrivo ? ' arrivo' : ''}">${esc(testo)}</div>`, iconSize: [0, 0], iconAnchor: [0, arrivo ? -6 : 34] }),
+    interactive: false, zIndexOffset: 900,
+  }).addTo(map);
 
   const apriPezzo = n => {
     iP = n; frame = 0;
@@ -205,6 +216,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scia.setLatLngs([]);
     segnale.setIcon(iconaCorsa(p.faccia));
     quando.textContent = [p.nome, p.quando].filter(Boolean).join(' \u00b7 ');
+    viaCartelli();
+    if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
+    if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
     // chilometri e una camminata di tre non si guardano dalla stessa altezza
     map.flyToBounds(L.latLngBounds(p.punti), { padding: [50, 50], duration: .8, maxZoom: 15 });
@@ -802,7 +816,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v59';
+const VERSIONE = 'v60';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1141,6 +1155,7 @@ async function viewTrip(id) {
       ...legs.map(l => ({
         punti: (l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]]).map(p => [p[0], p[1]]),
         faccia: MEZZO_ICONA[mezzoDi(l)] || MEZZO_ICONA.camper,
+        da: l.from_name.split(',')[0], a: l.to_name.split(',')[0],
         nome: `${l.from_name.split(',')[0]} \u2192 ${l.to_name.split(',')[0]}`,
         quando: l.date ? fdate(l.date) : '',
         ordine: l.date ? new Date(l.date).getTime() : 0,
@@ -1148,7 +1163,10 @@ async function viewTrip(id) {
       ...workouts.filter(w => w.track?.length > 1).map(w => ({
         punti: w.track.map(p => [p[0], p[1]]),
         faccia: sportIco(w.sport),
-        nome: `${esc(w.athlete || '')} \u00b7 ${esc(w.name || w.sport || '')}`.trim(),
+        // Di un allenamento conta il posto: «Escursione» da solo, fra dieci
+        // anni, non dice quale giorno fosse
+        da: w.luogo || null,
+        nome: [w.luogo, w.name || w.sport, w.athlete].filter(Boolean).join(' \u00b7 '),
         quando: fdate(w.started_at),
         ordine: new Date(w.started_at).getTime(),
       })),
@@ -2599,7 +2617,7 @@ async function viewWorkout(id) {
   const trips = await api('/trips');
   const stat = (l, v) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div></div>`;
   $('#app').innerHTML = layout(`<a href="${tornaAllenamenti(w)}" class="small">← Allenamenti ${esc(w.athlete || '')}</a><div class="row between" style="margin:4px 0 14px"><h1>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</h1><div class="row nowrap" style="gap:6px"><button class="btn" id="mod">Modifica dati</button><button class="btn ghost icon" id="ren" title="Rinomina">✏️</button><button class="btn ghost danger icon" id="del" title="Elimina">🗑</button></div></div>
-    <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.meta?.battiti_da_letture ? ` · <span title="Nessun allenamento registrato sull\u2019orologio: i battiti sono le letture della giornata ritagliate su queste ore">battiti ricostruiti</span>` : ''}${w.meta?.calorie_da_letture ? ' · <span title="Somma dell\u2019energia attiva misurata in quelle ore">calorie ricavate dall\u2019energia attiva</span>' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
+    <div class="muted small" style="margin-bottom:12px">${fdt(w.started_at)}${w.luogo ? ' · 📍 ' + esc(w.luogo) : ''} · ${esc(w.athlete)} · fonte: ${w.source}${w.meta?.komoot_url ? ` · <a href="${esc(w.meta.komoot_url)}" target="_blank">apri su Komoot</a>` : ''}${w.meta?.merged_from_health ? ' · battito e calorie da iPhone' : ''}${w.meta?.battiti_da_letture ? ` · <span title="Nessun allenamento registrato sull\u2019orologio: i battiti sono le letture della giornata ritagliate su queste ore">battiti ricostruiti</span>` : ''}${w.meta?.calorie_da_letture ? ' · <span title="Somma dell\u2019energia attiva misurata in quelle ore">calorie ricavate dall\u2019energia attiva</span>' : ''}${w.trip_title ? ` · <span class="badge link" title="Collegato al viaggio">🔗 ${esc(w.trip_title)}</span>` : ''}</div>
     <div class="tiles" style="margin-bottom:14px">${stat('Distanza', num((w.distance_m || 0) / 1000) + ' km')}${stat('Durata', dur(w.duration_s))}${stat('Media oraria', mediaKmh(w) ? num(mediaKmh(w)) + ' km/h' : '—')}${stat('Dislivello', (w.elevation_up_m || 0) + ' m')}${dislivelloOrario(w) ? stat('Dislivello orario', num(dislivelloOrario(w), 0) + ' m/h') : ''}${stat('❤️ Medio', w.hr_avg ? w.hr_avg + ' bpm' : '—')}${stat('❤️ Max', w.hr_max ? w.hr_max + ' bpm' : '—')}${stat('Calorie', w.calories ? w.calories + ' kcal' : '—')}${w.peso_kg != null ? stat('Peso', `${num(w.peso_kg, 1)} kg<div class="sub">pesata del giorno</div>`) : ''}</div>
     ${w.track ? '<div class="card pad-0"><div id="map" class="map tall"></div></div>' : '<div class="card muted">Nessuna traccia GPS per questo allenamento.</div>'}
     ${w.track ? '<div class="row" style="margin-top:10px"><button class="btn sm primary" id="rivedi-uno">\u25b6 Rivedi il percorso</button></div>' : ''}
@@ -2620,7 +2638,8 @@ async function viewWorkout(id) {
     $('#rivedi-uno')?.addEventListener('click', () => riproduci(map, [{
       punti: w.track.map(p => [p[0], p[1]]),
       faccia: sportIco(w.sport),
-      nome: w.name || w.sport || 'Allenamento',
+      da: w.luogo || null,
+      nome: [w.luogo, w.name || w.sport || 'Allenamento'].filter(Boolean).join(' \u00b7 '),
       quando: fdate(w.started_at),
     }], [], { secondi: 20 }));
   }

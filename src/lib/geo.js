@@ -36,6 +36,29 @@ export async function geocode(query, lang = 'it') {
   }
 }
 
+// Il contrario del geocoder: da due coordinate il nome del posto. Serve agli
+// allenamenti, che si chiamano tutti «Escursione» e non dicono dove: a rivedere
+// il viaggio, «Sacra di San Michele» vale piu' di qualunque altro dato.
+export async function luogoDaCoordinate(lat, lon, lang = 'it') {
+  const pulisci = parti => [...new Set(parti.filter(Boolean))].slice(0, 2).join(', ').slice(0, 120) || null;
+  try {
+    const d = await fetchJson(`${PHOTON}/reverse?lat=${lat}&lon=${lon}&lang=${lang}`, { headers: { 'User-Agent': UA } }, 10000);
+    const p = d.features?.[0]?.properties;
+    if (p) {
+      const nome = pulisci([p.name, p.city || p.town || p.village || p.locality || p.county]);
+      if (nome) return nome;
+    }
+  } catch { }
+  const attesa = 1100 - (Date.now() - lastNominatim);
+  if (attesa > 0) await new Promise(r => setTimeout(r, attesa));
+  lastNominatim = Date.now();
+  try {
+    const d = await fetchJson(`${NOMINATIM}/reverse?lat=${lat}&lon=${lon}&format=jsonv2&zoom=14&accept-language=${lang}`, { headers: { 'User-Agent': UA } }, 10000);
+    const a = d?.address || {};
+    return pulisci([a.tourism || a.attraction || a.peak || a.hamlet || a.suburb, a.village || a.town || a.city || a.municipality]);
+  } catch { return null; }
+}
+
 // Percorso stradale tra due punti. Restituisce km, minuti e geometria [[lat,lon],...]
 export async function route(from, to) {
   const url = `${OSRM}/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson&steps=false`;

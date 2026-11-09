@@ -80,6 +80,9 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-barra .avanzamento { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .corsa-barra .avanzamento i { display: block; height: 100%; width: 0; background: #fbbf24; transition: width .15s linear; }
 .corsa-barra .quando { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; color: var(--text); }
+.corsa-cartello { background: rgba(17,24,39,.82); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap;
+  padding: 3px 8px; border-radius: 8px; transform: translateX(-50%); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.corsa-cartello.arrivo { background: rgba(220,38,38,.88); }
 .corsa-foto { width: 160px; background: #fff; border-radius: 10px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.4);
   animation: entra-foto .25s ease; }
 .corsa-foto img { width: 100%; height: 96px; object-fit: cover; border-radius: 7px; display: block; }

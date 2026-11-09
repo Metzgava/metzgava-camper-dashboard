@@ -6,7 +6,7 @@ import { migrate, sistemaDurateCarlock } from './lib/db.js';
 import { SECRET } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
-import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti } from './routes/workouts.js';
+import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR, completaExifMancanti } from './routes/photos.js';
 import { router as materiali } from './routes/materiali.js';
 import { sannoEvitareIPedaggi } from './lib/geo.js';
@@ -80,6 +80,9 @@ async function manutenzioni() {
   await sistemaDurateCarlock().catch(e => console.warn('durate CarLock non ricontate:', e.message));
   // Ripulisce anche i doppioni gia' in archivio, non solo quelli che arriveranno
   await rimuoviDoppioniAutomatici().catch(e => console.warn('pulizia doppioni fallita:', e.message));
+  // Il nome del posto degli allenamenti: pochi per volta, che i geocoder
+  // gratuiti non si tengono buoni a forza di richieste
+  await completaLuoghiMancanti().catch(e => console.warn('luoghi degli allenamenti:', e.message));
 }
 
 migrate().then(() => {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
+import { luogoDaCoordinate } from '../lib/geo.js';
 import { wrap, encrypt, decrypt, num, samplePoints } from '../lib/util.js';
 import { parseGpx } from '../lib/gpx.js';
 import * as komoot from '../lib/komoot.js';
@@ -161,6 +162,27 @@ function serieBattiti(w) {
     .sort((a, b) => a[0] - b[0])
     .map(([t, bpm]) => [Math.max(0, Math.round((t - inizio) / 1000)), bpm]);
   return punti.length > 1 ? samplePoints(punti, 400) : null;
+}
+
+// Dove e' successo. Un'escursione arriva chiamata «Escursione» da qualunque
+// telefono: il posto lo sanno solo le coordinate della traccia. Si chiede una
+// volta sola, piano - i servizi gratuiti vanno trattati bene - e resta scritto.
+export async function completaLuoghiMancanti(quanti = 40) {
+  const senza = (await q(`SELECT id, track->0 AS p FROM workouts
+      WHERE luogo IS NULL AND track IS NOT NULL ORDER BY started_at DESC LIMIT $1`, [quanti])).rows;
+  if (!senza.length) return 0;
+  let trovati = 0;
+  for (const w of senza) {
+    const lat = Number(w.p?.[0]), lon = Number(w.p?.[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const nome = await luogoDaCoordinate(lat, lon).catch(() => null);
+    // Anche il buco si segna, altrimenti si richiede all'infinito lo stesso posto
+    await q('UPDATE workouts SET luogo=$2 WHERE id=$1', [w.id, nome || '']);
+    if (nome) trovati++;
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  console.log(`luoghi degli allenamenti: ${trovati} trovati su ${senza.length} cercati`);
+  return trovati;
 }
 
 // ---------- battiti e calorie ricavati dalle letture della giornata ----------
