@@ -180,7 +180,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       if (!miglior || d < miglior.d) miglior = { d, iP, f: p.acc[i] / p.lung };
     }));
     return { ...f, ...miglior };
-  }).filter(f => f.d < 3000).sort((a, b) => a.iP - b.iP || a.f - b.f);
+  }).filter(f => f.iP != null).sort((a, b) => a.iP - b.iP || a.f - b.f);
 
   const strati = map.strati_sfondo;
   const eraStrada = strati && map.hasLayer(strati.strada);
@@ -230,8 +230,10 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scheda.innerHTML = `<div class="titolo">${f.titolo}</div>
       <div class="numeri">${(f.numeri || []).filter(Boolean).map(([v, u]) => `<div><b>${v}</b><span>${esc(u)}</span></div>`).join('')}</div>
       ${f.categorie?.length ? `<div class="spese">${f.categorie.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>` : ''}
-      ${f.totale ? `<div class="totale">Totale speso <b>${f.totale}</b></div>` : ''}`;
+      ${f.totale ? `<div class="totale">Totale speso <b>${f.totale}</b></div>` : ''}
+      <button class="btn primary chiudi-scheda" type="button">\u2715 Chiudi</button>`;
     map.getContainer().appendChild(scheda);
+    scheda.querySelector('.chiudi-scheda').onclick = fine;
     return true;
   };
   const mostraScheda = p => {
@@ -249,6 +251,16 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     interactive: false, zIndexOffset: 900,
   }).addTo(map);
 
+  const mostraTitolo = p => {
+    if (!p.titolo) return 0;
+    viaScheda();
+    scheda = document.createElement('div');
+    scheda.className = 'corsa-scheda annuncio';
+    scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>${p.nome ? `<div class="sotto">${esc([p.nome, p.quando].filter(Boolean).join(' \u00b7 '))}</div>` : ''}`;
+    map.getContainer().appendChild(scheda);
+    return 110;
+  };
+
   const apriPezzo = n => {
     iP = n; frame = 0;
     const p = pezzi[n];
@@ -258,6 +270,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     viaCartelli(); viaScheda();
     if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
     if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
+    // Chi sta camminando si dice prima di partire, non alla fine
+    attesa = mostraTitolo(p);
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
     // chilometri e una camminata di tre non si guardano dalla stessa altezza
     map.flyToBounds(L.latLngBounds(p.punti), { padding: [50, 50], duration: .8, maxZoom: 15 });
@@ -267,7 +281,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (chiuso) return;
     requestAnimationFrame(passo);
     if (fermo) return;
-    if (attesa > 0) { attesa--; if (!attesa) chiudiFoto(); return; }
+    if (attesa > 0) { attesa--; if (!attesa) { chiudiFoto(); if (scheda?.classList.contains('annuncio')) viaScheda(); } return; }
     if (iP < 0 || frame >= pezzi[iP].frames) {
       // Finito un allenamento, i suoi numeri restano un momento sullo schermo
       if (iP >= 0 && pezzi[iP].numeri?.length && !scheda) { attesa = mostraScheda(pezzi[iP]); if (attesa) return; }
@@ -294,10 +308,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       prossimo++;
       chiudiFoto();
       fotoAperta = L.marker([sc.lat, sc.lon], {
-        icon: L.divIcon({ className: '', html: `<div class="corsa-foto"><img src="/uploads/${sc.filename}" alt="">${sc.caption ? `<span>${esc(sc.caption)}</span>` : ''}</div>`, iconSize: [160, 124], iconAnchor: [80, 134] }),
+        icon: L.divIcon({ className: '', html: `<div class="corsa-foto"><img src="/uploads/${sc.filename}" alt="">${sc.caption ? `<span>${esc(sc.caption)}</span>` : ''}</div>`, iconSize: [260, 200], iconAnchor: [130, 210] }),
         zIndexOffset: 1200,
       }).addTo(map);
-      attesa = 110;
+      // Una foto scattata lontano dalla strada - una gita, una deviazione a
+      // piedi - non si vedrebbe nemmeno: la mappa ci si sposta sopra
+      if (!map.getBounds().pad(-0.1).contains([sc.lat, sc.lon])) map.panTo([sc.lat, sc.lon], { animate: true, duration: .8 });
+      attesa = 230;
     }
   };
   apriPezzo(0);
@@ -861,7 +878,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v63';
+const VERSIONE = 'v64';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1094,7 +1111,7 @@ async function viewTrip(id) {
         const km = suoi.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000;
         return `<div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83d\udc5f ${esc(nome)}</h2>
           <div class="small muted"><i class="segno-atleta" style="border-top-style:${trattoDi(nome)[1]}"></i> ${suoi.length} ${suoi.length === 1 ? 'uscita' : 'uscite'}${km >= 0.1 ? ` \u00b7 ${num(km)} km` : ''}</div></div>
-          <div class="list">${suoi.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} \u00b7 ${num((w.distance_m || 0) / 1000)} km \u00b7 ${dur(w.duration_s)}${w.elevation_up_m ? ' \u00b7 \u26f0\ufe0f ' + w.elevation_up_m + ' m' : ''}${w.hr_avg ? ' \u00b7 \u2764\ufe0f ' + w.hr_avg : ''}${w.calories ? ' \u00b7 \ud83d\udd25 ' + w.calories : ''}</div></div></a>`).join('')}</div></div>`;
+          <div class="list">${suoi.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} \u00b7 ${num((w.distance_m || 0) / 1000)} km \u00b7 ${dur(w.duration_s)}${w.elevation_up_m ? ' \u00b7 \u26f0\ufe0f ' + w.elevation_up_m + ' m' : ''}${w.hr_avg ? ' \u00b7 \u2764\ufe0f ' + w.hr_avg : ''}${w.calories ? ' \u00b7 \ud83d\udd25 ' + w.calories : ''}</div></div>${w.track?.length > 1 ? `<button class="btn ghost icon rivedi-uno" data-rivedi-uno="${w.id}" title="Rivedi questo percorso sulla mappa">\u25b6</button>` : ''}</a>`).join('')}</div></div>`;
       }).join('') : '<div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div></div>'}
     </div>`);
 
@@ -1197,6 +1214,29 @@ async function viewTrip(id) {
   // in cui sono successi, dal primo giorno all'ultimo. L'icona cambia con il
   // mezzo - il camper sulla strada, la bici o lo scarpone sull'allenamento - e
   // le foto scattate lungo il percorso compaiono quando ci si passa davanti.
+  // Com'e' fatto il pezzo di un allenamento: serve ai tasti del viaggio e a
+  // quello su ogni singola uscita
+  const pezzoAllenamento = w => ({
+    punti: w.track.map(p => [p[0], p[1]]),
+    faccia: sportIco(w.sport),
+    da: w.luogo || null,
+    titolo: `Allenamento ${w.athlete || ''}`.trim(),
+    nome: [w.luogo, w.name || w.sport].filter(Boolean).join(' \u00b7 '),
+    quando: fdate(w.started_at),
+    numeri: numeriAllenamento(w),
+    ordine: new Date(w.started_at).getTime(),
+  });
+  const fotoSullaMappa = () => photos.filter(p => p.lat != null && p.lon != null && !eVideo(p));
+
+  // Un allenamento solo, dal suo rigo nell'elenco del viaggio
+  $$('[data-rivedi-uno]').forEach(b => b.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const w = workouts.find(x => x.id === +b.dataset.rivediUno);
+    if (!w?.track?.length) return;
+    $('#map')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setTimeout(() => riproduci(map, [pezzoAllenamento(w)], fotoSullaMappa(), { secondi: 18 }), 400);
+  });
+
   $$('[data-rivedi]').forEach(b => b.onclick = () => {
     const quale = b.dataset.rivedi;
     const soloCamper = quale === 'camper';
@@ -1210,17 +1250,7 @@ async function viewTrip(id) {
         quando: l.date ? fdate(l.date) : '',
         ordine: l.date ? new Date(l.date).getTime() : 0,
       })),
-      ...(soloCamper ? [] : workouts.filter(w => w.track?.length > 1 && (!atleta || w.athlete === atleta))).map(w => ({
-        punti: w.track.map(p => [p[0], p[1]]),
-        faccia: sportIco(w.sport),
-        // Di un allenamento conta il posto: «Escursione» da solo, fra dieci
-        // anni, non dice quale giorno fosse
-        da: w.luogo || null,
-        nome: [w.luogo, w.name || w.sport, w.athlete].filter(Boolean).join(' \u00b7 '),
-        quando: fdate(w.started_at),
-        numeri: numeriAllenamento(w),
-        ordine: new Date(w.started_at).getTime(),
-      })),
+      ...(soloCamper ? [] : workouts.filter(w => w.track?.length > 1 && (!atleta || w.athlete === atleta))).map(pezzoAllenamento),
     ].sort((a, b) => a.ordine - b.ordine);
     // Alla fine del giro in camper il conto di tutto il viaggio: chilometri,
     // tempo, consumi, e le spese divise per tipologia
@@ -1241,7 +1271,7 @@ async function viewTrip(id) {
       categorie: totals.by_category.map(c => [catLabel(c.category), eur(c.total)]),
       totale: eur(totals.total),
     } : null;
-    riproduci(map, pezzi, photos.filter(p => p.lat != null && p.lon != null && !eVideo(p)), finale ? { finale } : {});
+    riproduci(map, pezzi, fotoSullaMappa(), finale ? { finale } : {});
   });
 
   // Toccando una voce resta sulla mappa solo quella, e la mappa ci si stringe
@@ -2709,6 +2739,7 @@ async function viewWorkout(id) {
       punti: w.track.map(p => [p[0], p[1]]),
       faccia: sportIco(w.sport),
       da: w.luogo || null,
+      titolo: `Allenamento ${w.athlete || ''}`.trim(),
       nome: [w.luogo, w.name || w.sport || 'Allenamento'].filter(Boolean).join(' \u00b7 '),
       quando: fdate(w.started_at),
       numeri: numeriAllenamento(w),

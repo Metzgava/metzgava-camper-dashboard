@@ -80,6 +80,10 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-barra .avanzamento { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .corsa-barra .avanzamento i { display: block; height: 100%; width: 0; background: #fbbf24; transition: width .15s linear; }
 .corsa-barra .quando { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; color: var(--text); }
+/* La croce che chiude: si deve vedere, non cercare */
+.corsa-barra [data-chiudi] { font-size: 16px; font-weight: 700; padding: 6px 12px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); }
+.corsa-barra [data-chiudi]:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
 /* I tasti per rivedere: il camper e, accanto, una persona per volta */
 .rivedi-tasti { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-bottom: 2px; }
 .rivedi-tasti .btn { display: inline-flex; align-items: center; gap: 6px; }
@@ -103,15 +107,20 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-scheda .spese span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .corsa-scheda .totale { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 14px; color: var(--muted); }
 .corsa-scheda .totale b { font-size: 18px; color: var(--text); margin-left: 6px; }
+.corsa-scheda.annuncio { padding: 12px 22px; }
+.corsa-scheda.annuncio .titolo { margin: 0; font-size: 19px; }
+.corsa-scheda.annuncio .sotto { margin-top: 4px; color: var(--muted); font-size: 13px; }
+.corsa-scheda .chiudi-scheda { margin-top: 14px; width: 100%; font-size: 15px; padding: 10px 14px; }
 @keyframes entra-scheda { from { opacity: 0; transform: translate(-50%, -46%) scale(.94); } to { opacity: 1; transform: translate(-50%, -50%); } }
 
+.item .rivedi-uno { align-self: center; margin-left: 6px; color: var(--accent); font-size: 13px; }
 .corsa-cartello { background: rgba(17,24,39,.82); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap;
   padding: 3px 8px; border-radius: 8px; transform: translateX(-50%); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .corsa-cartello.arrivo { background: rgba(220,38,38,.88); }
-.corsa-foto { width: 160px; background: #fff; border-radius: 10px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.4);
+.corsa-foto { width: 260px; background: #fff; border-radius: 12px; padding: 5px; box-shadow: 0 8px 28px rgba(0,0,0,.45);
   animation: entra-foto .25s ease; }
-.corsa-foto img { width: 100%; height: 96px; object-fit: cover; border-radius: 7px; display: block; }
-.corsa-foto span { display: block; font-size: 11px; color: #111; padding: 3px 4px 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corsa-foto img { width: 100%; height: 170px; object-fit: cover; border-radius: 9px; display: block; }
+.corsa-foto span { display: block; font-size: 13px; color: #111; padding: 5px 5px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes entra-foto { from { opacity: 0; transform: translateY(8px) scale(.92); } to { opacity: 1; transform: none; } }
 
 /* Un video nella raccolta: la miniatura e' il primo fotogramma, e il segno del
