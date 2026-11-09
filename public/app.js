@@ -840,7 +840,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v61';
+const VERSIONE = 'v62';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1027,7 +1027,9 @@ async function viewTrip(id) {
         const conPosto = photos.filter(p => p.lat != null).length;
         if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
         return `<div class="legenda-mappa">
-          <button class="btn sm primary" id="rivedi" style="margin-right:4px">\u25b6 Rivedi il viaggio</button>
+          <span class="rivedi-tasti">${legs.length ? `<button class="btn sm primary" data-rivedi="camper">\u25b6 \ud83d\ude90 Rivedi il camper</button>` : ''}
+            ${atletiDelViaggio.filter(nome => workouts.some(w => w.athlete === nome && w.track?.length > 1))
+              .map((nome, i) => `<button class="btn sm" data-rivedi="atleta:${esc(nome)}">\u25b6 ${ICO_SCARPA(coloreAtleta(nome, i))} ${esc(nome)}</button>`).join('')}</span>
           <span class="small muted" style="width:100%">Tocca una voce per vedere solo quella, ingrandita sul suo percorso. Toccala di nuovo per rivedere tutto.</span>
           ${legs.some(inCamper) ? `<span class="voce" data-strato="camper"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
           ${legs.some(l => !inCamper(l)) ? `<span class="voce" data-strato="altri"><i class="tratteggio" style="border-top-color:${COLORE_ALTRI_MEZZI}"></i>${[...new Set(legs.filter(l => !inCamper(l)).map(l => MEZZI[mezzoDi(l)][0] + ' ' + MEZZI[mezzoDi(l)][1]))].join(', ')}</span>` : ''}
@@ -1174,9 +1176,12 @@ async function viewTrip(id) {
   // in cui sono successi, dal primo giorno all'ultimo. L'icona cambia con il
   // mezzo - il camper sulla strada, la bici o lo scarpone sull'allenamento - e
   // le foto scattate lungo il percorso compaiono quando ci si passa davanti.
-  $('#rivedi')?.addEventListener('click', () => {
+  $$('[data-rivedi]').forEach(b => b.onclick = () => {
+    const quale = b.dataset.rivedi;
+    const soloCamper = quale === 'camper';
+    const atleta = quale.startsWith('atleta:') ? quale.slice(7) : null;
     const pezzi = [
-      ...legs.map(l => ({
+      ...(atleta ? [] : legs).map(l => ({
         punti: (l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]]).map(p => [p[0], p[1]]),
         faccia: MEZZO_ICONA[mezzoDi(l)] || MEZZO_ICONA.camper,
         da: l.from_name.split(',')[0], a: l.to_name.split(',')[0],
@@ -1184,7 +1189,7 @@ async function viewTrip(id) {
         quando: l.date ? fdate(l.date) : '',
         ordine: l.date ? new Date(l.date).getTime() : 0,
       })),
-      ...workouts.filter(w => w.track?.length > 1).map(w => ({
+      ...(soloCamper ? [] : workouts.filter(w => w.track?.length > 1 && (!atleta || w.athlete === atleta))).map(w => ({
         punti: w.track.map(p => [p[0], p[1]]),
         faccia: sportIco(w.sport),
         // Di un allenamento conta il posto: «Escursione» da solo, fra dieci

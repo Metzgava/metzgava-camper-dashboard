@@ -80,6 +80,11 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-barra .avanzamento { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .corsa-barra .avanzamento i { display: block; height: 100%; width: 0; background: #fbbf24; transition: width .15s linear; }
 .corsa-barra .quando { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; color: var(--text); }
+/* I tasti per rivedere: il camper e, accanto, una persona per volta */
+.rivedi-tasti { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-bottom: 2px; }
+.rivedi-tasti .btn { display: inline-flex; align-items: center; gap: 6px; }
+.rivedi-tasti .btn svg { width: 1.1em; height: auto; }
+
 /* I numeri dell'allenamento appena finito: restano un momento sopra la mappa,
    grandi abbastanza da leggersi in un filmato registrato col telefono */
 .corsa-scheda { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1100;
