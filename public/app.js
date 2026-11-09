@@ -183,6 +183,155 @@ const numeriTappa = l => inCamper(l) ? null : [
   biglietto(l) ? [biglietto(l), l.sconto ? `di biglietto \u00b7 ${l.sconto}` : 'di biglietto'] : null,
 ].filter(Boolean);
 
+// La musica che accompagna il filmato del tracciato.
+//
+// Non e' un file: e' suonata dal browser mentre la traccia avanza. Un brano
+// vero di trent'anni fa non si puo' mettere - e' di qualcun altro, e peserebbe
+// un paio di megabyte da scaricare ogni volta - ma quel giro li' sotto lo
+// conoscono tutti: la cassa dritta, il charleston in levare, il battimani sul
+// due e sul quattro, il basso che cammina e la stoccata di piano sopra. Giro
+// di la minore, centoventidue battute al minuto, come mezza estate del 1994.
+//
+// Dura quanto deve durare: non e' un pezzo da far stare dentro al filmato, e'
+// un motore che gira finche' il viaggio non e' finito - mezzo minuto o tre, lo
+// decide la strada. E pesa zero byte.
+function musichetta(differita) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC && !differita) return null;
+  let ctx;
+  try { ctx = differita || new AC(); } catch { return null; }
+  if (!differita) ctx.resume?.().catch(() => {});
+
+  const VOLUME = 0.15;                      // sta sotto: accompagna, non copre
+  const master = ctx.createGain();
+  const morbido = ctx.createDynamicsCompressor();
+  master.connect(morbido);
+  morbido.connect(ctx.destination);
+  // Dal vivo entra sfumando; in differita - quando la si rende per misurarla -
+  // non c'e' nessuno che entra in sala, e parte al suo volume
+  master.gain.value = differita ? VOLUME : 0.0001;
+  if (!differita) master.gain.exponentialRampToValueAtTime(VOLUME, ctx.currentTime + 1.4);
+
+  // Un secondo di rumore bianco: da li' escono il charleston e il battimani
+  const rumore = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.4), ctx.sampleRate);
+  const dati = rumore.getChannelData(0);
+  for (let i = 0; i < dati.length; i++) dati[i] = Math.random() * 2 - 1;
+
+  const inviluppo = (g, t, attacco, coda, picco) => {
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(picco, t + attacco);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + attacco + coda);
+  };
+  const daRumore = (t, tipo, freq, q, attacco, coda, picco) => {
+    const src = ctx.createBufferSource(); src.buffer = rumore;
+    const f = ctx.createBiquadFilter(); f.type = tipo; f.frequency.value = freq; if (q) f.Q.value = q;
+    const g = ctx.createGain();
+    inviluppo(g, t, attacco, coda, picco);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t); src.stop(t + attacco + coda + 0.05);
+  };
+  const cassa = t => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(46, t + 0.11);
+    inviluppo(g, t, 0.004, 0.24, 0.95);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.32);
+  };
+  const charleston = (t, aperto) => daRumore(t, 'highpass', 7600, 0, 0.002, aperto ? 0.17 : 0.035, aperto ? 0.2 : 0.13);
+  const battimani = t => [0, 0.011, 0.023].forEach((d, i) => daRumore(t + d, 'bandpass', 1600, 1.2, 0.002, i === 2 ? 0.14 : 0.03, i === 2 ? 0.34 : 0.2));
+  const basso = (t, freq, lungo) => {
+    const o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = freq;
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(1100, t);
+    f.frequency.exponentialRampToValueAtTime(240, t + 0.16);
+    inviluppo(g, t, 0.006, lungo, 0.42);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); o.stop(t + lungo + 0.08);
+  };
+  // La stoccata di piano: tre note insieme, corte, un filo di coda
+  const stoccata = (t, note, forza = 0.16) => note.forEach((freq, i) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = i === 0 ? 'triangle' : 'sine';
+    o.frequency.value = freq;
+    inviluppo(g, t, 0.006, 0.3, forza);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.4);
+  });
+  const arpa = (t, freq) => {
+    const o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = 'square'; o.frequency.value = freq;
+    f.type = 'lowpass'; f.frequency.value = 2600;
+    inviluppo(g, t, 0.004, 0.12, 0.07);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.2);
+  };
+
+  // La minore, fa, do, sol: il giro su cui negli anni novanta ci hanno
+  // costruito mezza classifica. Una battuta per accordo.
+  const GIRO = [
+    [110.00, [440.00, 523.25, 659.25]],
+    [87.31, [349.23, 440.00, 523.25]],
+    [130.81, [392.00, 523.25, 659.25]],
+    [98.00, [392.00, 493.88, 587.33]],
+  ];
+
+  const BPM = 122, SEDICESIMO = 15 / BPM;
+  let passo = 0, quando = ctx.currentTime + 0.12, fermo = false, chiuso = false, timer = null;
+
+  const suonaPasso = (n, t) => {
+    const s = n % 16, battuta = Math.floor(n / 16);
+    const [radice, accordo] = GIRO[battuta % 4];
+    // Si entra con poco e si cresce: prima la cassa, poi il battimani, poi
+    // l'arpeggio. Dopo otto battute si leva tutto per mezza battuta e si
+    // rientra - il respiro che negli anni novanta c'era sempre.
+    const parte = Math.floor(battuta / 4);
+    const respiro = battuta % 8 === 7 && s >= 12;
+    if (respiro) { if (s === 12) stoccata(t, accordo, 0.2); return; }
+    if (s % 4 === 0) cassa(t);
+    if (s % 4 === 2) charleston(t, true); else if (s % 2 === 0) charleston(t, false);
+    if (parte > 0 && (s === 4 || s === 12)) battimani(t);
+    if (s % 2 === 0) basso(t, s === 6 || s === 14 ? radice * 2 : radice, 0.15);
+    if (s === 6 || s === 14) stoccata(t, accordo);
+    if (parte > 1 && s % 2 === 1) arpa(t, accordo[Math.floor(n / 2) % 3] * 2);
+  };
+
+  const batti = () => {
+    if (chiuso || differita) return;
+    if (!fermo) {
+      while (quando < ctx.currentTime + 0.25) {
+        suonaPasso(passo, quando);
+        passo++;
+        quando += SEDICESIMO;
+      }
+    }
+    timer = setTimeout(batti, 25);
+  };
+  batti();
+
+  const sfuma = (a, secondi) => {
+    const t = ctx.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(Math.max(0.0001, master.gain.value), t);
+    master.gain.exponentialRampToValueAtTime(Math.max(0.0001, a), t + secondi);
+  };
+  return {
+    // Serve a provarla senza doverla ascoltare: semina tutti i passi di un
+    // tratto di tempo in una volta, per renderla in differita e misurarla
+    semina: (da, quanto) => { for (let n = 0; n * SEDICESIMO < quanto; n++) suonaPasso(n, da + n * SEDICESIMO); },
+    pausa: () => { fermo = true; sfuma(0.0001, 0.25); },
+    riprendi: () => { fermo = false; quando = ctx.currentTime + 0.05; sfuma(VOLUME, 0.4); },
+    ferma: () => {
+      if (chiuso) return;
+      chiuso = true;
+      clearTimeout(timer);
+      sfuma(0.0001, 0.7);
+      setTimeout(() => ctx.close().catch(() => {}), 900);
+    },
+  };
+}
+
 function riproduci(map, segmenti, foto, opzioni = {}) {
   const grezzi = segmenti.filter(s => s.punti?.length > 1);
   if (!grezzi.length) return toast('Non c\u2019e\u2019 nessun percorso da rivedere', true);
@@ -235,7 +384,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
 
   const barra = document.createElement('div');
   barra.className = 'corsa-barra';
-  barra.innerHTML = `<button class="btn sm" data-ferma title="Pausa">\u23f8</button><div class="avanzamento"><i></i></div><span class="quando small"></span><button class="btn sm ghost" data-chiudi title="Chiudi">\u2715</button>`;
+  barra.innerHTML = `<button class="btn sm" data-ferma title="Pausa">\u23f8</button><div class="avanzamento"><i></i></div><span class="quando small"></span><button class="btn sm ghost" data-musica title="Musica">\ud83d\udd0a</button><button class="btn sm ghost" data-chiudi title="Chiudi">\u2715</button>`;
   map.getContainer().appendChild(barra);
 
   // La data in sovraimpressione, in alto, per tutto il tempo che la traccia
@@ -249,6 +398,11 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const segnale = L.marker(pezzi[0].punti[0], { icon: iconaCorsa(pezzi[0].faccia), zIndexOffset: 1000 }).addTo(map);
   const avanzamento = barra.querySelector('.avanzamento i'), quando = barra.querySelector('.quando');
 
+  // La musica parte con la riproduzione, si ferma con la pausa e sfuma alla
+  // fine. Chi non la vuole la spegne, e l'app se lo ricorda per la volta dopo.
+  const vuoleMusica = () => { try { return localStorage.getItem('musica') !== 'no'; } catch { return true; } };
+  let suono = vuoleMusica() ? musichetta() : null;
+
   let iP = -1, frame = 0, fatti = 0, fermo = false, attesa = 0, chiuso = false, prossimo = 0;
   const totaleFrames = pezzi.reduce((a, p) => a + p.frames, 0);
   let fotoAperta = null;
@@ -259,6 +413,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     chiuso = true;
     chiudiFoto();
     viaCartelli(); viaScheda();
+    suono?.ferma(); suono = null;
     [velo, scia, segnale].forEach(l => map.removeLayer(l));
     barra.remove(); dataSopra.remove();
     if (strati && eraStrada) { map.removeLayer(strati.ibrida); strati.strada.addTo(map); }
@@ -376,7 +531,23 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   apriPezzo(0);
   requestAnimationFrame(passo);
 
-  barra.querySelector('[data-ferma]').onclick = e => { fermo = !fermo; e.currentTarget.textContent = fermo ? '\u25b6' : '\u23f8'; };
+  barra.querySelector('[data-ferma]').onclick = e => {
+    fermo = !fermo;
+    e.currentTarget.textContent = fermo ? '\u25b6' : '\u23f8';
+    if (fermo) suono?.pausa(); else suono?.riprendi();
+  };
+  const tastoMusica = barra.querySelector('[data-musica]');
+  const segnaMusica = () => {
+    tastoMusica.textContent = suono ? '\ud83d\udd0a' : '\ud83d\udd07';
+    tastoMusica.title = suono ? 'Togli la musica' : 'Rimetti la musica';
+  };
+  segnaMusica();
+  tastoMusica.onclick = () => {
+    if (suono) { suono.ferma(); suono = null; }
+    else { suono = musichetta(); if (fermo) suono?.pausa(); }
+    try { localStorage.setItem('musica', suono ? 'si' : 'no'); } catch { }
+    segnaMusica();
+  };
   barra.querySelector('[data-chiudi]').onclick = fine;
 }
 
@@ -934,7 +1105,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v69';
+const VERSIONE = 'v70';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -3612,7 +3783,7 @@ document.addEventListener('click', e => { const a = e.target.closest('[data-logo
 // questa stessa mappa, queste stesse foto e lo stesso modo di rivedere un
 // percorso: invece di riscriverli, glieli si passa. E l'app di casa, li', non
 // si avvia nemmeno: non c'e' nessuno da far entrare.
-window.Camper = { $, $$, esc, num, eur, dur, fdate, fdt, iso, notti, toast, apriLente,
+window.Camper = { $, $$, esc, num, eur, dur, fdate, fdt, iso, notti, toast, apriLente, musichetta,
   legendaViaggio, mappaDelViaggio, rottaSvg, sportIco, coloreSport, ICO_SCARPA, coloreAtleta,
   atletiDi, trattoFra, MEZZI, mezzoDi, inCamper, nomeViaggio, nomeStato, giorniViaggio,
   itinerario, stileRitaglio, eVideo, facciaMedia, datiLente };
