@@ -141,6 +141,48 @@ const numeriAllenamento = w => [
   w.hr_avg > 0 ? [num(w.hr_avg, 0), 'bpm medi'] : null,
 ].filter(Boolean);
 
+// Un traghetto, un volo, un treno non hanno una strada da seguire: fra i due
+// capi c'e' una linea sola, fatta di due punti. Bastano a disegnarla, non a
+// percorrerla - l'icona ci salterebbe sopra da un capo all'altro, e una foto
+// scattata a meta' traversata si aggancerebbe a una delle due punte, come se
+// fosse stata fatta in banchina. Si semina la linea di punti, con la curva
+// appena accennata delle rotte sulle carte dei voli: cosi' il tragitto si
+// percorre, e le foto compaiono dove sono state scattate davvero.
+const arcoFra = (a, b, n = 72) => {
+  const k = Math.cos((a[0] + b[0]) / 2 * Math.PI / 180) || 1; // i gradi di longitudine si stringono salendo
+  const xa = a[1] * k, ya = a[0], xb = b[1] * k, yb = b[0];
+  const dx = xb - xa, dy = yb - ya;
+  if (!Math.hypot(dx, dy)) return [a, b];
+  // il punto di comando sta di fianco alla meta': la pancia della curva e' un
+  // ottavo scarso della corda, quanto basta a vedere una rotta e non un righello
+  const cx = (xa + xb) / 2 - dy * .12, cy = (ya + yb) / 2 + dx * .12;
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t, w0 = u * u, w1 = 2 * u * t, w2 = t * t;
+    out.push([w0 * ya + w1 * cy + w2 * yb, (w0 * xa + w1 * cx + w2 * xb) / k]);
+  }
+  return out;
+};
+const tragittoDisegnato = l => {
+  const g = (l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]]).map(q => [+q[0], +q[1]]);
+  return inCamper(l) || g.length > 2 ? g : arcoFra(g[0], g[g.length - 1]);
+};
+
+// Quando una tratta in traghetto, in treno o in aereo finisce, quello che se ne
+// cerca: quanto e' durata, quanti chilometri, a che ora, quanto e' costato il
+// biglietto. E con chi: fra due anni il nome dei due porti, da solo, non dice
+// con quale compagnia si e' passata la notte in mare.
+const DURATA_MEZZO = { traghetto: 'di traversata', aereo: 'di volo', treno: 'di treno', bus: 'di bus', camper: 'di guida' };
+const biglietto = l => !(+l.tariffa > 0) ? null
+  : l.tariffa_currency && l.tariffa_currency !== 'EUR' ? `${num(l.tariffa, 2)} ${esc(l.tariffa_currency)}` : eur(l.tariffa);
+const compagniaDi = l => [MEZZI[mezzoDi(l)][1], [l.compagnia, l.codice].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 ');
+const numeriTappa = l => inCamper(l) ? null : [
+  l.duration_min > 0 ? [dur(l.duration_min * 60), DURATA_MEZZO[mezzoDi(l)]] : null,
+  l.distance_km > 0 ? [num(l.distance_km, 0), 'km'] : null,
+  l.start_time ? [`${esc(l.start_time)}${l.end_time ? '\u2013' + esc(l.end_time) : ''}`, 'orario'] : null,
+  biglietto(l) ? [biglietto(l), l.sconto ? `di biglietto \u00b7 ${l.sconto}` : 'di biglietto'] : null,
+].filter(Boolean);
+
 function riproduci(map, segmenti, foto, opzioni = {}) {
   const grezzi = segmenti.filter(s => s.punti?.length > 1);
   if (!grezzi.length) return toast('Non c\u2019e\u2019 nessun percorso da rivedere', true);
@@ -242,6 +284,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scheda = document.createElement('div');
     scheda.className = 'corsa-scheda';
     scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc([p.nome, p.quando].filter(Boolean).join(' \u00b7 '))}</div>
+      ${p.chi ? `<div class="sotto">${esc(p.chi)}</div>` : ''}
       <div class="numeri">${p.numeri.map(([v, u]) => `<div><b>${v}</b><span>${esc(u)}</span></div>`).join('')}</div>`;
     map.getContainer().appendChild(scheda);
     return 180;
@@ -878,7 +921,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v64';
+const VERSIONE = 'v65';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1136,7 +1179,7 @@ async function viewTrip(id) {
     return strati[sel] ? [sel] : [];
   };
   legs.forEach((l, i) => {
-    const g = l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]];
+    const g = tragittoDisegnato(l);
     // Il traghetto e l'aereo non seguono la strada: linea dritta e tratteggiata,
     // perche' quella non e' una strada che si puo' percorrere
     const suGomma = inCamper(l);
@@ -1243,11 +1286,15 @@ async function viewTrip(id) {
     const atleta = quale.startsWith('atleta:') ? quale.slice(7) : null;
     const pezzi = [
       ...(atleta ? [] : legs).map(l => ({
-        punti: (l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]]).map(p => [p[0], p[1]]),
+        punti: tragittoDisegnato(l),
         faccia: MEZZO_ICONA[mezzoDi(l)] || MEZZO_ICONA.camper,
         da: l.from_name.split(',')[0], a: l.to_name.split(',')[0],
+        // Il camper e' sottinteso: si annunciano il traghetto, il volo, il treno
+        titolo: inCamper(l) ? null : compagniaDi(l),
+        chi: inCamper(l) ? null : compagniaDi(l),
         nome: `${l.from_name.split(',')[0]} \u2192 ${l.to_name.split(',')[0]}`,
         quando: l.date ? fdate(l.date) : '',
+        numeri: numeriTappa(l),
         ordine: l.date ? new Date(l.date).getTime() : 0,
       })),
       ...(soloCamper ? [] : workouts.filter(w => w.track?.length > 1 && (!atleta || w.athlete === atleta))).map(pezzoAllenamento),
