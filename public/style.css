@@ -256,6 +256,12 @@ input[type=checkbox], input[type=radio] { width: auto; }
 /* Legenda sotto la mappa del viaggio: una voce per disciplina presente */
 .legenda-mappa { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 16px 12px; font-size: 13px; color: var(--muted); }
 .legenda-mappa .voce { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* Ogni voce accende e spegne il suo strato: spenta resta li', scolorita, cosi'
+   si sa che cosa si e' tolto e si rimette con un tocco */
+.legenda-mappa .voce[data-strato] { cursor: pointer; user-select: none; border-radius: 8px; padding: 2px 6px; margin: -2px -2px; transition: background .15s, opacity .15s; }
+.legenda-mappa .voce[data-strato]:hover { background: var(--surface-2); }
+.legenda-mappa .voce.spento { opacity: .4; }
+.legenda-mappa .voce.spento i { filter: grayscale(1); }
 .legenda-mappa i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
 .legenda-mappa i.tratteggio { height: 0; width: 18px; background: none; border-top: 3px dashed; }
 
