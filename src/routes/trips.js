@@ -376,7 +376,7 @@ export async function datiViaggio(id) {
   if (!trip) return null;
   const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
   const expenses = (await q('SELECT * FROM expenses WHERE trip_id=$1 ORDER BY date DESC, id DESC', [trip.id])).rows;
-  const photos = (await q('SELECT id,leg_id,stop_id,filename,caption,taken_at,lat,lon,user_id,crop,mime FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
+  const photos = (await q('SELECT id,leg_id,stop_id,filename,caption,taken_at,lat,lon,user_id,crop,mime,luogo FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
   // Le copie fatte su un altro atleta rappresentano la stessa uscita gia' elencata:
   // contarle o mostrarle qui raddoppierebbe attivita' e chilometri del viaggio
   const workouts = (await q(`SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id

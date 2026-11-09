@@ -338,6 +338,11 @@ export async function migrate() {
   -- nella stessa raccolta, e si distinguono da qui.
   ALTER TABLE photos ADD COLUMN IF NOT EXISTS mime TEXT;
 
+  -- Il nome del posto dove e' stata scattata: ricavato dalle coordinate una
+  -- volta sola, perche' rivedendo un viaggio «dove eravamo quel giorno?» e' la
+  -- prima domanda, e un puntino sulla mappa non risponde
+  ALTER TABLE photos ADD COLUMN IF NOT EXISTS luogo TEXT;
+
   -- Quello che serve per preparare un viaggio e che non sta da nessun'altra
   -- parte: un appunto, l'indirizzo di un sito, il pdf del traghetto, la pagina
   -- di una rivista fotografata. Non sono le foto del viaggio - quelle vengono

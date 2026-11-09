@@ -426,6 +426,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const totaleFrames = pezzi.reduce((a, p) => a + p.frames, 0);
   let fotoAperta = null;
   const chiudiFoto = () => { if (fotoAperta) { map.removeLayer(fotoAperta); fotoAperta = null; } };
+  // Quello che sta scritto sotto una foto: il posto, se si sa, e la didascalia.
+  // «Circa» quando il posto non viene dalla foto ma dal giorno in cui e' stata
+  // scattata: dirlo costa una parola, e non spaccia una deduzione per un dato.
+  const sottoLaFoto = f => [
+    f.dove ? `\ud83d\udccd ${esc(f.dove)}${f.circa ? ' <i>(circa)</i>' : ''}` : '',
+    f.caption ? esc(f.caption) : '',
+  ].filter(Boolean).join(' \u00b7 ');
 
   // Tre secondi sono pochi per una foto che vale: toccandola la corsa si ferma
   // e la foto si apre grande quanto la mappa. Un altro tocco la chiude e il
@@ -437,7 +444,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     metti(true);
     grande = document.createElement('div');
     grande.className = 'corsa-grande';
-    grande.innerHTML = `<img src="/uploads/${sc.filename}" alt="">${sc.caption ? `<span>${esc(sc.caption)}</span>` : ''}<div class="riprendi">\u25b6 Tocca per riprendere</div>`;
+    grande.innerHTML = `<img src="/uploads/${sc.filename}" alt="">${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}<div class="riprendi">\u25b6 Tocca per riprendere</div>`;
     grande.onclick = riprendiDallaFoto;
     map.getContainer().appendChild(grande);
   };
@@ -579,7 +586,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
         // La cornice si stringe addosso alla foto: cosi' la foto si vede
         // intera e intorno non resta bianco. Il riquadro dell'icona e' solo lo
         // spazio in cui la cartolina sta appesa sopra il suo punto.
-        icon: L.divIcon({ className: 'foto-icona', html: `<div class="corsa-foto"><img src="/uploads/${sc.filename}" alt="">${sc.caption ? `<span>${esc(sc.caption)}</span>` : ''}</div>`, iconSize: [340, 260], iconAnchor: [170, 272] }),
+        icon: L.divIcon({ className: 'foto-icona', html: `<div class="corsa-foto"><img src="/uploads/${sc.filename}" alt="">${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`, iconSize: [340, 260], iconAnchor: [170, 272] }),
         zIndexOffset: 1200,
       }).addTo(map);
       fotoAperta.on('click', () => ingrandisci(sc));
@@ -1162,7 +1169,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v72';
+const VERSIONE = 'v73';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1376,7 +1383,23 @@ function mappaDelViaggio(el, d, opz = {}) {
     numeri: numeriAllenamento(w),
     ordine: new Date(w.started_at).getTime(),
   });
-  const fotoSullaMappa = () => photos.filter(p => p.lat != null && p.lon != null && !eVideo(p));
+  // Nel filmato le foto ci sono tutte. Quelle con le coordinate stanno dove
+  // sono state scattate; quelle senza - il telefono col GPS spento, uno scatto
+  // mandato da un altro - si mettono dove si era quel giorno, come si fa con
+  // gli allenamenti senza traccia: e' una posizione dedotta, e si dice che lo
+  // e'. Il nome del posto, quando si sa, compare sotto la foto.
+  const fotoSullaMappa = () => photos.filter(p => !eVideo(p)).map(p => {
+    if (p.lat != null && p.lon != null) return { ...p, dove: p.luogo || nomeSostaDi(p) || null };
+    const sua = p.stop_id ? soste.find(x => x.id === p.stop_id && x.lat != null) : null;
+    if (sua) return { ...p, lat: sua.lat, lon: sua.lon, circa: true, dove: sua.name };
+    const li = p.taken_at ? dovEravamo({ started_at: p.taken_at }) : null;
+    if (li) return { ...p, lat: li.lat, lon: li.lon, circa: true, dove: li.dove };
+    // Senza data e senza posto resta l'arrivo: meglio in fondo al viaggio che fuori
+    const ultima = legs[legs.length - 1];
+    return ultima?.to_lat != null
+      ? { ...p, lat: ultima.to_lat, lon: ultima.to_lon, circa: true, dove: ultima.to_name.split(',')[0] }
+      : null;
+  }).filter(Boolean);
 
   // Un allenamento solo, dal suo rigo nell'elenco del viaggio
   $$('[data-rivedi-uno]').forEach(b => b.onclick = e => {

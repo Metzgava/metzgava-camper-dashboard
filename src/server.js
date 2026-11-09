@@ -7,7 +7,7 @@ import { SECRET, wrap } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti } from './routes/workouts.js';
-import { router as photos, UPLOAD_DIR, completaExifMancanti } from './routes/photos.js';
+import { router as photos, UPLOAD_DIR, completaExifMancanti, completaLuoghiFoto } from './routes/photos.js';
 import { router as materiali } from './routes/materiali.js';
 import { router as share, linkValido, viaggiVisibili, segnaVisita } from './routes/share.js';
 import { sannoEvitareIPedaggi } from './lib/geo.js';
@@ -111,6 +111,9 @@ async function manutenzioni() {
   // Il nome del posto degli allenamenti: pochi per volta, che i geocoder
   // gratuiti non si tengono buoni a forza di richieste
   await completaLuoghiMancanti().catch(e => console.warn('luoghi degli allenamenti:', e.message));
+  // E i posti delle foto, con lo stesso passo: servono a dire, rivedendo un
+  // viaggio, dove si era quando si e' scattata
+  await completaLuoghiFoto().catch(e => console.warn('luoghi delle foto:', e.message));
 }
 
 migrate().then(() => {

@@ -6,6 +6,7 @@ import exifr from 'exifr';
 import { q } from '../lib/db.js';
 import { wrap, randomToken } from '../lib/util.js';
 import { requireAuth } from './auth.js';
+import { luogoDaCoordinate } from '../lib/geo.js';
 
 // Su Railway monta un Volume su /data e imposta UPLOAD_DIR=/data/uploads per non perdere le foto ai redeploy
 export const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve('uploads');
@@ -66,6 +67,25 @@ export async function completaExifMancanti() {
   }
   console.log(`foto: coordinate recuperate in ${trovate} su ${mancanti.length} (${senza} senza posizione, ${perse} senza file)`);
   return trovate;
+}
+
+// I nomi dei posti delle foto, pochi per volta: i geocoder gratuiti non si
+// tengono buoni a forza di richieste. Anche il buco si segna - stringa vuota -
+// altrimenti lo stesso posto lo si richiederebbe all'infinito.
+export async function completaLuoghiFoto(quanti = 40) {
+  const senza = (await q(`SELECT id, lat, lon FROM photos
+      WHERE luogo IS NULL AND lat IS NOT NULL AND lon IS NOT NULL
+      ORDER BY coalesce(taken_at, created_at) DESC LIMIT $1`, [quanti])).rows;
+  if (!senza.length) return 0;
+  let trovati = 0;
+  for (const f of senza) {
+    const nome = await luogoDaCoordinate(Number(f.lat), Number(f.lon)).catch(() => null);
+    await q('UPDATE photos SET luogo=$2 WHERE id=$1', [f.id, nome || '']);
+    if (nome) trovati++;
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  console.log(`luoghi delle foto: ${trovati} trovati su ${senza.length} cercati`);
+  return trovati;
 }
 
 export const router = Router();
