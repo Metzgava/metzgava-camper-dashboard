@@ -130,6 +130,17 @@ const metriFra = (a, b) => {
   return 2 * R * Math.asin(Math.sqrt(h));
 };
 
+// Quando un allenamento finisce, i suoi numeri: distanza, dislivello, calorie,
+// media oraria e battito. Sono quelli che si cercano appena finita l'uscita, e
+// in fondo alla riproduzione arrivano senza doverli andare a prendere.
+const numeriAllenamento = w => [
+  w.distance_m > 0 ? [num(w.distance_m / 1000), 'km'] : null,
+  w.elevation_up_m > 0 ? [num(w.elevation_up_m, 0), 'm di salita'] : null,
+  w.calories > 0 ? [num(w.calories, 0), 'kcal'] : null,
+  mediaKmh(w) ? [num(mediaKmh(w)), 'km/h di media'] : null,
+  w.hr_avg > 0 ? [num(w.hr_avg, 0), 'bpm medi'] : null,
+].filter(Boolean);
+
 function riproduci(map, segmenti, foto, opzioni = {}) {
   const grezzi = segmenti.filter(s => s.punti?.length > 1);
   if (!grezzi.length) return toast('Non c\u2019e\u2019 nessun percorso da rivedere', true);
@@ -194,7 +205,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (chiuso) return;
     chiuso = true;
     chiudiFoto();
-    viaCartelli();
+    viaCartelli(); viaScheda();
     [velo, scia, segnale].forEach(l => map.removeLayer(l));
     barra.remove();
     if (strati && eraStrada) { map.removeLayer(strati.ibrida); strati.strada.addTo(map); }
@@ -205,6 +216,18 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   // e perche' chi registra lo schermo si ritrova il nome dentro al filmato
   let cartelli = [];
   const viaCartelli = () => { cartelli.forEach(c => map.removeLayer(c)); cartelli = []; };
+  let scheda = null;
+  const viaScheda = () => { scheda?.remove(); scheda = null; };
+  const mostraScheda = p => {
+    viaScheda();
+    if (!p.numeri?.length) return 0;
+    scheda = document.createElement('div');
+    scheda.className = 'corsa-scheda';
+    scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc([p.nome, p.quando].filter(Boolean).join(' \u00b7 '))}</div>
+      <div class="numeri">${p.numeri.map(([v, u]) => `<div><b>${v}</b><span>${esc(u)}</span></div>`).join('')}</div>`;
+    map.getContainer().appendChild(scheda);
+    return 180;
+  };
   const cartello = (punto, testo, arrivo) => L.marker(punto, {
     icon: L.divIcon({ className: '', html: `<div class="corsa-cartello${arrivo ? ' arrivo' : ''}">${esc(testo)}</div>`, iconSize: [0, 0], iconAnchor: [0, arrivo ? -6 : 34] }),
     interactive: false, zIndexOffset: 900,
@@ -216,7 +239,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scia.setLatLngs([]);
     segnale.setIcon(iconaCorsa(p.faccia));
     quando.textContent = [p.nome, p.quando].filter(Boolean).join(' \u00b7 ');
-    viaCartelli();
+    viaCartelli(); viaScheda();
     if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
     if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
@@ -230,9 +253,10 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (fermo) return;
     if (attesa > 0) { attesa--; if (!attesa) chiudiFoto(); return; }
     if (iP < 0 || frame >= pezzi[iP].frames) {
-      // Arrivati: l'ultimo fotogramma resta un momento sullo schermo, poi la
-      // mappa torna com'era
-      if (iP + 1 >= pezzi.length) { avanzamento.style.width = '100%'; fermo = true; setTimeout(fine, 2200); return; }
+      // Finito un allenamento, i suoi numeri restano un momento sullo schermo
+      if (iP >= 0 && pezzi[iP].numeri?.length && !scheda) { attesa = mostraScheda(pezzi[iP]); if (attesa) return; }
+      // Arrivati: l'ultima immagine resta un momento, poi la mappa torna com'era
+      if (iP + 1 >= pezzi.length) { avanzamento.style.width = '100%'; fermo = true; setTimeout(fine, scheda ? 3200 : 2200); return; }
       return apriPezzo(iP + 1);
     }
     const p = pezzi[iP];
@@ -816,7 +840,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v60';
+const VERSIONE = 'v61';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1168,6 +1192,7 @@ async function viewTrip(id) {
         da: w.luogo || null,
         nome: [w.luogo, w.name || w.sport, w.athlete].filter(Boolean).join(' \u00b7 '),
         quando: fdate(w.started_at),
+        numeri: numeriAllenamento(w),
         ordine: new Date(w.started_at).getTime(),
       })),
     ].sort((a, b) => a.ordine - b.ordine);
@@ -2641,6 +2666,7 @@ async function viewWorkout(id) {
       da: w.luogo || null,
       nome: [w.luogo, w.name || w.sport || 'Allenamento'].filter(Boolean).join(' \u00b7 '),
       quando: fdate(w.started_at),
+      numeri: numeriAllenamento(w),
     }], [], { secondi: 20 }));
   }
   $('#trip').onchange = safe(async e => {
