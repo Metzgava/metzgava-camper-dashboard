@@ -424,8 +424,11 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   let finoA = 0, restante = 0;
   const aspetta = ms => { finoA = ms ? performance.now() + ms : 0; };
   const totaleFrames = pezzi.reduce((a, p) => a + p.frames, 0);
-  let fotoAperta = null;
-  const chiudiFoto = () => { if (fotoAperta) { map.removeLayer(fotoAperta); fotoAperta = null; } };
+  let fotoAperta = null, puntoFoto = null;
+  const chiudiFoto = () => {
+    if (fotoAperta) { map.removeLayer(fotoAperta); fotoAperta = null; }
+    if (puntoFoto) { map.removeLayer(puntoFoto); puntoFoto = null; }
+  };
   // Quello che sta scritto sotto una foto: il posto, se si sa, e la didascalia.
   // «Circa» quando il posto non viene dalla foto ma dal giorno in cui e' stata
   // scattata: dirlo costa una parola, e non spaccia una deduzione per un dato.
@@ -520,8 +523,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   // altezza che su un'autostrada, e su una camminata ancora meno
   const zoomDaVicino = lung => lung > 120000 ? 11 : lung > 25000 ? 12 : lung > 6000 ? 13 : 14;
 
+  // Da quando la mappa comincia a seguire: prima c'e' la veduta d'insieme e la
+  // discesa, e mettersi a inseguire in mezzo a quelle due farebbe un pasticcio
+  let seguiDa = 0;
+
   const apriPezzo = n => {
     iP = n; frame = 0;
+    seguiDa = performance.now() + 2800;
     const p = pezzi[n];
     scia.setLatLngs([]);
     segnale.setIcon(iconaCorsa(p.faccia));
@@ -576,23 +584,45 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scia.addLatLng(pt);
     segnale.setLatLng(pt);
     avanzamento.style.width = `${(fatti / totaleFrames * 100).toFixed(1)}%`;
-    if (!map.getBounds().pad(-0.28).contains(pt)) map.panTo(pt, { animate: true, duration: .6 });
+    // Il tracciato sta al centro. Prima la mappa aspettava che l'icona
+    // arrivasse al bordo e poi la rincorreva a strappi: ora le sta dietro, e
+    // il punto in cui si e' arrivati e' sempre in mezzo allo schermo. Non a
+    // ogni fotogramma - vorrebbe dire ridisegnare le tessere sessanta volte al
+    // secondo - ma abbastanza spesso da non vedersi.
+    if (!fotoAperta && performance.now() > seguiDa && frame % 6 === 0) {
+      // Si punta dove l'icona sara' fra un quarto di secondo, non dove e'
+      // adesso: la mappa ci mette quel tempo ad arrivarci, e inseguendo il
+      // punto di adesso resterebbe sempre indietro di altrettanto - l'icona
+      // scivolerebbe verso il bordo invece di stare in mezzo.
+      map.panTo(doveA(p, Math.min(1, (frame + 15) / p.frames)), { animate: true, duration: .25, easeLinearity: 1 });
+    }
     // La foto compare quando l'icona le arriva accanto, e si aspetta un momento
     const sc = scatti[prossimo];
     if (sc && (sc.iP < iP || (sc.iP === iP && sc.f <= f))) {
       prossimo++;
       chiudiFoto();
+      // La cartolina si stringe addosso alla foto - niente ritagli, niente
+      // bianco intorno - e si mette di fianco al posto, non sopra: quello che
+      // si vuole vedere e' anche dove e' stata scattata. Sta dalla parte dove
+      // c'e' piu' spazio, e il posto resta segnato da un punto.
+      const schermo = map.getSize();
+      const dove = map.latLngToContainerPoint([sc.lat, sc.lon]);
+      const aDestra = dove.x <= schermo.x / 2;
       fotoAperta = L.marker([sc.lat, sc.lon], {
-        // La cornice si stringe addosso alla foto: cosi' la foto si vede
-        // intera e intorno non resta bianco. Il riquadro dell'icona e' solo lo
-        // spazio in cui la cartolina sta appesa sopra il suo punto.
-        icon: L.divIcon({ className: 'foto-icona', html: `<div class="corsa-foto"><img src="/uploads/${sc.filename}" alt="">${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`, iconSize: [340, 260], iconAnchor: [170, 272] }),
+        icon: L.divIcon({
+          className: 'foto-icona',
+          html: `<div class="corsa-foto ${aDestra ? 'a-destra' : 'a-sinistra'}"><img src="/uploads/${sc.filename}" alt="">${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
+          iconSize: [340, 260],
+          iconAnchor: aDestra ? [-18, 130] : [358, 130],
+        }),
         zIndexOffset: 1200,
       }).addTo(map);
       fotoAperta.on('click', () => ingrandisci(sc));
-      // Una foto scattata lontano dalla strada - una gita, una deviazione a
-      // piedi - non si vedrebbe nemmeno: la mappa ci si sposta sopra
-      if (!map.getBounds().pad(-0.1).contains([sc.lat, sc.lon])) map.panTo([sc.lat, sc.lon], { animate: true, duration: .8 });
+      puntoFoto = L.circleMarker([sc.lat, sc.lon], { radius: 6, weight: 3, color: '#fff', fillColor: '#fbbf24', fillOpacity: 1 }).addTo(map);
+      // La mappa si sposta quel tanto che basta perche' ci stiano tutti e due:
+      // il posto da una parte e la cartolina dall'altra
+      const bersaglio = L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
+      map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
       aspetta(3000);
     }
   };
@@ -1169,7 +1199,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v73';
+const VERSIONE = 'v74';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se

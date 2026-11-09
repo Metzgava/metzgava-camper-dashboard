@@ -129,7 +129,7 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
    ritaglio, niente bianco intorno. La didascalia ci sta sopra, in fondo. */
 .foto-icona { pointer-events: none; }
 .foto-icona .corsa-foto { pointer-events: auto; }
-.corsa-foto { position: absolute; left: 50%; bottom: 0; background: #fff; border-radius: 12px; padding: 5px;
+.corsa-foto { position: absolute; background: #fff; border-radius: 12px; padding: 5px;
   box-shadow: 0 8px 28px rgba(0,0,0,.45); line-height: 0; cursor: zoom-in; animation: entra-foto .25s ease; }
 /* Leaflet toglie il limite di larghezza a tutte le immagini dentro la mappa,
    per via delle tessere: alla cartolina quel limite serve, e va riaffermato */
@@ -138,8 +138,12 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-foto span { position: absolute; left: 5px; right: 5px; bottom: 5px; border-radius: 0 0 9px 9px; line-height: 1.3;
   font-size: 13px; color: #fff; padding: 16px 9px 6px; background: linear-gradient(transparent, rgba(0,0,0,.78));
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@keyframes entra-foto { from { opacity: 0; transform: translate(-50%, 8px) scale(.92); } to { opacity: 1; transform: translateX(-50%); } }
-.corsa-foto { transform: translateX(-50%); }
+/* Di fianco al posto: a destra se il posto sta nella meta' sinistra dello
+   schermo, a sinistra se sta nell'altra. Mai sopra: coprirebbe proprio il
+   punto che si vuole mostrare. */
+.corsa-foto.a-destra { left: 0; top: 50%; transform: translateY(-50%); }
+.corsa-foto.a-sinistra { right: 0; top: 50%; transform: translateY(-50%); }
+@keyframes entra-foto { from { opacity: 0; transform: translateY(-50%) scale(.92); } to { opacity: 1; transform: translateY(-50%); } }
 
 /* Guardata grande: riempie la mappa, e un tocco qualsiasi fa ripartire il viaggio */
 .corsa-grande { position: absolute; inset: 0; z-index: 1300; display: grid; place-items: center; padding: 16px;
