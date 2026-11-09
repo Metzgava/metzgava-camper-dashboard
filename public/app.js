@@ -643,7 +643,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v56';
+const VERSIONE = 'v57';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -834,7 +834,7 @@ async function viewTrip(id) {
           ${legs.some(inCamper) ? `<span class="voce" data-strato="camper"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
           ${legs.some(l => !inCamper(l)) ? `<span class="voce" data-strato="altri"><i class="tratteggio" style="border-top-color:${COLORE_ALTRI_MEZZI}"></i>${[...new Set(legs.filter(l => !inCamper(l)).map(l => MEZZI[mezzoDi(l)][0] + ' ' + MEZZI[mezzoDi(l)][1]))].join(', ')}</span>` : ''}
           ${discipline.map(d => `<span class="voce" data-strato="sport:${esc(d)}"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
-          ${atletiDelViaggio.length > 1 ? '<span class="stacco"></span>' + atletiDelViaggio.map(nome => `<span class="voce"><i class="tratteggio" style="border-top-color:var(--muted);border-top-style:${trattoDi(nome)[1]}"></i>${esc(nome)}</span>`).join('') : ''}
+          ${atletiDelViaggio.length > 1 ? '<span class="stacco"></span>' + atletiDelViaggio.map(nome => `<span class="voce" data-strato="atleta:${esc(nome)}"><i class="tratteggio" style="border-top-color:var(--muted);border-top-style:${trattoDi(nome)[1]}"></i>${esc(nome)}</span>`).join('') : ''}
           ${conPosto ? `<span class="voce" data-strato="foto">\ud83d\udcf7 ${conPosto} fot${conPosto === 1 ? 'o' : 'o'} nel punto dello scatto</span>` : ''}
         </div>`;
       })()}</div>
@@ -888,6 +888,15 @@ async function viewTrip(id) {
   // I punti di ogni strato si tengono da parte: sono quelli su cui la mappa si
   // stringe quando si chiede di vedere solo quello
   const segna = (chiave, punti) => { (estensioni[chiave] ||= []).push(...punti); };
+  // Un allenamento sta nello strato della sua disciplina e del suo atleta
+  // insieme: cosi' «Escursione» chiama quelle di tutti e due, e «Metz» chiama
+  // tutto quello che ha fatto lui, senza doverli disegnare due volte
+  const chiaveSport = w => `sport:${w.sport}|${w.athlete || ''}`;
+  const gruppiDi = sel => {
+    if (sel.startsWith('atleta:')) { const chi = sel.slice(7); return Object.keys(strati).filter(k => k.startsWith('sport:') && k.slice(k.indexOf('|') + 1) === chi); }
+    if (sel.startsWith('sport:')) { const d = sel.slice(6); return Object.keys(strati).filter(k => k.startsWith(`sport:${d}|`)); }
+    return strati[sel] ? [sel] : [];
+  };
   legs.forEach((l, i) => {
     const g = l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]];
     // Il traghetto e l'aereo non seguono la strada: linea dritta e tratteggiata,
@@ -921,7 +930,7 @@ async function viewTrip(id) {
     const km = num((w.distance_m || 0) / 1000);
     let punto = null, circa = false, dove = '';
     if (traccia) {
-      L.polyline(traccia, { color: colore, weight: 3.5, opacity: .95, dashArray: trattoDi(w.athlete)[0] }).addTo(strato(`sport:${w.sport}`))
+      L.polyline(traccia, { color: colore, weight: 3.5, opacity: .95, dashArray: trattoDi(w.athlete)[0] }).addTo(strato(chiaveSport(w)))
         .bindPopup(`<b>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</b><br>${esc(w.athlete || '')} \u00b7 ${fdt(w.started_at)} \u00b7 ${km} km \u00b7 ${dur(w.duration_s)}<br><a href="#/allenamento/${w.id}">Apri l\u2019allenamento</a>`);
       // L'icona sta a meta' del giro: sull'attivita', e lontana dai segnaposto
       // delle tappe, che stanno quasi sempre dove si e' partiti
@@ -930,18 +939,18 @@ async function viewTrip(id) {
       // del camper finirebbe fuori schermo
       const passo = Math.max(1, Math.floor(traccia.length / 20));
       for (let i = 0; i < traccia.length; i += passo) bounds.push(traccia[i]);
-      segna(`sport:${w.sport}`, traccia);
+      segna(chiaveSport(w), traccia);
     } else {
       const l = dovEravamo(w);
       if (!l) return;
       punto = [l.lat, l.lon]; circa = true; dove = l.dove; dedotti++;
     }
     L.marker(punto, { icon: pinSport(w.sport, circa), zIndexOffset: 300, riseOnHover: true })
-      .addTo(strato(`sport:${w.sport}`))
+      .addTo(strato(chiaveSport(w)))
       .bindTooltip(`<b>${esc(w.name || w.sport || 'Allenamento')}</b><br>${fdt(w.started_at)} \u00b7 ${esc(w.athlete)}${w.distance_m ? ' \u00b7 ' + km + ' km' : ''} \u00b7 ${dur(w.duration_s)}${circa ? `<br><i>senza traccia \u00b7 ${esc(dove)}</i>` : ''}`, { direction: 'top', offset: [0, -14] })
       .on('click', () => { location.hash = '#/allenamento/' + w.id; });
     if (circa) bounds.push(punto);
-    segna(`sport:${w.sport}`, [punto]);
+    segna(chiaveSport(w), [punto]);
   });
   // La legenda si scrive prima di sapere quanti allenamenti finiranno in un posto
   // dedotto: il conto vero si sa solo dopo averli messi, e si aggiunge qui
@@ -975,17 +984,18 @@ async function viewTrip(id) {
     if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
   };
   voci.forEach(v => v.onclick = () => {
-    const chiave = v.dataset.strato;
-    if (!strati[chiave] || solo === chiave) return tutto();
-    solo = chiave;
-    Object.entries(strati).forEach(([k, g]) => k === chiave ? g.addTo(map) : map.removeLayer(g));
+    const sel = v.dataset.strato;
+    const scelti = gruppiDi(sel);
+    if (!scelti.length || solo === sel) return tutto();
+    solo = sel;
+    Object.entries(strati).forEach(([k, g]) => scelti.includes(k) ? g.addTo(map) : map.removeLayer(g));
     voci.forEach(x => {
-      x.classList.toggle('acceso', x.dataset.strato === chiave);
-      x.classList.toggle('spento', x.dataset.strato !== chiave);
+      x.classList.toggle('acceso', x.dataset.strato === sel);
+      x.classList.toggle('spento', x.dataset.strato !== sel);
     });
     // Un allenamento senza traccia e' un punto solo: senza un limite allo
     // zoom la mappa ci finirebbe sopra col naso, e non si capirebbe piu' dove
-    const punti = estensioni[chiave] || [];
+    const punti = scelti.flatMap(k => estensioni[k] || []);
     if (punti.length) map.fitBounds(punti, { padding: [40, 40], maxZoom: 15 });
   });
 
