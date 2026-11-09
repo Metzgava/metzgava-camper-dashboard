@@ -218,6 +218,22 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const viaCartelli = () => { cartelli.forEach(c => map.removeLayer(c)); cartelli = []; };
   let scheda = null;
   const viaScheda = () => { scheda?.remove(); scheda = null; };
+  // In fondo al viaggio il conto di tutto: i chilometri, il tempo, e le spese
+  // divise per tipologia. Resta sullo schermo finche' non si chiude - e' roba
+  // che si legge, non che si guarda passare.
+  const mostraFinale = () => {
+    const f = opzioni.finale;
+    if (!f) return false;
+    viaScheda();
+    scheda = document.createElement('div');
+    scheda.className = 'corsa-scheda larga';
+    scheda.innerHTML = `<div class="titolo">${f.titolo}</div>
+      <div class="numeri">${(f.numeri || []).filter(Boolean).map(([v, u]) => `<div><b>${v}</b><span>${esc(u)}</span></div>`).join('')}</div>
+      ${f.categorie?.length ? `<div class="spese">${f.categorie.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>` : ''}
+      ${f.totale ? `<div class="totale">Totale speso <b>${f.totale}</b></div>` : ''}`;
+    map.getContainer().appendChild(scheda);
+    return true;
+  };
   const mostraScheda = p => {
     viaScheda();
     if (!p.numeri?.length) return 0;
@@ -255,8 +271,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (iP < 0 || frame >= pezzi[iP].frames) {
       // Finito un allenamento, i suoi numeri restano un momento sullo schermo
       if (iP >= 0 && pezzi[iP].numeri?.length && !scheda) { attesa = mostraScheda(pezzi[iP]); if (attesa) return; }
-      // Arrivati: l'ultima immagine resta un momento, poi la mappa torna com'era
-      if (iP + 1 >= pezzi.length) { avanzamento.style.width = '100%'; fermo = true; setTimeout(fine, scheda ? 3200 : 2200); return; }
+      // Arrivati: se c'e' il conto del viaggio resta li' finche' non si chiude,
+      // altrimenti l'ultima immagine dura un momento e la mappa torna com'era
+      if (iP + 1 >= pezzi.length) {
+        avanzamento.style.width = '100%'; fermo = true;
+        if (!mostraFinale()) setTimeout(fine, scheda ? 3200 : 2200);
+        return;
+      }
       return apriPezzo(iP + 1);
     }
     const p = pezzi[iP];
@@ -840,7 +861,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v62';
+const VERSIONE = 'v63';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1201,7 +1222,26 @@ async function viewTrip(id) {
         ordine: new Date(w.started_at).getTime(),
       })),
     ].sort((a, b) => a.ordine - b.ordine);
-    riproduci(map, pezzi, photos.filter(p => p.lat != null && p.lon != null && !eVideo(p)));
+    // Alla fine del giro in camper il conto di tutto il viaggio: chilometri,
+    // tempo, consumi, e le spese divise per tipologia
+    const ore = totals.minutes / 60;
+    const pernotti = soste.reduce((a, s) => a + (notti(s.from_date, s.to_date) || 0), 0);
+    const finale = soloCamper ? {
+      titolo: `\ud83d\ude90 ${esc(nomeViaggio(trip))}`,
+      numeri: [
+        [num(totals.km, 0), 'km in camper'],
+        totals.altri_mezzi ? [num(totals.altri_mezzi.km, 0), 'km con altri mezzi'] : null,
+        totals.minutes ? [dur(totals.minutes * 60), 'di guida'] : null,
+        ore > 0.2 && totals.km ? [num(totals.km / ore, 0), 'km/h di media'] : null,
+        totals.liters ? [num(totals.liters, 0), 'litri di gasolio'] : null,
+        totals.pedaggio_km ? [num(totals.pedaggio_km, 0), 'km di autostrada'] : null,
+        pernotti ? [pernotti, pernotti === 1 ? 'pernotto' : 'pernotti'] : null,
+        totals.cost_per_km ? [eur(totals.cost_per_km), 'al km'] : null,
+      ],
+      categorie: totals.by_category.map(c => [catLabel(c.category), eur(c.total)]),
+      totale: eur(totals.total),
+    } : null;
+    riproduci(map, pezzi, photos.filter(p => p.lat != null && p.lon != null && !eVideo(p)), finale ? { finale } : {});
   });
 
   // Toccando una voce resta sulla mappa solo quella, e la mappa ci si stringe

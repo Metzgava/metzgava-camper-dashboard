@@ -96,6 +96,13 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-scheda .numeri div { display: flex; flex-direction: column; min-width: 64px; }
 .corsa-scheda .numeri b { font-size: 22px; line-height: 1.1; letter-spacing: -.02em; }
 .corsa-scheda .numeri span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.corsa-scheda.larga { max-width: 92%; min-width: min(420px, 86%); }
+.corsa-scheda .spese { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 2px 18px; text-align: left; }
+.corsa-scheda .spese div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 1px 0; }
+.corsa-scheda .spese span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corsa-scheda .totale { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 14px; color: var(--muted); }
+.corsa-scheda .totale b { font-size: 18px; color: var(--text); margin-left: 6px; }
 @keyframes entra-scheda { from { opacity: 0; transform: translate(-50%, -46%) scale(.94); } to { opacity: 1; transform: translate(-50%, -50%); } }
 
 .corsa-cartello { background: rgba(17,24,39,.82); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap;
