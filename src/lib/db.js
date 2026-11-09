@@ -417,9 +417,10 @@ export async function migrate() {
 
   await q(`INSERT INTO settings(key, value) VALUES
     ('vehicle', '{"length_m": 6, "km_per_liter": 10, "fuel_price": 1.75}'),
-    ('categories', '["gasolio","traghetto","bus","treno","aereo","area_sosta","campeggio","pedaggi","vitto","spesa","visite","manutenzione","altro"]')
+    ('categories', '["gasolio","traghetto","bus","treno","aereo","area_sosta","campeggio","pedaggi","vitto","spesa","visite","spettacoli","sport","manutenzione","altro"]')
     ON CONFLICT (key) DO NOTHING`);
 
   await categorieNuove(['bus', 'treno', 'aereo'], 'traghetto');
+  await categorieNuove(['spettacoli', 'sport'], 'visite');
   await spesePerSosteGiaScritte();
 }
