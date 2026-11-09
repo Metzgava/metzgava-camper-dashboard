@@ -333,6 +333,10 @@ export async function migrate() {
   -- e quanto ingrandire. Non si tocca il file, che resta intero: il ritaglio e'
   -- un modo di guardarla, e si puo' sempre rifare.
   ALTER TABLE photos ADD COLUMN IF NOT EXISTS crop JSONB;
+  -- Di un viaggio non restano solo scatti: un video di trenta secondi racconta
+  -- la discesa o il mare che si muove meglio di dieci foto. Stanno insieme,
+  -- nella stessa raccolta, e si distinguono da qui.
+  ALTER TABLE photos ADD COLUMN IF NOT EXISTS mime TEXT;
 
   -- Quello che serve per preparare un viaggio e che non sta da nessun'altra
   -- parte: un appunto, l'indirizzo di un sito, il pdf del traghetto, la pagina

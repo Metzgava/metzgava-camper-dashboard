@@ -559,7 +559,17 @@ function ritagliaFoto(foto, dopo) {
     });
 }
 
-const stellaCopertina = (p, scelta) => `<button class="copertina-scelta${scelta === p.id ? ' scelta' : ''}" data-copertina="${p.id}"
+// Un video sta nella raccolta insieme alle foto. Si riconosce dal tipo che ha
+// dichiarato il telefono, o in mancanza di quello dall'estensione del file.
+const eVideo = p => /^video\//.test(p?.mime || '') || /\.(mp4|mov|m4v|webm|avi|mkv|3gp)$/i.test(p?.filename || '');
+// La faccia di una miniatura: per una foto e' la foto, per un video il primo
+// fotogramma, che il browser va a prendere da solo, col segno del play sopra
+const facciaMedia = (p, dentro = '') => eVideo(p)
+  ? `<video src="/uploads/${esc(p.filename)}#t=0.1" preload="metadata" muted playsinline${dentro}></video><span class="segno-video">\u25b6</span>`
+  : `<img src="/uploads/${esc(p.filename)}" loading="lazy" alt=""${dentro}>`;
+const datiLente = p => `data-grande="/uploads/${esc(p.filename)}" data-didascalia="${esc(p.caption || '')}"${eVideo(p) ? ' data-video="1"' : ''}`;
+
+const stellaCopertina = (p, scelta) => eVideo(p) ? '' : `<button class="copertina-scelta${scelta === p.id ? ' scelta' : ''}" data-copertina="${p.id}"
   title="${scelta === p.id ? 'E\u2019 la copertina del viaggio \u00b7 tocca per togliere la scelta' : 'Usa come copertina del viaggio'}">${scelta === p.id ? '\u2605' : '\u2606'}</button>`;
 
 // ---------- Foto ----------
@@ -575,14 +585,19 @@ function apriLente(foto, i = 0) {
   el.className = 'lente';
   el.innerHTML = `<button class="chiudi" title="Chiudi (Esc)">\u2715</button>
     ${foto.length > 1 ? '<button class="passo prima" title="Precedente">\u2039</button><button class="passo dopo" title="Successiva">\u203a</button>' : ''}
-    <figure><img alt=""><figcaption></figcaption></figure>`;
+    <figure><img alt=""><video controls playsinline hidden></video><figcaption></figcaption></figure>`;
   document.body.appendChild(el);
   const scorrimento = document.body.style.overflow;
   document.body.style.overflow = 'hidden';
-  const img = $('img', el), didascalia = $('figcaption', el);
+  const img = $('img', el), filmato = $('video', el), didascalia = $('figcaption', el);
   const mostra = n => {
     i = (n + foto.length) % foto.length;
-    img.src = foto[i].src;
+    // Un video si apre nella stessa cornice, ma con i suoi comandi: fermarlo
+    // passando alla foto dopo e' il minimo, altrimenti continua a parlare
+    filmato.pause();
+    const video = !!foto[i].video;
+    img.hidden = video; filmato.hidden = !video;
+    if (video) { filmato.src = foto[i].src; filmato.play().catch(() => {}); } else img.src = foto[i].src;
     didascalia.textContent = [foto[i].caption, foto.length > 1 ? `${i + 1} di ${foto.length}` : ''].filter(Boolean).join(' \u00b7 ');
   };
   const tasti = e => {
@@ -627,7 +642,7 @@ document.addEventListener('click', e => {
   e.preventDefault(); e.stopPropagation();
   const gruppo = scatto.closest('.photos, .foto-sosta');
   const tutte = gruppo ? $$('[data-grande]', gruppo) : [scatto];
-  apriLente(tutte.map(x => ({ src: x.dataset.grande, caption: x.dataset.didascalia || '' })), Math.max(0, tutte.indexOf(scatto)));
+  apriLente(tutte.map(x => ({ src: x.dataset.grande, caption: x.dataset.didascalia || '', video: x.dataset.video === '1' })), Math.max(0, tutte.indexOf(scatto)));
 });
 
 
@@ -643,7 +658,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v57';
+const VERSIONE = 'v58';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -867,7 +882,7 @@ async function viewTrip(id) {
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
         ${SU_MAC ? `<div class="small muted" style="margin-top:10px">Trascina gli scatti dall\u2019app Foto o dal Finder in un punto qualsiasi di questa pagina, oppure copiali e incollali con \u2318V.</div>` : ''}
-        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}"><img src="/uploads/${p.filename}" loading="lazy" alt="" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}${stellaCopertina(p, trip.cover_photo_id)}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
+        <div class="photos${fotoViaggio.length ? '' : ' empty-grid'}" style="margin-top:12px" id="photos">${fotoViaggio.map(p => `<figure data-foto="${p.id}" class="${eVideo(p) ? 'e-video' : ''}">${facciaMedia(p, ` ${datiLente(p)} title="Tocca per ${eVideo(p) ? 'guardarlo' : 'ingrandire'}"`)}${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}${stellaCopertina(p, trip.cover_photo_id)}<button class="del" data-del-ph="${p.id}">\u2715</button></figure>`).join('') || `<div class="muted small">Nessuna foto${photos.length ? ' oltre a quelle delle soste' : ''}. Le foto con GPS vengono posizionate sulla mappa.</div>`}</div></div>
       ${atletiDelViaggio.length ? atletiDelViaggio.map(nome => {
         const suoi = workouts.filter(w => w.athlete === nome);
         const km = suoi.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000;
@@ -1236,7 +1251,7 @@ const sostaRiga = (s, foto = [], copertina = null) => {
   <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="${s.p4n_id ? `Posto ${esc(s.p4n_id)} su park4night` : 'Apri il collegamento'}">${s.p4n_id ? '\ud83c\udd7f\ufe0f' : '\ud83d\udd17'}</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
-  <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}"><a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="${esc(p.caption || 'Tocca per ingrandire')}"><img src="/uploads/${p.filename}" loading="lazy" alt=""></a>${stellaCopertina(p, copertina)}<button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
+  <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}" class="${eVideo(p) ? 'e-video' : ''}"><a href="/uploads/${p.filename}" ${datiLente(p)} title="${esc(p.caption || (eVideo(p) ? 'Tocca per guardarlo' : 'Tocca per ingrandire'))}">${facciaMedia(p)}</a>${stellaCopertina(p, copertina)}<button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
     <label class="aggiungi" title="${foto.length ? 'Aggiungi foto a questa sosta' : 'Metti le foto di questa sosta'}">
       <span class="ico">\ud83d\udcf7</span><span>${foto.length ? 'Aggiungi' : 'Foto'}</span>
       <input type="file" data-fotososta="${s.id}" accept="image/*" multiple hidden></label></div></div>`;

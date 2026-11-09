@@ -12,19 +12,30 @@ export const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve('uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const IMMAGINE = /\.(jpe?g|png|heic|heif|webp|gif|tiff?|avif|bmp)$/i;
+// I video del telefono: quelli di iPhone sono .mov, gli altri quasi sempre .mp4
+const VIDEO = /\.(mp4|mov|m4v|webm|avi|mkv|3gp)$/i;
+const eVideo = f => /^video\//.test(f.mimetype || '') || VIDEO.test(f.originalname || '');
+// Non tutti dichiarano il tipo: chi carica da uno script manda spesso
+// «application/octet-stream», e un filmato preso per foto finirebbe a fare da
+// copertina. Quando il nome dice che e' un video, il tipo si scrive da qui.
+const tipoFile = f => /^video\//.test(f.mimetype || '') ? f.mimetype
+  : VIDEO.test(f.originalname || '') ? `video/${(f.originalname.split('.').pop() || 'mp4').toLowerCase().replace('mov', 'quicktime')}`
+  : (f.mimetype || null);
 
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
     filename: (req, file, cb) => cb(null, `${Date.now()}-${randomToken(6)}${path.extname(file.originalname || '.jpg').toLowerCase() || '.jpg'}`),
   }),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  // Un video pesa quanto cinquanta foto: il limite sale, ma non tanto da
+  // riempire il disco con un filmato solo
+  limits: { fileSize: 200 * 1024 * 1024 },
   // Il tipo dichiarato non basta: certi file trascinati arrivano come
   // application/octet-stream, e scartarli in silenzio significa una foto che
   // sparisce senza che nessuno sappia perche'
   fileFilter: (req, file, cb) => {
-    const va = /^image\//.test(file.mimetype) || IMMAGINE.test(file.originalname || '');
-    if (!va) console.warn(`foto rifiutata: ${file.originalname} (${file.mimetype})`);
+    const va = /^image\//.test(file.mimetype) || IMMAGINE.test(file.originalname || '') || eVideo(file);
+    if (!va) console.warn(`file rifiutato: ${file.originalname} (${file.mimetype})`);
     cb(null, va);
   },
 });
@@ -81,10 +92,12 @@ router.post('/diagnostica', wrap(async (req, res) => {
 router.post('/trips/:id/photos', upload.array('photos', 20), wrap(async (req, res) => {
   const out = [];
   for (const f of req.files || []) {
+    // Un video non ha l'exif di una foto: le coordinate, quando ci sono, stanno
+    // in un altro formato che questa libreria non legge. Non si prova nemmeno.
     let exif = {};
-    try { exif = (await leggiExif(f.path)) || {}; } catch { }
-    const row = (await q('INSERT INTO photos(user_id,trip_id,leg_id,stop_id,filename,caption,taken_at,lat,lon) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
-      [req.user.id, req.params.id, req.body.leg_id || null, req.body.stop_id || null, f.filename, req.body.caption || null, exif.DateTimeOriginal || null, exif.latitude || null, exif.longitude || null])).rows[0];
+    if (!eVideo(f)) { try { exif = (await leggiExif(f.path)) || {}; } catch { } }
+    const row = (await q('INSERT INTO photos(user_id,trip_id,leg_id,stop_id,filename,caption,taken_at,lat,lon,mime) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
+      [req.user.id, req.params.id, req.body.leg_id || null, req.body.stop_id || null, f.filename, req.body.caption || null, exif.DateTimeOriginal || null, exif.latitude || null, exif.longitude || null, tipoFile(f)])).rows[0];
     out.push(row);
   }
   res.json(out);

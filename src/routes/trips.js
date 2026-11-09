@@ -308,14 +308,14 @@ router.get('/trips', wrap(async (req, res) => {
       -- prima foto del viaggio, per data di scatto
       coalesce(
         (SELECT filename FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
-        (SELECT filename FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover,
+        (SELECT filename FROM photos WHERE trip_id=t.id AND coalesce(mime,'') NOT LIKE 'video/%' ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover,
       coalesce(
         (SELECT crop FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
-        (SELECT crop FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_crop,
+        (SELECT crop FROM photos WHERE trip_id=t.id AND coalesce(mime,'') NOT LIKE 'video/%' ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_crop,
       -- Serve alla scheda per aprire l'inquadratura senza passare dalle foto
       coalesce(
         (SELECT id FROM photos WHERE id = t.cover_photo_id AND trip_id = t.id),
-        (SELECT id FROM photos WHERE trip_id=t.id ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_id
+        (SELECT id FROM photos WHERE trip_id=t.id AND coalesce(mime,'') NOT LIKE 'video/%' ORDER BY taken_at NULLS LAST, id LIMIT 1)) AS cover_id
     FROM trips t JOIN users u ON u.id=t.user_id ORDER BY t.status='open' DESC, coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
   // Mete e forma dell'itinerario per la scheda. Si prendono i soli estremi delle
   // tappe, non le geometrie: quelle di CarLock pesano quanto tutto il resto e
@@ -370,7 +370,7 @@ router.get('/trips/:id', wrap(async (req, res) => {
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
   const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
   const expenses = (await q('SELECT * FROM expenses WHERE trip_id=$1 ORDER BY date DESC, id DESC', [trip.id])).rows;
-  const photos = (await q('SELECT id,leg_id,stop_id,filename,caption,taken_at,lat,lon,user_id,crop FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
+  const photos = (await q('SELECT id,leg_id,stop_id,filename,caption,taken_at,lat,lon,user_id,crop,mime FROM photos WHERE trip_id=$1 ORDER BY coalesce(taken_at,created_at)', [trip.id])).rows;
   // Le copie fatte su un altro atleta rappresentano la stessa uscita gia' elencata:
   // contarle o mostrarle qui raddoppierebbe attivita' e chilometri del viaggio
   const workouts = (await q(`SELECT w.*, u.name AS athlete FROM workouts w JOIN users u ON u.id=w.user_id
