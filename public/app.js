@@ -337,6 +337,8 @@ function musichetta(differita) {
 function riproduci(map, segmenti, foto, opzioni = {}) {
   const grezzi = segmenti.filter(s => s.punti?.length > 1);
   if (!grezzi.length) return toast('Non c\u2019e\u2019 nessun percorso da rivedere', true);
+  // Com'era inquadrata la mappa prima di partire: alla fine ci si torna
+  const bordi = grezzi.flatMap(p => p.punti);
 
   // I punti di una traccia non sono distribuiti alla stessa distanza: seguirli
   // uno per uno farebbe correre l'icona dove il GPS ha segnato fitto e
@@ -380,9 +382,17 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   if (strati) { map.removeLayer(strati.strada); strati.ibrida.addTo(map); }
   const velo = L.rectangle([[-90, -180], [90, 180]], { color: 'transparent', fillColor: '#0b1220', fillOpacity: .4, interactive: false }).addTo(map);
 
-  // La mappa si porta davanti agli occhi: la data sta scritta in alto, e se
-  // meta' mappa e' sopra il bordo dello schermo quella riga non la legge nessuno
-  map.getContainer().scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // Il filmato prende tutto lo schermo. Dentro una scheda alta trecento pixel,
+  // su un telefono, non si legge niente: i nomi dei paesi, la data, le foto e
+  // i numeri finali stanno tutti in un francobollo. A schermo pieno invece e'
+  // un filmato, e con la rotazione dell'iPad diventa un filmato largo.
+  const schermoPieno = map.getContainer();
+  schermoPieno.classList.add('in-corsa');
+  document.body.classList.add('corsa-in-corso');
+  const rimisura = () => map.invalidateSize({ animate: false });
+  rimisura();
+  window.addEventListener('resize', rimisura);
+  window.addEventListener('orientationchange', rimisura);
 
   const barra = document.createElement('div');
   barra.className = 'corsa-barra';
@@ -489,6 +499,11 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     suono?.ferma(); suono = null;
     [velo, scia, segnale].forEach(l => map.removeLayer(l));
     barra.remove(); dataSopra.remove();
+    window.removeEventListener('resize', rimisura);
+    window.removeEventListener('orientationchange', rimisura);
+    schermoPieno.classList.remove('in-corsa');
+    document.body.classList.remove('corsa-in-corso');
+    setTimeout(() => { map.invalidateSize({ animate: false }); if (bordi) map.fitBounds(bordi, { padding: [30, 30] }); }, 60);
     if (strati && eraStrada) { map.removeLayer(strati.ibrida); strati.strada.addTo(map); }
   };
 
@@ -631,6 +646,10 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       // c'e' piu' spazio, e il posto resta segnato da un punto.
       const schermo = map.getSize();
       const dove = map.latLngToContainerPoint([sc.lat, sc.lon]);
+      // Di fianco quando c'e' spazio di fianco. Su un telefono in verticale non
+      // ce n'e': li' la cartolina va sotto il posto, che e' sempre meglio che
+      // sopra - il punto resta scoperto - e si vede grande quanto lo schermo.
+      const stretto = schermo.x < 560;
       const aDestra = dove.x <= schermo.x / 2;
       const filmato = eVideo(sc);
       const dentro = filmato
@@ -639,9 +658,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       fotoAperta = L.marker([sc.lat, sc.lon], {
         icon: L.divIcon({
           className: 'foto-icona',
-          html: `<div class="corsa-foto ${aDestra ? 'a-destra' : 'a-sinistra'}${filmato ? ' filmato' : ''}">${dentro}${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
+          html: `<div class="corsa-foto ${stretto ? 'sotto' : aDestra ? 'a-destra' : 'a-sinistra'}${filmato ? ' filmato' : ''}">${dentro}${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
           iconSize: [340, 260],
-          iconAnchor: aDestra ? [-18, 130] : [358, 130],
+          iconAnchor: stretto ? [170, -22] : aDestra ? [-18, 130] : [358, 130],
         }),
         zIndexOffset: 1200,
       }).addTo(map);
@@ -652,7 +671,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       if (filmato) partiFilmato(sc); else fotoAperta.on('click', () => ingrandisci(sc));
       // La mappa si sposta quel tanto che basta perche' ci stiano tutti e due:
       // il posto da una parte e la cartolina dall'altra
-      const bersaglio = L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
+      const bersaglio = stretto
+        ? L.point(schermo.x * .5, schermo.y * .24)
+        : L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
       map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
       // Una foto dura tre secondi; un video dura quanto dura, e alla fine
       // aspetta che tu decida se rivederlo o andare avanti
@@ -1232,7 +1253,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v75';
+const VERSIONE = 'v76';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se

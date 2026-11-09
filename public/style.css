@@ -143,7 +143,11 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
    punto che si vuole mostrare. */
 .corsa-foto.a-destra { left: 0; top: 50%; transform: translateY(-50%); }
 .corsa-foto.a-sinistra { right: 0; top: 50%; transform: translateY(-50%); }
+/* Sul telefono in verticale: sotto il posto, larga quanto lo schermo lo lascia */
+.corsa-foto.sotto { left: 50%; top: 0; transform: translateX(-50%); }
 @keyframes entra-foto { from { opacity: 0; transform: translateY(-50%) scale(.92); } to { opacity: 1; transform: translateY(-50%); } }
+@keyframes entra-foto-sotto { from { opacity: 0; transform: translate(-50%, 8px) scale(.92); } to { opacity: 1; transform: translateX(-50%); } }
+.corsa-foto.sotto { animation-name: entra-foto-sotto; }
 
 /* Un video nel filmato: parte da solo, e quando finisce chiede se rivederlo
    o andare avanti. I tasti stanno sopra l'ultimo fotogramma. */
@@ -162,6 +166,30 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-grande .riprendi { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; color: #fff;
   background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.4); padding: 7px 16px; border-radius: 999px; font-size: 14px; }
 @keyframes appare { from { opacity: 0; } to { opacity: 1; } }
+
+/* Telefono: tutto un filo piu' stretto e piu' corto, che lo schermo e' quello
+   che e'. La cartolina diventa larga quasi quanto lo schermo, perche' sotto il
+   posto lo spazio c'e'. */
+@media (max-width: 560px) {
+  .leaflet-container .corsa-foto img, .leaflet-container .corsa-foto video {
+    max-width: min(340px, 88vw) !important; max-height: min(230px, 32vh) !important; }
+  .corsa-barra { gap: 7px; padding: 7px 8px; left: 8px; right: 8px; }
+  .corsa-barra .quando { max-width: 42%; font-size: 12px; }
+  .corsa-barra .btn.sm { padding: 6px 9px; }
+  .corsa-scheda { padding: 12px 14px; max-width: 94%; }
+  .corsa-scheda .numeri { gap: 8px 14px; }
+  .corsa-scheda .numeri b { font-size: 19px; }
+  .corsa-scheda .numeri div { min-width: 56px; }
+  .corsa-scheda.annuncio .titolo { font-size: 17px; }
+  .corsa-scheda .spese { grid-template-columns: 1fr; }
+  .corsa-cartello { font-size: 12px; padding: 3px 7px; }
+  .corsa-data { font-size: 14px; padding: 5px 13px; }
+}
+/* iPad in verticale: lo spazio di fianco c'e', ma le schede non devono
+   diventare una striscia persa in mezzo a un lenzuolo */
+@media (min-width: 561px) and (max-width: 1024px) {
+  .corsa-scheda.larga { min-width: min(520px, 86%); }
+}
 
 /* Un video nella raccolta: la miniatura e' il primo fotogramma, e il segno del
    play dice che si muove. La cornice e' la stessa delle foto, cosi' la raccolta
@@ -206,6 +234,18 @@ tr:last-child td { border-bottom: 0; } td.num, th.num { text-align: right; font-
   .field.w-sm, .field.w-md { flex: 1 1 calc(50% - 5px); }
 }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+/* Mentre si rivede un viaggio la mappa prende tutto lo schermo: su un telefono
+   dentro una scheda non si leggerebbe niente. Le barre di Safari vanno e
+   vengono, percio' l'altezza e' quella vera della finestra (dvh); e sotto il
+   mento dell'iPhone non ci va messo niente. */
+/* Leaflet scrive «position: relative» direttamente sull'elemento quando crea
+   la mappa, e un'altezza per il telefono la danno le regole piu' sotto: per
+   passare davanti a tutte e due ci vuole la forza. */
+.map.in-corsa { position: fixed !important; inset: 0; width: 100vw !important;
+  height: 100vh !important; height: 100dvh !important; max-height: none; border-radius: 0; z-index: 2000; }
+body.corsa-in-corso { overflow: hidden; }
+.map.in-corsa .corsa-barra { bottom: calc(12px + env(safe-area-inset-bottom)); }
+.map.in-corsa .corsa-data { top: calc(12px + env(safe-area-inset-top)); }
 .map { height: 380px; border-radius: var(--radius); overflow: hidden; z-index: 0; background: var(--surface-2); }
 .map.tall { height: 520px; } .map.sm { height: 220px; }
 @media (max-width: 800px) { .map { height: 300px; } .map.tall { height: 380px; } }
