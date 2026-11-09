@@ -997,6 +997,238 @@ async function caricaFoto(tripId, elenco, extra = {}) {
   restaQui();
 }
 
+// Chi si allena in un viaggio, e con che tratto si disegna la sua traccia: in
+// due si esce insieme, ma le uscite sono di ciascuno, e sulla mappa il colore
+// dice la disciplina - a dire chi e' resta il tratto.
+const TRATTI = [['4 6', 'dashed'], ['1 6', 'dotted'], ['12 4 2 4', 'dashed'], ['8 3', 'dashed']];
+const atletiDi = ws => [...new Set((ws || []).map(w => w.athlete).filter(Boolean))].sort();
+const trattoFra = (nome, atleti) => TRATTI[Math.max(0, atleti.indexOf(nome)) % TRATTI.length];
+
+// La legenda sotto la mappa e i tasti per rivedere. Stanno qui, fuori dalla
+// pagina del viaggio, perche' li usa anche chi il viaggio lo guarda da fuori.
+function legendaViaggio(d, opz = {}) {
+  const { legs, workouts, photos } = d;
+  const atletiDelViaggio = atletiDi(workouts);
+  const trattoDi = nome => trattoFra(nome, atletiDelViaggio);
+  const conTracciati = opz.tracciati !== false;
+        const discipline = [...new Set(workouts.filter(w => w.has_track || w.track).map(w => w.sport).filter(Boolean))].sort();
+        const conPosto = photos.filter(p => p.lat != null).length;
+        if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
+        return `<div class="legenda-mappa">
+          ${!conTracciati ? '' : `<span class="rivedi-tasti">${legs.length ? `<button class="btn sm primary" data-rivedi="camper">\u25b6 \ud83d\ude90 Rivedi il camper</button>` : ''}
+            ${atletiDelViaggio.filter(nome => workouts.some(w => w.athlete === nome && w.track?.length > 1))
+              .map((nome, i) => `<button class="btn sm" data-rivedi="atleta:${esc(nome)}">\u25b6 ${ICO_SCARPA(coloreAtleta(nome, i))} ${esc(nome)}</button>`).join('')}</span>`}
+          <span class="small muted" style="width:100%">Tocca una voce per vedere solo quella, ingrandita sul suo percorso. Toccala di nuovo per rivedere tutto.</span>
+          ${legs.some(inCamper) ? `<span class="voce" data-strato="camper"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
+          ${legs.some(l => !inCamper(l)) ? `<span class="voce" data-strato="altri"><i class="tratteggio" style="border-top-color:${COLORE_ALTRI_MEZZI}"></i>${[...new Set(legs.filter(l => !inCamper(l)).map(l => MEZZI[mezzoDi(l)][0] + ' ' + MEZZI[mezzoDi(l)][1]))].join(', ')}</span>` : ''}
+          ${discipline.map(d => `<span class="voce" data-strato="sport:${esc(d)}"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
+          ${atletiDelViaggio.length > 1 ? '<span class="stacco"></span>' + atletiDelViaggio.map(nome => `<span class="voce" data-strato="atleta:${esc(nome)}"><i class="tratteggio" style="border-top-color:var(--muted);border-top-style:${trattoDi(nome)[1]}"></i>${esc(nome)}</span>`).join('') : ''}
+          ${conPosto ? `<span class="voce" data-strato="foto">\ud83d\udcf7 ${conPosto} fot${conPosto === 1 ? 'o' : 'o'} nel punto dello scatto</span>` : ''}
+        </div>`;
+}
+
+// La mappa del viaggio: le tappe, le tracce degli allenamenti, le foto nel
+// punto dello scatto, la legenda che accende una cosa per volta e i tasti per
+// rivedere. E' una sola per chi il viaggio lo fa e per chi lo guarda da fuori:
+// quello che si aggiusta qui, si aggiusta per tutti e due.
+function mappaDelViaggio(el, d, opz = {}) {
+  const { trip, legs, workouts, photos, totals } = d;
+  const soste = d.soste || [];
+  const atletiDelViaggio = atletiDi(workouts);
+  const trattoDi = nome => trattoFra(nome, atletiDelViaggio);
+  const ospite = !!opz.ospite;
+  const conSpese = opz.spese !== false;
+  const map = makeMap(el);
+  const bounds = [];
+  // Sulla mappa di un viaggio lungo si accavallano la strada del camper, le
+  // tracce degli allenamenti e le foto: separarle e' l'unico modo di guardarne
+  // una. Ogni voce della legenda e' uno strato che si spegne e si riaccende.
+  const strati = {}, estensioni = {};
+  const strato = chiave => (strati[chiave] ||= L.layerGroup().addTo(map));
+  // I punti di ogni strato si tengono da parte: sono quelli su cui la mappa si
+  // stringe quando si chiede di vedere solo quello
+  const segna = (chiave, punti) => { (estensioni[chiave] ||= []).push(...punti); };
+  // Un allenamento sta nello strato della sua disciplina e del suo atleta
+  // insieme: cosi' «Escursione» chiama quelle di tutti e due, e «Metz» chiama
+  // tutto quello che ha fatto lui, senza doverli disegnare due volte
+  const chiaveSport = w => `sport:${w.sport}|${w.athlete || ''}`;
+  const gruppiDi = sel => {
+    if (sel.startsWith('atleta:')) { const chi = sel.slice(7); return Object.keys(strati).filter(k => k.startsWith('sport:') && k.slice(k.indexOf('|') + 1) === chi); }
+    if (sel.startsWith('sport:')) { const d = sel.slice(6); return Object.keys(strati).filter(k => k.startsWith(`sport:${d}|`)); }
+    return strati[sel] ? [sel] : [];
+  };
+  legs.forEach((l, i) => {
+    const g = tragittoDisegnato(l);
+    // Il traghetto e l'aereo non seguono la strada: linea dritta e tratteggiata,
+    // perche' quella non e' una strada che si puo' percorrere
+    const suGomma = inCamper(l);
+    const suoStrato = strato(suGomma ? 'camper' : 'altri');
+    L.polyline(g, suGomma ? { color: COLORE_CAMPER, weight: 5, opacity: .85 }
+      : { color: COLORE_ALTRI_MEZZI, weight: 4, opacity: .9, dashArray: '10 8' })
+      .addTo(suoStrato).bindPopup(`<b>${suGomma ? '' : MEZZI[mezzoDi(l)][0] + ' '}Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}${l.compagnia || l.codice ? `<br>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}` : ''}${l.start_time ? `<br>${esc(l.start_time)}–${esc(l.end_time || '')}` : ''}`);
+    L.marker([l.from_lat, l.from_lon], { icon: pin('#0f766e', i + 1) }).addTo(suoStrato).bindPopup(esc(l.from_name));
+    if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(suoStrato).bindPopup(esc(l.to_name));
+    g.forEach(p => bounds.push(p));
+    segna(suGomma ? 'camper' : 'altri', g);
+    (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(suoStrato).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
+  });
+  // Un allenamento senza traccia \u2014 il nuoto in piscina, la camminata sul tapis
+  // \u2014 non ha coordinate proprie. Il posto dove e' successo pero' si sa: e' dove
+  // si era quel giorno, la sosta in cui si dormiva o l'ultima meta raggiunta.
+  // E' una posizione dedotta, non misurata, e si vede che lo e'.
+  const dovEravamo = w => {
+    const g = iso(new Date(w.started_at));
+    const s = soste.find(x => x.lat != null && x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
+    if (s) return { lat: s.lat, lon: s.lon, dove: s.name };
+    const arrivo = legs.filter(l => l.date && l.to_lat != null && iso(l.date) <= g).pop();
+    return arrivo ? { lat: arrivo.to_lat, lon: arrivo.to_lon, dove: arrivo.to_name.split(',')[0] } : null;
+  };
+  let dedotti = 0;
+  workouts.forEach(w => {
+    const traccia = w.track?.length ? w.track.map(x => [x[0], x[1]]) : null;
+    const colore = coloreSport(w.sport);
+    const km = num((w.distance_m || 0) / 1000);
+    let punto = null, circa = false, dove = '';
+    if (traccia) {
+      L.polyline(traccia, { color: colore, weight: 3.5, opacity: .95, dashArray: trattoDi(w.athlete)[0] }).addTo(strato(chiaveSport(w)))
+        .bindPopup(`<b>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</b><br>${esc(w.athlete || '')} \u00b7 ${fdt(w.started_at)} \u00b7 ${km} km \u00b7 ${dur(w.duration_s)}${ospite ? '' : `<br><a href="#/allenamento/${w.id}">Apri l\u2019allenamento</a>`}`);
+      // L'icona sta a meta' del giro: sull'attivita', e lontana dai segnaposto
+      // delle tappe, che stanno quasi sempre dove si e' partiti
+      punto = traccia[Math.floor(traccia.length / 2)];
+      // La traccia conta per l'inquadratura: una camminata fuori dal tragitto
+      // del camper finirebbe fuori schermo
+      const passo = Math.max(1, Math.floor(traccia.length / 20));
+      for (let i = 0; i < traccia.length; i += passo) bounds.push(traccia[i]);
+      segna(chiaveSport(w), traccia);
+    } else {
+      const l = dovEravamo(w);
+      if (!l) return;
+      punto = [l.lat, l.lon]; circa = true; dove = l.dove; dedotti++;
+    }
+    L.marker(punto, { icon: pinSport(w.sport, circa), zIndexOffset: 300, riseOnHover: true })
+      .addTo(strato(chiaveSport(w)))
+      .bindTooltip(`<b>${esc(w.name || w.sport || 'Allenamento')}</b><br>${fdt(w.started_at)} \u00b7 ${esc(w.athlete)}${w.distance_m ? ' \u00b7 ' + km + ' km' : ''} \u00b7 ${dur(w.duration_s)}${circa ? `<br><i>senza traccia \u00b7 ${esc(dove)}</i>` : ''}`, { direction: 'top', offset: [0, -14] })
+      .on('click', () => { if (!ospite) location.hash = '#/allenamento/' + w.id; });
+    if (circa) bounds.push(punto);
+    segna(chiaveSport(w), [punto]);
+  });
+  // La legenda si scrive prima di sapere quanti allenamenti finiranno in un posto
+  // dedotto: il conto vero si sa solo dopo averli messi, e si aggiunge qui
+  if (dedotti) $('.legenda-mappa')?.insertAdjacentHTML('beforeend',
+    `<span class="voce"><i class="cerchio-circa"></i>${dedotti} senza traccia, ${dedotti === 1 ? 'segnato' : 'segnati'} dove eravate</span>`);
+
+  // Una foto che porta con se' le coordinate sta sulla mappa nel punto esatto in
+  // cui e' stata scattata, e ci sta con la propria faccia: un puntino uguale a
+  // tutti gli altri non direbbe quale foto e'.
+  const nomeSostaDi = p => soste.find(x => x.id === p.stop_id)?.name;
+  photos.filter(p => p.lat != null && p.lon != null).forEach(p => {
+    const dove = nomeSostaDi(p);
+    L.marker([p.lat, p.lon], { icon: fotoIcon(`/uploads/${p.filename}`), zIndexOffset: 500 })
+      .addTo(strato('foto'))
+      .bindPopup(`<a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire"><img src="/uploads/${p.filename}" style="width:220px;border-radius:8px;display:block"></a>
+        ${p.caption ? `<b>${esc(p.caption)}</b><br>` : ''}${p.taken_at ? fdt(p.taken_at) : ''}${dove ? `<br>\ud83c\udd7f\ufe0f ${esc(dove)}` : ''}`);
+    bounds.push([p.lat, p.lon]);
+    segna('foto', [[p.lat, p.lon]]);
+  });
+  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+
+  // Rivedere il viaggio: si mettono in fila le tappe e gli allenamenti nell'ordine
+  // in cui sono successi, dal primo giorno all'ultimo. L'icona cambia con il
+  // mezzo - il camper sulla strada, la bici o lo scarpone sull'allenamento - e
+  // le foto scattate lungo il percorso compaiono quando ci si passa davanti.
+  // Com'e' fatto il pezzo di un allenamento: serve ai tasti del viaggio e a
+  // quello su ogni singola uscita
+  const pezzoAllenamento = w => ({
+    punti: w.track.map(p => [p[0], p[1]]),
+    faccia: sportIco(w.sport),
+    da: w.luogo || null,
+    titolo: `Allenamento ${w.athlete || ''}`.trim(),
+    nome: [w.luogo, w.name || w.sport].filter(Boolean).join(' \u00b7 '),
+    quando: fdate(w.started_at),
+    numeri: numeriAllenamento(w),
+    ordine: new Date(w.started_at).getTime(),
+  });
+  const fotoSullaMappa = () => photos.filter(p => p.lat != null && p.lon != null && !eVideo(p));
+
+  // Un allenamento solo, dal suo rigo nell'elenco del viaggio
+  $$('[data-rivedi-uno]').forEach(b => b.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const w = workouts.find(x => x.id === +b.dataset.rivediUno);
+    if (!w?.track?.length) return;
+    $('#map')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setTimeout(() => riproduci(map, [pezzoAllenamento(w)], fotoSullaMappa(), { secondi: 18 }), 400);
+  });
+
+  $$('[data-rivedi]').forEach(b => b.onclick = () => {
+    const quale = b.dataset.rivedi;
+    const soloCamper = quale === 'camper';
+    const atleta = quale.startsWith('atleta:') ? quale.slice(7) : null;
+    const pezzi = [
+      ...(atleta ? [] : legs).map(l => ({
+        punti: tragittoDisegnato(l),
+        faccia: MEZZO_ICONA[mezzoDi(l)] || MEZZO_ICONA.camper,
+        da: l.from_name.split(',')[0], a: l.to_name.split(',')[0],
+        // Il camper e' sottinteso: si annunciano il traghetto, il volo, il treno
+        titolo: inCamper(l) ? null : compagniaDi(l),
+        chi: inCamper(l) ? null : compagniaDi(l),
+        nome: `${l.from_name.split(',')[0]} \u2192 ${l.to_name.split(',')[0]}`,
+        quando: l.date ? fdate(l.date) : '',
+        numeri: numeriTappa(l),
+        ordine: l.date ? new Date(l.date).getTime() : 0,
+      })),
+      ...(soloCamper ? [] : workouts.filter(w => w.track?.length > 1 && (!atleta || w.athlete === atleta))).map(pezzoAllenamento),
+    ].sort((a, b) => a.ordine - b.ordine);
+    // Alla fine del giro in camper il conto di tutto il viaggio: chilometri,
+    // tempo, consumi, e le spese divise per tipologia
+    const ore = totals.minutes / 60;
+    const pernotti = soste.reduce((a, s) => a + (notti(s.from_date, s.to_date) || 0), 0);
+    const finale = soloCamper ? {
+      titolo: `\ud83d\ude90 ${esc(nomeViaggio(trip))}`,
+      numeri: [
+        [num(totals.km, 0), 'km in camper'],
+        totals.altri_mezzi ? [num(totals.altri_mezzi.km, 0), 'km con altri mezzi'] : null,
+        totals.minutes ? [dur(totals.minutes * 60), 'di guida'] : null,
+        ore > 0.2 && totals.km ? [num(totals.km / ore, 0), 'km/h di media'] : null,
+        totals.liters ? [num(totals.liters, 0), 'litri di gasolio'] : null,
+        totals.pedaggio_km ? [num(totals.pedaggio_km, 0), 'km di autostrada'] : null,
+        pernotti ? [pernotti, pernotti === 1 ? 'pernotto' : 'pernotti'] : null,
+        conSpese && totals.cost_per_km ? [eur(totals.cost_per_km), 'al km'] : null,
+      ],
+      categorie: conSpese ? totals.by_category.map(c => [catLabel(c.category), eur(c.total)]) : [],
+      totale: conSpese ? eur(totals.total) : null,
+    } : null;
+    riproduci(map, pezzi, fotoSullaMappa(), finale ? { finale } : {});
+  });
+
+  // Toccando una voce resta sulla mappa solo quella, e la mappa ci si stringe
+  // sopra: e' il modo di guardare un percorso senza che gli altri gli passino
+  // addosso. Toccandola di nuovo torna tutto, inquadratura compresa.
+  const voci = $$('.legenda-mappa .voce[data-strato]');
+  let solo = null;
+  const tutto = () => {
+    solo = null;
+    Object.values(strati).forEach(g => g.addTo(map));
+    voci.forEach(v => v.classList.remove('spento', 'acceso'));
+    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+  };
+  voci.forEach(v => v.onclick = () => {
+    const sel = v.dataset.strato;
+    const scelti = gruppiDi(sel);
+    if (!scelti.length || solo === sel) return tutto();
+    solo = sel;
+    Object.entries(strati).forEach(([k, g]) => scelti.includes(k) ? g.addTo(map) : map.removeLayer(g));
+    voci.forEach(x => {
+      x.classList.toggle('acceso', x.dataset.strato === sel);
+      x.classList.toggle('spento', x.dataset.strato !== sel);
+    });
+    // Un allenamento senza traccia e' un punto solo: senza un limite allo
+    // zoom la mappa ci finirebbe sopra col naso, e non si capirebbe piu' dove
+    const punti = scelti.flatMap(k => estensioni[k] || []);
+    if (punti.length) map.fitBounds(punti, { padding: [40, 40], maxZoom: 15 });
+  });
+  return map;
+}
+
 async function viewTrip(id) {
   const d = await api('/trips/' + id);
   const { trip, legs, expenses, photos, workouts, totals } = d;
@@ -1011,9 +1243,8 @@ async function viewTrip(id) {
   // In due si esce insieme, ma gli allenamenti sono di ciascuno: separati si
   // leggono, mischiati bisogna spulciare riga per riga di chi e' ognuno. Sulla
   // mappa il colore dice la disciplina, quindi a dire chi e' resta il tratto.
-  const atletiDelViaggio = [...new Set(workouts.map(w => w.athlete).filter(Boolean))].sort();
-  const TRATTI = [['4 6', 'dashed'], ['1 6', 'dotted'], ['12 4 2 4', 'dashed'], ['8 3', 'dashed']];
-  const trattoDi = nome => TRATTI[Math.max(0, atletiDelViaggio.indexOf(nome)) % TRATTI.length];
+  const atletiDelViaggio = atletiDi(workouts);
+  const trattoDi = nome => trattoFra(nome, atletiDelViaggio);
   const closed = trip.status === 'closed';
   const catRows = totals.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b></span>`).join('');
   // Il tempo in strada di una tappa: dall'orario di partenza a quello di
@@ -1116,22 +1347,7 @@ async function viewTrip(id) {
       <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${atletiDelViaggio.length > 1 ? atletiDelViaggio.map(n => `${esc(n)} ${workouts.filter(w => w.athlete === n).length}`).join(' \u00b7 ') + '<br>' : ''}${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
     </div>
     <div class="card pad-0"><div id="map" class="map tall"></div>
-      ${(() => {
-        const discipline = [...new Set(workouts.filter(w => w.has_track || w.track).map(w => w.sport).filter(Boolean))].sort();
-        const conPosto = photos.filter(p => p.lat != null).length;
-        if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
-        return `<div class="legenda-mappa">
-          <span class="rivedi-tasti">${legs.length ? `<button class="btn sm primary" data-rivedi="camper">\u25b6 \ud83d\ude90 Rivedi il camper</button>` : ''}
-            ${atletiDelViaggio.filter(nome => workouts.some(w => w.athlete === nome && w.track?.length > 1))
-              .map((nome, i) => `<button class="btn sm" data-rivedi="atleta:${esc(nome)}">\u25b6 ${ICO_SCARPA(coloreAtleta(nome, i))} ${esc(nome)}</button>`).join('')}</span>
-          <span class="small muted" style="width:100%">Tocca una voce per vedere solo quella, ingrandita sul suo percorso. Toccala di nuovo per rivedere tutto.</span>
-          ${legs.some(inCamper) ? `<span class="voce" data-strato="camper"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
-          ${legs.some(l => !inCamper(l)) ? `<span class="voce" data-strato="altri"><i class="tratteggio" style="border-top-color:${COLORE_ALTRI_MEZZI}"></i>${[...new Set(legs.filter(l => !inCamper(l)).map(l => MEZZI[mezzoDi(l)][0] + ' ' + MEZZI[mezzoDi(l)][1]))].join(', ')}</span>` : ''}
-          ${discipline.map(d => `<span class="voce" data-strato="sport:${esc(d)}"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
-          ${atletiDelViaggio.length > 1 ? '<span class="stacco"></span>' + atletiDelViaggio.map(nome => `<span class="voce" data-strato="atleta:${esc(nome)}"><i class="tratteggio" style="border-top-color:var(--muted);border-top-style:${trattoDi(nome)[1]}"></i>${esc(nome)}</span>`).join('') : ''}
-          ${conPosto ? `<span class="voce" data-strato="foto">\ud83d\udcf7 ${conPosto} fot${conPosto === 1 ? 'o' : 'o'} nel punto dello scatto</span>` : ''}
-        </div>`;
-      })()}</div>
+      ${legendaViaggio(d)}</div>
     <div class="grid due" style="margin-top:14px">
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn sm" id="damaps" title="Incolla un itinerario di Google Maps">\ud83d\uddfa\ufe0f Da Maps</button><button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
@@ -1171,195 +1387,8 @@ async function viewTrip(id) {
       }).join('') : '<div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div></div>'}
     </div>`);
 
-  // Mappa
-  const map = makeMap($('#map'));
-  const bounds = [];
-  // Sulla mappa di un viaggio lungo si accavallano la strada del camper, le
-  // tracce degli allenamenti e le foto: separarle e' l'unico modo di guardarne
-  // una. Ogni voce della legenda e' uno strato che si spegne e si riaccende.
-  const strati = {}, estensioni = {};
-  const strato = chiave => (strati[chiave] ||= L.layerGroup().addTo(map));
-  // I punti di ogni strato si tengono da parte: sono quelli su cui la mappa si
-  // stringe quando si chiede di vedere solo quello
-  const segna = (chiave, punti) => { (estensioni[chiave] ||= []).push(...punti); };
-  // Un allenamento sta nello strato della sua disciplina e del suo atleta
-  // insieme: cosi' «Escursione» chiama quelle di tutti e due, e «Metz» chiama
-  // tutto quello che ha fatto lui, senza doverli disegnare due volte
-  const chiaveSport = w => `sport:${w.sport}|${w.athlete || ''}`;
-  const gruppiDi = sel => {
-    if (sel.startsWith('atleta:')) { const chi = sel.slice(7); return Object.keys(strati).filter(k => k.startsWith('sport:') && k.slice(k.indexOf('|') + 1) === chi); }
-    if (sel.startsWith('sport:')) { const d = sel.slice(6); return Object.keys(strati).filter(k => k.startsWith(`sport:${d}|`)); }
-    return strati[sel] ? [sel] : [];
-  };
-  legs.forEach((l, i) => {
-    const g = tragittoDisegnato(l);
-    // Il traghetto e l'aereo non seguono la strada: linea dritta e tratteggiata,
-    // perche' quella non e' una strada che si puo' percorrere
-    const suGomma = inCamper(l);
-    const suoStrato = strato(suGomma ? 'camper' : 'altri');
-    L.polyline(g, suGomma ? { color: COLORE_CAMPER, weight: 5, opacity: .85 }
-      : { color: COLORE_ALTRI_MEZZI, weight: 4, opacity: .9, dashArray: '10 8' })
-      .addTo(suoStrato).bindPopup(`<b>${suGomma ? '' : MEZZI[mezzoDi(l)][0] + ' '}Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}${l.compagnia || l.codice ? `<br>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}` : ''}${l.start_time ? `<br>${esc(l.start_time)}–${esc(l.end_time || '')}` : ''}`);
-    L.marker([l.from_lat, l.from_lon], { icon: pin('#0f766e', i + 1) }).addTo(suoStrato).bindPopup(esc(l.from_name));
-    if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(suoStrato).bindPopup(esc(l.to_name));
-    g.forEach(p => bounds.push(p));
-    segna(suGomma ? 'camper' : 'altri', g);
-    (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(suoStrato).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
-  });
-  // Un allenamento senza traccia \u2014 il nuoto in piscina, la camminata sul tapis
-  // \u2014 non ha coordinate proprie. Il posto dove e' successo pero' si sa: e' dove
-  // si era quel giorno, la sosta in cui si dormiva o l'ultima meta raggiunta.
-  // E' una posizione dedotta, non misurata, e si vede che lo e'.
-  const dovEravamo = w => {
-    const g = iso(new Date(w.started_at));
-    const s = soste.find(x => x.lat != null && x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
-    if (s) return { lat: s.lat, lon: s.lon, dove: s.name };
-    const arrivo = legs.filter(l => l.date && l.to_lat != null && iso(l.date) <= g).pop();
-    return arrivo ? { lat: arrivo.to_lat, lon: arrivo.to_lon, dove: arrivo.to_name.split(',')[0] } : null;
-  };
-  let dedotti = 0;
-  workouts.forEach(w => {
-    const traccia = w.track?.length ? w.track.map(x => [x[0], x[1]]) : null;
-    const colore = coloreSport(w.sport);
-    const km = num((w.distance_m || 0) / 1000);
-    let punto = null, circa = false, dove = '';
-    if (traccia) {
-      L.polyline(traccia, { color: colore, weight: 3.5, opacity: .95, dashArray: trattoDi(w.athlete)[0] }).addTo(strato(chiaveSport(w)))
-        .bindPopup(`<b>${sportIco(w.sport)} ${esc(w.name || w.sport || 'Allenamento')}</b><br>${esc(w.athlete || '')} \u00b7 ${fdt(w.started_at)} \u00b7 ${km} km \u00b7 ${dur(w.duration_s)}<br><a href="#/allenamento/${w.id}">Apri l\u2019allenamento</a>`);
-      // L'icona sta a meta' del giro: sull'attivita', e lontana dai segnaposto
-      // delle tappe, che stanno quasi sempre dove si e' partiti
-      punto = traccia[Math.floor(traccia.length / 2)];
-      // La traccia conta per l'inquadratura: una camminata fuori dal tragitto
-      // del camper finirebbe fuori schermo
-      const passo = Math.max(1, Math.floor(traccia.length / 20));
-      for (let i = 0; i < traccia.length; i += passo) bounds.push(traccia[i]);
-      segna(chiaveSport(w), traccia);
-    } else {
-      const l = dovEravamo(w);
-      if (!l) return;
-      punto = [l.lat, l.lon]; circa = true; dove = l.dove; dedotti++;
-    }
-    L.marker(punto, { icon: pinSport(w.sport, circa), zIndexOffset: 300, riseOnHover: true })
-      .addTo(strato(chiaveSport(w)))
-      .bindTooltip(`<b>${esc(w.name || w.sport || 'Allenamento')}</b><br>${fdt(w.started_at)} \u00b7 ${esc(w.athlete)}${w.distance_m ? ' \u00b7 ' + km + ' km' : ''} \u00b7 ${dur(w.duration_s)}${circa ? `<br><i>senza traccia \u00b7 ${esc(dove)}</i>` : ''}`, { direction: 'top', offset: [0, -14] })
-      .on('click', () => { location.hash = '#/allenamento/' + w.id; });
-    if (circa) bounds.push(punto);
-    segna(chiaveSport(w), [punto]);
-  });
-  // La legenda si scrive prima di sapere quanti allenamenti finiranno in un posto
-  // dedotto: il conto vero si sa solo dopo averli messi, e si aggiunge qui
-  if (dedotti) $('.legenda-mappa')?.insertAdjacentHTML('beforeend',
-    `<span class="voce"><i class="cerchio-circa"></i>${dedotti} senza traccia, ${dedotti === 1 ? 'segnato' : 'segnati'} dove eravate</span>`);
-
-  // Una foto che porta con se' le coordinate sta sulla mappa nel punto esatto in
-  // cui e' stata scattata, e ci sta con la propria faccia: un puntino uguale a
-  // tutti gli altri non direbbe quale foto e'.
-  const nomeSostaDi = p => soste.find(x => x.id === p.stop_id)?.name;
-  photos.filter(p => p.lat != null && p.lon != null).forEach(p => {
-    const dove = nomeSostaDi(p);
-    L.marker([p.lat, p.lon], { icon: fotoIcon(`/uploads/${p.filename}`), zIndexOffset: 500 })
-      .addTo(strato('foto'))
-      .bindPopup(`<a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire"><img src="/uploads/${p.filename}" style="width:220px;border-radius:8px;display:block"></a>
-        ${p.caption ? `<b>${esc(p.caption)}</b><br>` : ''}${p.taken_at ? fdt(p.taken_at) : ''}${dove ? `<br>\ud83c\udd7f\ufe0f ${esc(dove)}` : ''}`);
-    bounds.push([p.lat, p.lon]);
-    segna('foto', [[p.lat, p.lon]]);
-  });
-  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
-
-  // Rivedere il viaggio: si mettono in fila le tappe e gli allenamenti nell'ordine
-  // in cui sono successi, dal primo giorno all'ultimo. L'icona cambia con il
-  // mezzo - il camper sulla strada, la bici o lo scarpone sull'allenamento - e
-  // le foto scattate lungo il percorso compaiono quando ci si passa davanti.
-  // Com'e' fatto il pezzo di un allenamento: serve ai tasti del viaggio e a
-  // quello su ogni singola uscita
-  const pezzoAllenamento = w => ({
-    punti: w.track.map(p => [p[0], p[1]]),
-    faccia: sportIco(w.sport),
-    da: w.luogo || null,
-    titolo: `Allenamento ${w.athlete || ''}`.trim(),
-    nome: [w.luogo, w.name || w.sport].filter(Boolean).join(' \u00b7 '),
-    quando: fdate(w.started_at),
-    numeri: numeriAllenamento(w),
-    ordine: new Date(w.started_at).getTime(),
-  });
-  const fotoSullaMappa = () => photos.filter(p => p.lat != null && p.lon != null && !eVideo(p));
-
-  // Un allenamento solo, dal suo rigo nell'elenco del viaggio
-  $$('[data-rivedi-uno]').forEach(b => b.onclick = e => {
-    e.preventDefault(); e.stopPropagation();
-    const w = workouts.find(x => x.id === +b.dataset.rivediUno);
-    if (!w?.track?.length) return;
-    $('#map')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setTimeout(() => riproduci(map, [pezzoAllenamento(w)], fotoSullaMappa(), { secondi: 18 }), 400);
-  });
-
-  $$('[data-rivedi]').forEach(b => b.onclick = () => {
-    const quale = b.dataset.rivedi;
-    const soloCamper = quale === 'camper';
-    const atleta = quale.startsWith('atleta:') ? quale.slice(7) : null;
-    const pezzi = [
-      ...(atleta ? [] : legs).map(l => ({
-        punti: tragittoDisegnato(l),
-        faccia: MEZZO_ICONA[mezzoDi(l)] || MEZZO_ICONA.camper,
-        da: l.from_name.split(',')[0], a: l.to_name.split(',')[0],
-        // Il camper e' sottinteso: si annunciano il traghetto, il volo, il treno
-        titolo: inCamper(l) ? null : compagniaDi(l),
-        chi: inCamper(l) ? null : compagniaDi(l),
-        nome: `${l.from_name.split(',')[0]} \u2192 ${l.to_name.split(',')[0]}`,
-        quando: l.date ? fdate(l.date) : '',
-        numeri: numeriTappa(l),
-        ordine: l.date ? new Date(l.date).getTime() : 0,
-      })),
-      ...(soloCamper ? [] : workouts.filter(w => w.track?.length > 1 && (!atleta || w.athlete === atleta))).map(pezzoAllenamento),
-    ].sort((a, b) => a.ordine - b.ordine);
-    // Alla fine del giro in camper il conto di tutto il viaggio: chilometri,
-    // tempo, consumi, e le spese divise per tipologia
-    const ore = totals.minutes / 60;
-    const pernotti = soste.reduce((a, s) => a + (notti(s.from_date, s.to_date) || 0), 0);
-    const finale = soloCamper ? {
-      titolo: `\ud83d\ude90 ${esc(nomeViaggio(trip))}`,
-      numeri: [
-        [num(totals.km, 0), 'km in camper'],
-        totals.altri_mezzi ? [num(totals.altri_mezzi.km, 0), 'km con altri mezzi'] : null,
-        totals.minutes ? [dur(totals.minutes * 60), 'di guida'] : null,
-        ore > 0.2 && totals.km ? [num(totals.km / ore, 0), 'km/h di media'] : null,
-        totals.liters ? [num(totals.liters, 0), 'litri di gasolio'] : null,
-        totals.pedaggio_km ? [num(totals.pedaggio_km, 0), 'km di autostrada'] : null,
-        pernotti ? [pernotti, pernotti === 1 ? 'pernotto' : 'pernotti'] : null,
-        totals.cost_per_km ? [eur(totals.cost_per_km), 'al km'] : null,
-      ],
-      categorie: totals.by_category.map(c => [catLabel(c.category), eur(c.total)]),
-      totale: eur(totals.total),
-    } : null;
-    riproduci(map, pezzi, fotoSullaMappa(), finale ? { finale } : {});
-  });
-
-  // Toccando una voce resta sulla mappa solo quella, e la mappa ci si stringe
-  // sopra: e' il modo di guardare un percorso senza che gli altri gli passino
-  // addosso. Toccandola di nuovo torna tutto, inquadratura compresa.
-  const voci = $$('.legenda-mappa .voce[data-strato]');
-  let solo = null;
-  const tutto = () => {
-    solo = null;
-    Object.values(strati).forEach(g => g.addTo(map));
-    voci.forEach(v => v.classList.remove('spento', 'acceso'));
-    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
-  };
-  voci.forEach(v => v.onclick = () => {
-    const sel = v.dataset.strato;
-    const scelti = gruppiDi(sel);
-    if (!scelti.length || solo === sel) return tutto();
-    solo = sel;
-    Object.entries(strati).forEach(([k, g]) => scelti.includes(k) ? g.addTo(map) : map.removeLayer(g));
-    voci.forEach(x => {
-      x.classList.toggle('acceso', x.dataset.strato === sel);
-      x.classList.toggle('spento', x.dataset.strato !== sel);
-    });
-    // Un allenamento senza traccia e' un punto solo: senza un limite allo
-    // zoom la mappa ci finirebbe sopra col naso, e non si capirebbe piu' dove
-    const punti = scelti.flatMap(k => estensioni[k] || []);
-    if (punti.length) map.fitBounds(punti, { padding: [40, 40], maxZoom: 15 });
-  });
+  // La mappa, la legenda e i tasti per rivedere: gli stessi che vede l\u2019ospite
+  mappaDelViaggio($('#map'), d);
 
   // Azioni
   $('#edit')?.addEventListener('click', () => tripForm(trip));
