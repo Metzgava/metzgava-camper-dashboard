@@ -424,18 +424,18 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   let finoA = 0, restante = 0;
   const aspetta = ms => { finoA = ms ? performance.now() + ms : 0; };
   const totaleFrames = pezzi.reduce((a, p) => a + p.frames, 0);
-  let fotoAperta = null, puntoFoto = null;
+  let fotoAperta = null, puntoFoto = null, luogoFoto = null;
   const chiudiFoto = () => {
     if (fotoAperta) { map.removeLayer(fotoAperta); fotoAperta = null; }
     if (puntoFoto) { map.removeLayer(puntoFoto); puntoFoto = null; }
+    if (luogoFoto) { map.removeLayer(luogoFoto); luogoFoto = null; }
   };
-  // Quello che sta scritto sotto una foto: il posto, se si sa, e la didascalia.
-  // «Circa» quando il posto non viene dalla foto ma dal giorno in cui e' stata
-  // scattata: dirlo costa una parola, e non spaccia una deduzione per un dato.
-  const sottoLaFoto = f => [
-    f.dove ? `\ud83d\udccd ${esc(f.dove)}${f.circa ? ' <i>(circa)</i>' : ''}` : '',
-    f.caption ? esc(f.caption) : '',
-  ].filter(Boolean).join(' \u00b7 ');
+  // Sotto la foto resta la didascalia; il posto si scrive sulla mappa, nel
+  // punto dello scatto, e sparisce insieme alla foto. «Circa» quando il posto
+  // non viene dalla foto ma dal giorno in cui e' stata scattata: dirlo costa
+  // una parola, e non spaccia una deduzione per un dato.
+  const sottoLaFoto = f => f.caption ? esc(f.caption) : '';
+  const nomeDelPosto = f => f.dove ? `\ud83d\udccd ${f.dove}${f.circa ? ' (circa)' : ''}` : '';
 
   // Tre secondi sono pochi per una foto che vale: toccandola la corsa si ferma
   // e la foto si apre grande quanto la mappa. Un altro tocco la chiude e il
@@ -451,6 +451,30 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     grande.onclick = riprendiDallaFoto;
     map.getContainer().appendChild(grande);
   };
+  // Un video parte da solo quando l'icona ci arriva davanti. La musica si
+  // mette da parte - due suoni insieme non si capisce nessuno dei due - e la
+  // corsa aspetta: a dire quando e' finito e' il video, non il cronometro.
+  // Finito, restano due strade: rivederlo o andare avanti.
+  const partiFilmato = sc => {
+    const el = fotoAperta?.getElement()?.querySelector('.corsa-foto');
+    const v = el?.querySelector('video');
+    if (!v) return aspetta(3000);
+    L.DomEvent.disableClickPropagation(el);
+    metti(true);
+    const scelte = document.createElement('div');
+    scelte.className = 'scelte-video';
+    scelte.hidden = true;
+    scelte.innerHTML = '<button class="btn sm" data-rivedi-filmato>\u21ba Rivedi</button><button class="btn sm primary" data-continua>Continua \u25b6</button>';
+    el.appendChild(scelte);
+    const avanti = () => { chiudiFoto(); metti(false); aspetta(1); };
+    scelte.querySelector('[data-continua]').onclick = avanti;
+    scelte.querySelector('[data-rivedi-filmato]').onclick = () => { scelte.hidden = true; v.currentTime = 0; v.play().catch(() => {}); };
+    v.onended = () => { scelte.hidden = false; };
+    // Se il file non si apre, il viaggio non si ferma li'
+    v.onerror = avanti;
+    v.play().catch(() => { v.muted = true; v.play().catch(avanti); });
+  };
+
   const riprendiDallaFoto = () => {
     chiudiGrande();
     metti(false);
@@ -608,22 +632,31 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       const schermo = map.getSize();
       const dove = map.latLngToContainerPoint([sc.lat, sc.lon]);
       const aDestra = dove.x <= schermo.x / 2;
+      const filmato = eVideo(sc);
+      const dentro = filmato
+        ? `<video src="/uploads/${sc.filename}" playsinline preload="auto" controls></video>`
+        : `<img src="/uploads/${sc.filename}" alt="">`;
       fotoAperta = L.marker([sc.lat, sc.lon], {
         icon: L.divIcon({
           className: 'foto-icona',
-          html: `<div class="corsa-foto ${aDestra ? 'a-destra' : 'a-sinistra'}"><img src="/uploads/${sc.filename}" alt="">${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
+          html: `<div class="corsa-foto ${aDestra ? 'a-destra' : 'a-sinistra'}${filmato ? ' filmato' : ''}">${dentro}${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
           iconSize: [340, 260],
           iconAnchor: aDestra ? [-18, 130] : [358, 130],
         }),
         zIndexOffset: 1200,
       }).addTo(map);
-      fotoAperta.on('click', () => ingrandisci(sc));
       puntoFoto = L.circleMarker([sc.lat, sc.lon], { radius: 6, weight: 3, color: '#fff', fillColor: '#fbbf24', fillOpacity: 1 }).addTo(map);
+      // Il nome del posto compare sulla mappa, sul punto dello scatto, e se ne
+      // va insieme alla foto: e' li' che si guarda, non sotto la cartolina
+      if (nomeDelPosto(sc)) luogoFoto = cartello([sc.lat, sc.lon], nomeDelPosto(sc), false);
+      if (filmato) partiFilmato(sc); else fotoAperta.on('click', () => ingrandisci(sc));
       // La mappa si sposta quel tanto che basta perche' ci stiano tutti e due:
       // il posto da una parte e la cartolina dall'altra
       const bersaglio = L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
       map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
-      aspetta(3000);
+      // Una foto dura tre secondi; un video dura quanto dura, e alla fine
+      // aspetta che tu decida se rivederlo o andare avanti
+      if (!filmato) aspetta(3000);
     }
   };
   apriPezzo(0);
@@ -1199,7 +1232,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v74';
+const VERSIONE = 'v75';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1418,7 +1451,7 @@ function mappaDelViaggio(el, d, opz = {}) {
   // mandato da un altro - si mettono dove si era quel giorno, come si fa con
   // gli allenamenti senza traccia: e' una posizione dedotta, e si dice che lo
   // e'. Il nome del posto, quando si sa, compare sotto la foto.
-  const fotoSullaMappa = () => photos.filter(p => !eVideo(p)).map(p => {
+  const fotoSullaMappa = () => photos.map(p => {
     if (p.lat != null && p.lon != null) return { ...p, dove: p.luogo || nomeSostaDi(p) || null };
     const sua = p.stop_id ? soste.find(x => x.id === p.stop_id && x.lat != null) : null;
     if (sua) return { ...p, lat: sua.lat, lon: sua.lon, circa: true, dove: sua.name };
