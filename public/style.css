@@ -260,8 +260,10 @@ input[type=checkbox], input[type=radio] { width: auto; }
    si sa che cosa si e' tolto e si rimette con un tocco */
 .legenda-mappa .voce[data-strato] { cursor: pointer; user-select: none; border-radius: 8px; padding: 2px 6px; margin: -2px -2px; transition: background .15s, opacity .15s; }
 .legenda-mappa .voce[data-strato]:hover { background: var(--surface-2); }
-.legenda-mappa .voce.spento { opacity: .4; }
+.legenda-mappa .voce.spento { opacity: .35; }
 .legenda-mappa .voce.spento i { filter: grayscale(1); }
+/* La voce scelta: e' l'unica rimasta sulla mappa, e si vede */
+.legenda-mappa .voce.acceso { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .legenda-mappa i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
 .legenda-mappa i.tratteggio { height: 0; width: 18px; background: none; border-top: 3px dashed; }
 

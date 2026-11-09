@@ -643,7 +643,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v55';
+const VERSIONE = 'v56';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -830,7 +830,7 @@ async function viewTrip(id) {
         const conPosto = photos.filter(p => p.lat != null).length;
         if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
         return `<div class="legenda-mappa">
-          <span class="small muted" style="width:100%">Tocca una voce per toglierla dalla mappa e vedere meglio il resto.</span>
+          <span class="small muted" style="width:100%">Tocca una voce per vedere solo quella, ingrandita sul suo percorso. Toccala di nuovo per rivedere tutto.</span>
           ${legs.some(inCamper) ? `<span class="voce" data-strato="camper"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
           ${legs.some(l => !inCamper(l)) ? `<span class="voce" data-strato="altri"><i class="tratteggio" style="border-top-color:${COLORE_ALTRI_MEZZI}"></i>${[...new Set(legs.filter(l => !inCamper(l)).map(l => MEZZI[mezzoDi(l)][0] + ' ' + MEZZI[mezzoDi(l)][1]))].join(', ')}</span>` : ''}
           ${discipline.map(d => `<span class="voce" data-strato="sport:${esc(d)}"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
@@ -883,8 +883,11 @@ async function viewTrip(id) {
   // Sulla mappa di un viaggio lungo si accavallano la strada del camper, le
   // tracce degli allenamenti e le foto: separarle e' l'unico modo di guardarne
   // una. Ogni voce della legenda e' uno strato che si spegne e si riaccende.
-  const strati = {};
+  const strati = {}, estensioni = {};
   const strato = chiave => (strati[chiave] ||= L.layerGroup().addTo(map));
+  // I punti di ogni strato si tengono da parte: sono quelli su cui la mappa si
+  // stringe quando si chiede di vedere solo quello
+  const segna = (chiave, punti) => { (estensioni[chiave] ||= []).push(...punti); };
   legs.forEach((l, i) => {
     const g = l.geometry || [[l.from_lat, l.from_lon], [l.to_lat, l.to_lon]];
     // Il traghetto e l'aereo non seguono la strada: linea dritta e tratteggiata,
@@ -897,6 +900,7 @@ async function viewTrip(id) {
     L.marker([l.from_lat, l.from_lon], { icon: pin('#0f766e', i + 1) }).addTo(suoStrato).bindPopup(esc(l.from_name));
     if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(suoStrato).bindPopup(esc(l.to_name));
     g.forEach(p => bounds.push(p));
+    segna(suGomma ? 'camper' : 'altri', g);
     (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(suoStrato).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
   });
   // Un allenamento senza traccia \u2014 il nuoto in piscina, la camminata sul tapis
@@ -926,6 +930,7 @@ async function viewTrip(id) {
       // del camper finirebbe fuori schermo
       const passo = Math.max(1, Math.floor(traccia.length / 20));
       for (let i = 0; i < traccia.length; i += passo) bounds.push(traccia[i]);
+      segna(`sport:${w.sport}`, traccia);
     } else {
       const l = dovEravamo(w);
       if (!l) return;
@@ -936,6 +941,7 @@ async function viewTrip(id) {
       .bindTooltip(`<b>${esc(w.name || w.sport || 'Allenamento')}</b><br>${fdt(w.started_at)} \u00b7 ${esc(w.athlete)}${w.distance_m ? ' \u00b7 ' + km + ' km' : ''} \u00b7 ${dur(w.duration_s)}${circa ? `<br><i>senza traccia \u00b7 ${esc(dove)}</i>` : ''}`, { direction: 'top', offset: [0, -14] })
       .on('click', () => { location.hash = '#/allenamento/' + w.id; });
     if (circa) bounds.push(punto);
+    segna(`sport:${w.sport}`, [punto]);
   });
   // La legenda si scrive prima di sapere quanti allenamenti finiranno in un posto
   // dedotto: il conto vero si sa solo dopo averli messi, e si aggiunge qui
@@ -953,17 +959,34 @@ async function viewTrip(id) {
       .bindPopup(`<a href="/uploads/${p.filename}" data-grande="/uploads/${p.filename}" data-didascalia="${esc(p.caption || '')}" title="Tocca per ingrandire"><img src="/uploads/${p.filename}" style="width:220px;border-radius:8px;display:block"></a>
         ${p.caption ? `<b>${esc(p.caption)}</b><br>` : ''}${p.taken_at ? fdt(p.taken_at) : ''}${dove ? `<br>\ud83c\udd7f\ufe0f ${esc(dove)}` : ''}`);
     bounds.push([p.lat, p.lon]);
+    segna('foto', [[p.lat, p.lon]]);
   });
   if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
 
-  // Spegnere una voce toglie il suo strato dalla mappa: il disegno resta dov'e',
-  // e riaccendendola torna al suo posto senza ricalcolare niente
-  $$('.legenda-mappa .voce[data-strato]').forEach(v => v.onclick = () => {
-    const g = strati[v.dataset.strato];
-    if (!g) return;
-    const acceso = map.hasLayer(g);
-    if (acceso) map.removeLayer(g); else g.addTo(map);
-    v.classList.toggle('spento', acceso);
+  // Toccando una voce resta sulla mappa solo quella, e la mappa ci si stringe
+  // sopra: e' il modo di guardare un percorso senza che gli altri gli passino
+  // addosso. Toccandola di nuovo torna tutto, inquadratura compresa.
+  const voci = $$('.legenda-mappa .voce[data-strato]');
+  let solo = null;
+  const tutto = () => {
+    solo = null;
+    Object.values(strati).forEach(g => g.addTo(map));
+    voci.forEach(v => v.classList.remove('spento', 'acceso'));
+    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+  };
+  voci.forEach(v => v.onclick = () => {
+    const chiave = v.dataset.strato;
+    if (!strati[chiave] || solo === chiave) return tutto();
+    solo = chiave;
+    Object.entries(strati).forEach(([k, g]) => k === chiave ? g.addTo(map) : map.removeLayer(g));
+    voci.forEach(x => {
+      x.classList.toggle('acceso', x.dataset.strato === chiave);
+      x.classList.toggle('spento', x.dataset.strato !== chiave);
+    });
+    // Un allenamento senza traccia e' un punto solo: senza un limite allo
+    // zoom la mappa ci finirebbe sopra col naso, e non si capirebbe piu' dove
+    const punti = estensioni[chiave] || [];
+    if (punti.length) map.fitBounds(punti, { padding: [40, 40], maxZoom: 15 });
   });
 
   // Azioni
