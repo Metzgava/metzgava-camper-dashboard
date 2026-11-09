@@ -229,10 +229,21 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   if (strati) { map.removeLayer(strati.strada); strati.ibrida.addTo(map); }
   const velo = L.rectangle([[-90, -180], [90, 180]], { color: 'transparent', fillColor: '#0b1220', fillOpacity: .4, interactive: false }).addTo(map);
 
+  // La mappa si porta davanti agli occhi: la data sta scritta in alto, e se
+  // meta' mappa e' sopra il bordo dello schermo quella riga non la legge nessuno
+  map.getContainer().scrollIntoView({ block: 'center', behavior: 'smooth' });
+
   const barra = document.createElement('div');
   barra.className = 'corsa-barra';
   barra.innerHTML = `<button class="btn sm" data-ferma title="Pausa">\u23f8</button><div class="avanzamento"><i></i></div><span class="quando small"></span><button class="btn sm ghost" data-chiudi title="Chiudi">\u2715</button>`;
   map.getContainer().appendChild(barra);
+
+  // La data in sovraimpressione, in alto, per tutto il tempo che la traccia
+  // avanza: nella barra si perde fra il nome dei posti, e chi registra lo
+  // schermo si ritrova un filmato senza il giorno in cui e' successo
+  const dataSopra = document.createElement('div');
+  dataSopra.className = 'corsa-data';
+  map.getContainer().appendChild(dataSopra);
 
   const scia = L.polyline([], { color: '#fbbf24', weight: 5, opacity: .95 }).addTo(map);
   const segnale = L.marker(pezzi[0].punti[0], { icon: iconaCorsa(pezzi[0].faccia), zIndexOffset: 1000 }).addTo(map);
@@ -249,7 +260,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     chiudiFoto();
     viaCartelli(); viaScheda();
     [velo, scia, segnale].forEach(l => map.removeLayer(l));
-    barra.remove();
+    barra.remove(); dataSopra.remove();
     if (strati && eraStrada) { map.removeLayer(strati.ibrida); strati.strada.addTo(map); }
   };
 
@@ -310,6 +321,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scia.setLatLngs([]);
     segnale.setIcon(iconaCorsa(p.faccia));
     quando.textContent = [p.nome, p.quando].filter(Boolean).join(' \u00b7 ');
+    dataSopra.textContent = p.quando || '';
+    dataSopra.hidden = !p.quando;
     viaCartelli(); viaScheda();
     if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
     if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
@@ -921,7 +934,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v65';
+const VERSIONE = 'v66';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
