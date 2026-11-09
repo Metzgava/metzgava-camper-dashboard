@@ -934,7 +934,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v68';
+const VERSIONE = 'v69';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -3243,7 +3243,7 @@ async function viewSettings() {
         <td class="small">${esc(riassunto(x))}</td>
         <td class="small">${x.expires_at ? fdate(x.expires_at) : 'nessuna'}</td>
         <td class="small">${x.viste || 0}${x.ultima_vista ? `<div class="muted">${fdt(x.ultima_vista)}</div>` : ''}</td>
-        <td class="num nowrap">${x.contatto_telefono && !x.revoked_at ? `<button class="btn sm" data-manda-link="${x.id}" data-tel="${esc(x.contatto_telefono)}" data-nick="${esc(x.contatto_nick || '')}" data-token="${esc(x.token)}" title="Mandaglielo su WhatsApp">\ud83d\udcf1 Manda</button>` : ''}<button class="btn sm" data-copia-link="${esc(x.token)}" title="Copia l\u2019indirizzo da mandare">\ud83d\udccb Copia</button>
+        <td class="num nowrap">${x.contatto_telefono && !x.revoked_at ? `<button class="btn sm" data-manda-link="${x.id}" data-come="whatsapp" data-tel="${esc(x.contatto_telefono)}" data-nick="${esc(x.contatto_nick || '')}" data-token="${esc(x.token)}" title="Mandaglielo su WhatsApp">\ud83d\udcf1 WhatsApp</button><button class="btn sm" data-manda-link="${x.id}" data-come="messaggi" data-tel="${esc(x.contatto_telefono)}" data-nick="${esc(x.contatto_nick || '')}" data-token="${esc(x.token)}" title="Mandaglielo con Messaggi">\ud83d\udcac Messaggi</button>` : ''}<button class="btn sm" data-copia-link="${esc(x.token)}" title="Copia l\u2019indirizzo da mandare">\ud83d\udccb Copia</button>
           <button class="btn sm ghost" data-spegni-link="${x.id}" data-acceso="${x.revoked_at ? 0 : 1}">${x.revoked_at ? 'Riaccendi' : 'Spegni'}</button>
           <button class="btn sm ghost danger" data-elimina-link="${x.id}" title="Elimina">\ud83d\uddd1</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun link. Creane uno per far vedere un viaggio a chi non ha un posto qui dentro.</td></tr>'}</tbody></table></div></div>`;
     })() : ''}
@@ -3310,10 +3310,18 @@ async function viewSettings() {
   // l'indirizzo. WhatsApp si apre gia' scritto, mandarlo resta a te.
   const messaggio = (nick, url) => `Ciao${nick ? ' ' + nick : ''}! Qui ci sono i nostri viaggi in camper, da guardare quando vuoi: ${url}`;
   const suWhatsapp = (tel, nick, url) => `https://wa.me/${String(tel).replace(/\D/g, '')}?text=${encodeURIComponent(messaggio(nick, url))}`;
-  const viaSms = (tel, nick, url) => `sms:${tel}${/iPhone|iPad|Macintosh/.test(navigator.userAgent) ? '&' : '?'}body=${encodeURIComponent(messaggio(nick, url))}`;
+  // Messaggi di Apple vuole la e commerciale prima del testo, Android il punto
+  // interrogativo: scritto nell'altro modo, il messaggio si apre vuoto
+  const suMessaggi = (tel, nick, url) => `sms:${tel}${/iPhone|iPad|iPod|Mac/.test(navigator.userAgent) ? '&' : '?'}body=${encodeURIComponent(messaggio(nick, url))}`;
   $$('[data-manda-link]').forEach(b => b.onclick = safe(async () => {
     const url = indirizzoLink(b.dataset.token);
-    window.open(suWhatsapp(b.dataset.tel, b.dataset.nick, url), '_blank', 'noopener');
+    const dove = b.dataset.come === 'messaggi'
+      ? suMessaggi(b.dataset.tel, b.dataset.nick, url)
+      : suWhatsapp(b.dataset.tel, b.dataset.nick, url);
+    // Messaggi non e' una pagina: aprirlo in una scheda nuova lascia in giro
+    // una finestra vuota, e su iPhone a volte non apre affatto
+    if (b.dataset.come === 'messaggi') location.href = dove;
+    else window.open(dove, '_blank', 'noopener');
     await api(`/shares/${b.dataset.mandaLink}/inviato`, { method: 'POST', body: {} }).catch(() => {});
   }));
   $$('[data-copia-link]').forEach(b => b.onclick = safe(async () => {
@@ -3374,12 +3382,12 @@ async function viewSettings() {
         close();
         const fatti = r.links.map(x => ({ ...x, url: indirizzoLink(x.token) }));
         modal(`<h2>${fatti.length === 1 ? 'Il link \u00e8 pronto' : `Pronti ${fatti.length} link`}</h2>
-          <p class="small muted">Chi lo apre non deve registrarsi n\u00e9 installare niente. WhatsApp si apre gi\u00e0 scritto: mandarlo resta a te.</p>
+          <p class="small muted">Chi lo apre non deve registrarsi n\u00e9 installare niente. WhatsApp e Messaggi si aprono gi\u00e0 scritti: mandarlo resta a te.</p>
           <div class="list">${fatti.map(x => `<div class="item"><div class="item-main" style="cursor:default"><div class="grow">
             <div class="title">${esc(x.contatto_nick || 'Indirizzo da copiare')}${x.contatto_telefono ? ` <span class="small muted">${esc(x.contatto_telefono)}</span>` : ''}</div>
             <div class="meta code" style="word-break:break-all">${esc(x.url)}</div></div></div>
             <div class="item-actions">${x.contatto_telefono ? `<a class="btn sm primary" target="_blank" rel="noopener" href="${esc(suWhatsapp(x.contatto_telefono, x.contatto_nick, x.url))}" data-inviato="${x.id}">\ud83d\udcf1 WhatsApp</a>
-              <a class="btn sm" href="${esc(viaSms(x.contatto_telefono, x.contatto_nick, x.url))}" data-inviato="${x.id}">\ud83d\udcac SMS</a>` : ''}
+              <a class="btn sm" href="${esc(suMessaggi(x.contatto_telefono, x.contatto_nick, x.url))}" data-inviato="${x.id}">\ud83d\udcac Messaggi</a>` : ''}
               <button class="btn sm ghost icon" data-cp="${esc(x.url)}" title="Copia l\u2019indirizzo">\ud83d\udccb</button></div></div>`).join('')}</div>
           <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" data-x>Fatto</button></div>`,
           (el2, close2) => {
