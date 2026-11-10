@@ -405,6 +405,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   // Quanto bisogna stare bassi perche' si legga: su una statale basta meno
   // altezza che su un'autostrada, e su una camminata ancora meno
   const zoomDaVicino = lung => lung > 120000 ? 11 : lung > 25000 ? 12 : lung > 6000 ? 13 : 14;
+  // In camper il tracciato si guarda tutto insieme: la mappa non insegue
+  const intera = opzioni.intera === true;
 
   // Da quando la mappa comincia a seguire: prima c'e' la veduta d'insieme e la
   // discesa, e mettersi a inseguire in mezzo a quelle due farebbe un pasticcio
@@ -427,14 +429,21 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
     // chilometri e una camminata di tre non si guardano dalla stessa altezza
     map.flyToBounds(L.latLngBounds(p.punti), { padding: [50, 50], duration: .8, maxZoom: 15 });
-    // Poi pero' scende a seguire da vicino. Da duecento chilometri d'altezza si
-    // vede la forma del viaggio ma non si legge niente: i nomi dei paesi e le
-    // sigle delle strade - A4, SP270 - compaiono solo stando bassi. Prima la
-    // veduta d'insieme per capire dove si va, poi il passo dell'automobilista.
-    setTimeout(() => {
+    // Poi, se si vuole leggere la strada, scende a seguire da vicino: i nomi
+    // dei paesi e le sigle - A4, SP270 - compaiono solo stando bassi. In camper
+    // no: li' conta vedere tutta la tratta in una volta, dove si e' passati e
+    // quanto manca, e la mappa resta ferma su tutto il tragitto.
+    if (!intera) setTimeout(() => {
       if (chiuso || iP !== n) return;
       map.flyTo(doveA(p, frame / p.frames), zoomDaVicino(p.lung), { duration: 1.1 });
     }, 1500);
+  };
+
+  // Rimette la tratta intera nell'inquadratura: serve dopo una foto, che per
+  // farsi spazio ha spostato la mappa
+  const rinquadra = () => {
+    if (!intera || chiuso || iP < 0) return;
+    map.flyToBounds(L.latLngBounds(pezzi[iP].punti), { padding: [50, 50], duration: .6, maxZoom: 15 });
   };
 
   const passo = () => {
@@ -445,6 +454,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       if (performance.now() < finoA) return;
       finoA = 0;
       chiudiFoto();
+      rinquadra();
       if (scheda?.classList.contains('annuncio')) viaScheda();
       return;
     }
@@ -472,7 +482,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     // il punto in cui si e' arrivati e' sempre in mezzo allo schermo. Non a
     // ogni fotogramma - vorrebbe dire ridisegnare le tessere sessanta volte al
     // secondo - ma abbastanza spesso da non vedersi.
-    if (!fotoAperta && performance.now() > seguiDa && frame % 6 === 0) {
+    if (!intera && !fotoAperta && performance.now() > seguiDa && frame % 6 === 0) {
       // Si punta dove l'icona sara' fra un quarto di secondo, non dove e'
       // adesso: la mappa ci mette quel tempo ad arrivarci, e inseguendo il
       // punto di adesso resterebbe sempre indietro di altrettanto - l'icona
@@ -1085,7 +1095,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v77';
+const VERSIONE = 'v78';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1304,7 +1314,7 @@ function mappaDelViaggio(el, d, opz = {}) {
   // mandato da un altro - si mettono dove si era quel giorno, come si fa con
   // gli allenamenti senza traccia: e' una posizione dedotta, e si dice che lo
   // e'. Il nome del posto, quando si sa, compare sotto la foto.
-  const fotoSullaMappa = () => photos.map(p => {
+  const fotoSullaMappa = (soloSoste = false) => photos.filter(p => !soloSoste || p.stop_id != null).map(p => {
     if (p.lat != null && p.lon != null) return { ...p, dove: p.luogo || nomeSostaDi(p) || null };
     const sua = p.stop_id ? soste.find(x => x.id === p.stop_id && x.lat != null) : null;
     if (sua) return { ...p, lat: sua.lat, lon: sua.lon, circa: true, dove: sua.name };
@@ -1364,7 +1374,13 @@ function mappaDelViaggio(el, d, opz = {}) {
       categorie: conSpese ? totals.by_category.map(c => [catLabel(c.category), eur(c.total)]) : [],
       totale: conSpese ? eur(totals.total) : null,
     } : null;
-    riproduci(map, pezzi, fotoSullaMappa(), finale ? { finale } : {});
+    // Il tempo cresce con quello che c'e' da guardare: dieci tappe in ventisei
+    // secondi sono una corsa, e di un viaggio non resta niente. Non oltre il
+    // minuto e mezzo, pero', che poi diventa una cosa da guardare in due volte.
+    const secondi = Math.min(96, 24 + pezzi.length * 9);
+    // In camper le foto sono quelle delle soste: nel giro di tutto un viaggio
+    // ogni scatto della vacanza fermerebbe la strada ogni tre secondi
+    riproduci(map, pezzi, fotoSullaMappa(soloCamper), { secondi, intera: soloCamper, ...(finale ? { finale } : {}) });
   });
 
   // Toccando una voce resta sulla mappa solo quella, e la mappa ci si stringe
