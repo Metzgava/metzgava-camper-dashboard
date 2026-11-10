@@ -33,6 +33,10 @@ async function saveWorkout(userId, w, tripId = null, opzioni = {}) {
   }
   // Nessuna app ha dichiarato la salita? La si conta sulla traccia, se porta la quota
   if (w.elevation_up_m == null) w.elevation_up_m = salitaDallaTraccia(w.track);
+  // E quella dichiarata si controlla: se e' impossibile per la distanza, si
+  // riconta sulla traccia, e se nemmeno quella risponde si lascia vuota. Un
+  // numero sbagliato in grande gonfia i totali del mese e non si sospetta.
+  w.elevation_up_m = salitaCredibile(w.elevation_up_m, w.distance_m, w.track);
   // Il nome dell'attivita' viene ricondotto alla forma unica; il titolo cambia solo
   // se coincideva col tipo, cosi' un nome scelto a mano resta intatto
   const sportNorm = normalizzaSport(w.sport);
@@ -167,6 +171,42 @@ function serieBattiti(w) {
 // Dove e' successo. Un'escursione arriva chiamata «Escursione» da qualunque
 // telefono: il posto lo sanno solo le coordinate della traccia. Si chiede una
 // volta sola, piano - i servizi gratuiti vanno trattati bene - e resta scritto.
+// Le salite assurde gia' in archivio: quelle contate quando lo zero valeva per
+// una quota, e quelle arrivate sbagliate dalle app. Dove la traccia porta le
+// quote si riconta; dove non c'e' niente su cui ricontare si svuota, che un
+// campo vuoto si puo' riempire a mano mentre un numero sbagliato resta li' a
+// gonfiare i totali.
+export async function sistemaDislivelliAssurdi() {
+  const righe = (await q(`SELECT id, distance_m, elevation_up_m, track FROM workouts
+    WHERE elevation_up_m IS NOT NULL AND distance_m > 0
+      AND elevation_up_m > greatest(200, distance_m / 1000.0 * 250)`)).rows;
+  // E quelle in cui la traccia comincia (o passa) per zero: li' il conto di
+  // prima aggiungeva in un colpo tutta l'altezza del paese
+  const conZeri = (await q(`SELECT id, distance_m, elevation_up_m, track FROM workouts
+    WHERE track IS NOT NULL AND elevation_up_m IS NOT NULL AND distance_m > 0
+      AND jsonb_array_length(track->0) > 2 AND (track->0->>2) = '0'`)).rows;
+  const tutte = [...righe, ...conZeri.filter(r => !righe.some(x => x.id === r.id))];
+  if (!tutte.length) return 0;
+  let ricontate = 0, svuotate = 0;
+  for (const w of tutte) {
+    const contata = salitaDallaTraccia(w.track);
+    const tetto = salitaPossibile(w.distance_m);
+    const impossibile = w.elevation_up_m > tetto;
+    // Lo zero iniziale gonfiava di tutta l'altezza del paese: si riconosce dal
+    // fatto che il numero vecchio e' molte volte quello nuovo, e di parecchio.
+    // Uno scarto di qualche decina di metri invece no: li' il dato dell'app
+    // vale piu' del nostro conto su una traccia alleggerita, e si lascia stare.
+    const gonfiato = contata != null && w.elevation_up_m > contata * 2 && w.elevation_up_m - contata > 300;
+    if (!impossibile && !gonfiato) continue;
+    const buona = contata != null && contata <= tetto ? contata : null;
+    if (buona === w.elevation_up_m) continue;
+    await q('UPDATE workouts SET elevation_up_m=$2 WHERE id=$1', [w.id, buona]);
+    if (buona == null) svuotate++; else ricontate++;
+  }
+  if (ricontate || svuotate) console.log(`dislivelli: ${ricontate} ricontati sulla traccia, ${svuotate} svuotati perche' impossibili`);
+  return ricontate + svuotate;
+}
+
 export async function completaLuoghiMancanti(quanti = 40) {
   const senza = (await q(`SELECT id, track->0 AS p FROM workouts
       WHERE luogo IS NULL AND track IS NOT NULL ORDER BY started_at DESC LIMIT $1`, [quanti])).rows;
@@ -294,16 +334,38 @@ function healthTrack(route) {
 // in Salute si ritrova l'uscita senza dislivello: il numero c'e' lo stesso,
 // senza doverlo scrivere a mano.
 const SOGLIA_SALITA_M = 2;
+// Lo zero, nelle tracce, non vuol dire «livello del mare»: vuol dire che la
+// quota non c'era. Una camminata a Valdobbiadene che comincia con uno zero e
+// prosegue a mille metri non e' salita di mille metri nel primo passo. Si
+// buttano via gli zeri, e anche i salti impossibili fra due punti vicini -
+// quaranta metri in un battito sono un errore del sensore, non una parete.
+const QUOTA_MINIMA = -430;            // il punto piu' basso di terra emersa
+const SALTO_IMPOSSIBILE_M = 40;
 export function salitaDallaTraccia(track) {
   const quote = (Array.isArray(track) ? track : [])
-    .map(p => (Array.isArray(p) ? Number(p[2]) : NaN)).filter(Number.isFinite);
+    .map(p => (Array.isArray(p) ? Number(p[2]) : NaN))
+    .filter(q => Number.isFinite(q) && q !== 0 && q > QUOTA_MINIMA && q < 9000);
   if (quote.length < 10) return null;
-  let totale = 0, riferimento = quote[0];
+  let totale = 0, riferimento = quote[0], precedente = quote[0];
   for (const q of quote) {
+    if (Math.abs(q - precedente) > SALTO_IMPOSSIBILE_M) { precedente = riferimento = q; continue; }
+    precedente = q;
     if (q > riferimento + SOGLIA_SALITA_M) { totale += q - riferimento; riferimento = q; }
     else if (q < riferimento) riferimento = q;
   }
   return Math.round(totale) || null;
+}
+
+// Quanto puo' essere salito chi ha percorso quei metri. Il venticinque per
+// cento di pendenza media e' gia' roba da ferrata: oltre, il numero non e' una
+// salita - di solito e' la quota sul livello del mare scambiata per dislivello,
+// come quei mille e cento metri a San Candido, che e' l'altezza del paese.
+export const salitaPossibile = distanzaM => Math.max(200, (distanzaM || 0) / 1000 * 250);
+export function salitaCredibile(salita, distanzaM, track) {
+  if (salita == null || !(distanzaM > 0)) return salita ?? null;
+  if (salita <= salitaPossibile(distanzaM)) return salita;
+  const contata = salitaDallaTraccia(track);
+  return contata != null && contata <= salitaPossibile(distanzaM) ? contata : null;
 }
 
 // Ogni sorgente chiama gli sport a modo suo: Salute traduce alla lettera ("Interno

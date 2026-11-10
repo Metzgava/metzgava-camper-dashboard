@@ -6,7 +6,7 @@ import { migrate, sistemaDurateCarlock, q } from './lib/db.js';
 import { SECRET, wrap } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
 import { router as trips, agganciaAllenamenti } from './routes/trips.js';
-import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti } from './routes/workouts.js';
+import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti, sistemaDislivelliAssurdi } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR, completaExifMancanti, completaLuoghiFoto } from './routes/photos.js';
 import { router as materiali } from './routes/materiali.js';
 import { router as share, linkValido, viaggiVisibili, segnaVisita } from './routes/share.js';
@@ -106,6 +106,7 @@ async function manutenzioni() {
   await normalizzaNomiEsistenti().catch(e => console.warn('uniformazione nomi fallita:', e.message));
   await completaExifMancanti().catch(e => console.warn('lettura exif fallita:', e.message));
   await sistemaDurateCarlock().catch(e => console.warn('durate CarLock non ricontate:', e.message));
+  await sistemaDislivelliAssurdi().catch(e => console.warn('dislivelli non sistemati:', e.message));
   // Ripulisce anche i doppioni gia' in archivio, non solo quelli che arriveranno
   await rimuoviDoppioniAutomatici().catch(e => console.warn('pulizia doppioni fallita:', e.message));
   // Il nome del posto degli allenamenti: pochi per volta, che i geocoder
