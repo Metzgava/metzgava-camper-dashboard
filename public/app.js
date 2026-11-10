@@ -1101,7 +1101,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v80';
+const VERSIONE = 'v81';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1382,9 +1382,12 @@ function mappaDelViaggio(el, d, opz = {}) {
       totale: conSpese ? eur(totals.total) : null,
     } : null;
     // Il tempo cresce con quello che c'e' da guardare: dieci tappe in ventisei
-    // secondi sono una corsa, e di un viaggio non resta niente. Non oltre il
-    // minuto e mezzo, pero', che poi diventa una cosa da guardare in due volte.
-    const secondi = Math.min(96, 24 + pezzi.length * 9);
+    // secondi sono una corsa, e di un viaggio non resta niente. Ma il camper si
+    // guarda tutto insieme, senza inseguire nulla, e li' si puo' andare piu'
+    // spediti: il passo di prima faceva aspettare davanti a una strada ferma.
+    const secondi = soloCamper
+      ? Math.min(66, 15 + pezzi.length * 6)
+      : Math.min(96, 24 + pezzi.length * 9);
     // In camper le foto sono quelle delle soste: nel giro di tutto un viaggio
     // ogni scatto della vacanza fermerebbe la strada ogni tre secondi
     riproduci(map, pezzi, fotoSullaMappa(soloCamper), { secondi, intera: soloCamper, ...(finale ? { finale } : {}) });
