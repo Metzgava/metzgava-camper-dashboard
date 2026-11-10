@@ -194,10 +194,19 @@ async function tripTotals(tripId) {
   const fuel = (await q(`SELECT coalesce(sum((meta->>'liters')::float),0) AS liters FROM expenses WHERE trip_id=$1 AND category='gasolio' AND auto=true`, [tripId])).rows[0];
   const total = byCat.reduce((a, b) => a + b.total, 0);
   const kmTotali = legs.km + kmAltri;
+  // Il costo al km e' quello di muovere il camper: gasolio e pedaggi, sui
+  // chilometri guidati. Dentro al totale del viaggio ci sono anche i campeggi,
+  // i ristoranti e i biglietti dei traghetti: sono spese della vacanza, non
+  // della strada, e messe al chilometro direbbero un numero che non serve a
+  // niente - cambierebbe a seconda di quanto si e' mangiato.
+  const spesaStrada = byCat.filter(c => c.category === 'gasolio' || c.category === 'pedaggi')
+    .reduce((a, b) => a + b.total, 0);
   return { total: +total.toFixed(2), by_category: byCat, km: +legs.km.toFixed(1), minutes: legs.minutes, minuti_strada: strada, tappe_con_soste: soloStrada,
     pedaggio_km: +tappe.reduce((a, l) => a + (+l.pedaggio_km || 0), 0).toFixed(1),
     altri_mezzi: altre.length ? { n: altre.length, km: +kmAltri.toFixed(1), per_mezzo: perMezzo } : null,
-    legs: legs.n, liters: +(+fuel.liters).toFixed(1), cost_per_km: kmTotali ? +(total / kmTotali).toFixed(3) : null };
+    legs: legs.n, liters: +(+fuel.liters).toFixed(1), km_totali: +kmTotali.toFixed(1),
+    costo_strada: +spesaStrada.toFixed(2),
+    cost_per_km: legs.km ? +(spesaStrada / legs.km).toFixed(3) : null };
 }
 
 // ---- impostazioni veicolo ----
@@ -300,7 +309,10 @@ export async function agganciaAllenamenti() {
 router.get('/trips', wrap(async (req, res) => { res.json(await elencoViaggi()); }));
 export async function elencoViaggi() {
   const trips = (await q(`SELECT t.*, u.name AS owner,
-      (SELECT coalesce(sum(distance_km),0)::float FROM legs WHERE trip_id=t.id) AS km,
+      (SELECT coalesce(sum(distance_km) FILTER (WHERE mezzo='camper'),0)::float FROM legs WHERE trip_id=t.id) AS km,
+      (SELECT coalesce(sum(distance_km) FILTER (WHERE mezzo<>'camper'),0)::float FROM legs WHERE trip_id=t.id) AS km_altri,
+      -- Quanto e' costato muoversi: il resto e' spesa della vacanza, non della strada
+      (SELECT coalesce(sum(amount * rate),0)::float FROM expenses WHERE trip_id=t.id AND category IN ('gasolio','pedaggi')) AS strada,
       (SELECT coalesce(sum(amount * rate),0)::float FROM expenses WHERE trip_id=t.id) AS total,
       (SELECT count(*)::int FROM legs WHERE trip_id=t.id) AS n_legs,
       (SELECT count(*)::int FROM photos WHERE trip_id=t.id) AS n_photos,
@@ -1071,7 +1083,12 @@ router.get('/summary', wrap(async (req, res) => {
   const params = tripId ? [from, to, tripId] : [from, to];
   const periods = (await q(`SELECT to_char(date_trunc('${group}', date), 'YYYY-MM-DD') AS period, category, sum(amount * rate)::float AS total
     FROM expenses WHERE date BETWEEN $1 AND $2${tripCond} GROUP BY 1,2 ORDER BY 1`, params)).rows;
-  const km = (await q(`SELECT to_char(date_trunc('${group}', coalesce(date, created_at::date)), 'YYYY-MM-DD') AS period, sum(distance_km)::float AS km, count(*)::int AS legs
+  // «Km in camper» vuol dire in camper: i chilometri di un traghetto o di un
+  // volo non si guidano, e sommati qui facevano credere di aver fatto mezza
+  // Europa al volante. Le tappe invece si contano tutte: sono tappe lo stesso.
+  const km = (await q(`SELECT to_char(date_trunc('${group}', coalesce(date, created_at::date)), 'YYYY-MM-DD') AS period,
+      coalesce(sum(distance_km) FILTER (WHERE mezzo='camper'), 0)::float AS km,
+      coalesce(sum(distance_km), 0)::float AS km_tutti, count(*)::int AS legs
     FROM legs WHERE coalesce(date, created_at::date) BETWEEN $1 AND $2${tripCond} GROUP BY 1 ORDER BY 1`, params)).rows;
   // Gli allenamenti si possono restringere a un atleta: con piu' atleti in casa, e
   // con le copie di uno stesso giro su entrambi, sommarli gonfierebbe i totali
@@ -1084,7 +1101,12 @@ router.get('/summary', wrap(async (req, res) => {
   const byCat = (await q(`SELECT category, sum(amount * rate)::float AS total FROM expenses WHERE date BETWEEN $1 AND $2${tripCond} GROUP BY 1 ORDER BY 2 DESC`, params)).rows;
   const totals = {
     spent: +byCat.reduce((a, b) => a + b.total, 0).toFixed(2),
+    // Quanto e' costato muoversi: gasolio e pedaggi, che divisi per i
+    // chilometri in camper danno il costo al km
+    strada: +byCat.filter(c => c.category === 'gasolio' || c.category === 'pedaggi')
+      .reduce((a, b) => a + b.total, 0).toFixed(2),
     km: +km.reduce((a, b) => a + b.km, 0).toFixed(1),
+    km_tutti: +km.reduce((a, b) => a + b.km_tutti, 0).toFixed(1),
     legs: km.reduce((a, b) => a + b.legs, 0),
     trips: (await q(`SELECT count(DISTINCT trip_id)::int AS n FROM expenses WHERE date BETWEEN $1 AND $2${tripCond}`, params)).rows[0].n,
     workouts: wo.reduce((a, b) => a + b.n, 0),

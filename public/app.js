@@ -732,6 +732,7 @@ async function viewTrips() {
     perAnno.get(anno).push(t);
   });
   const totKm = trips.reduce((a, t) => a + t.km, 0), totSp = trips.reduce((a, t) => a + t.total, 0);
+  const totStrada = trips.reduce((a, t) => a + (t.strada || 0), 0);
   const totGg = trips.reduce((a, t) => a + giorniViaggio(t), 0);
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:16px"><h1>I tuoi viaggi</h1><div class="row"><button class="btn" id="carlock">📡 Importa CarLock</button><button class="btn primary" id="new">＋ Nuovo viaggio</button></div></div>
@@ -739,7 +740,7 @@ async function viewTrips() {
       <div class="tile accent"><div class="label">Viaggi</div><div class="value">${trips.length}</div><div class="sub">${open.length ? open.length + ' in corso' : 'nessuno in corso'}</div></div>
       <div class="tile"><div class="label">Giorni in viaggio</div><div class="value">${num(totGg, 0)}</div><div class="sub">${trips.length ? num(totGg / trips.length, 1) + ' a viaggio' : ''}</div></div>
       <div class="tile"><div class="label">Km in camper</div><div class="value">${num(totKm, 0)}</div><div class="sub">~${num(totKm / (settings.vehicle?.km_per_liter || 10), 0)} litri</div></div>
-      <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub">${totKm ? eur(totSp / totKm) + '/km' : ''}</div></div>
+      <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub" title="Gasolio e pedaggi divisi per i chilometri fatti in camper">${totKm ? eur(totStrada / totKm) + '/km di strada' : ''}</div></div>
     </div>
     ${open.length ? `<div class="section"><div class="anno">In corso</div><div class="viaggi">${open.map(card).join('')}</div></div>` : ''}
     ${bozze.length ? `<div class="section"><div class="anno">\ud83e\uddf0 In costruzione \u00b7 <span>${bozze.length} viagg${bozze.length === 1 ? 'io' : 'i'} che stiamo preparando</span></div><div class="viaggi">${bozze.map(card).join('')}</div></div>` : ''}
@@ -1095,7 +1096,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v78';
+const VERSIONE = 'v79';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1369,7 +1370,7 @@ function mappaDelViaggio(el, d, opz = {}) {
         totals.liters ? [num(totals.liters, 0), 'litri di gasolio'] : null,
         totals.pedaggio_km ? [num(totals.pedaggio_km, 0), 'km di autostrada'] : null,
         pernotti ? [pernotti, pernotti === 1 ? 'pernotto' : 'pernotti'] : null,
-        conSpese && totals.cost_per_km ? [eur(totals.cost_per_km), 'al km'] : null,
+        conSpese && totals.cost_per_km ? [eur(totals.cost_per_km), 'al km di strada'] : null,
       ],
       categorie: conSpese ? totals.by_category.map(c => [catLabel(c.category), eur(c.total)]) : [],
       totale: conSpese ? eur(totals.total) : null,
@@ -1519,7 +1520,7 @@ async function viewTrip(id) {
         : closed ? '<button class="btn" id="reopen">Riapri</button>'
         : '<button class="btn primary" id="close">Concludi viaggio</button>'}${trip.status === 'bozza' ? '' : '<button class="btn" id="incostruzione" title="Rimettilo fra i viaggi che stiamo preparando">\ud83e\uddf0 In costruzione</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
-      <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>
+      <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub" title="Gasolio e pedaggi divisi per i chilometri fatti in camper. Campeggi, vitto e biglietti sono spese del viaggio, non della strada.">${totals.cost_per_km ? `${eur(totals.cost_per_km)} al km di strada<br><span class="muted">${eur(totals.costo_strada)} fra gasolio e pedaggi</span>` : ''}</div></div>
       <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe \u00b7 ${totals.km && totals.minutes ? num(totals.km / (totals.minutes / 60), 0) + ' km/h di media' : ''}</div></div>
       <div class="tile"><div class="label">Ore di guida</div><div class="value">${dur(totals.minutes * 60)}</div><div class="sub">${totals.minuti_strada > totals.minutes + 5 ? `${dur(totals.minuti_strada * 60)} in strada, soste comprese` : ''}${totals.tappe_con_soste ? `${totals.minuti_strada > totals.minutes + 5 ? '<br>' : ''}su ${totals.tappe_con_soste} tapp${totals.tappe_con_soste === 1 ? 'a' : 'e'} comprende le soste` : ''}</div></div>
       <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
@@ -1586,7 +1587,7 @@ async function viewTrip(id) {
     if (!await confirmDlg('Concludere il viaggio? Verranno mostrati i totali finali.')) return;
     const r = await api(`/trips/${id}/close`, { method: 'POST', body: {} });
     const t = r.totals;
-    modal(`<h2>🏁 Viaggio concluso</h2><div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Totale</div><div class="value">${eur(t.total)}</div></div><div class="tile"><div class="label">Km</div><div class="value">${num(t.km)}</div></div><div class="tile"><div class="label">Gasolio</div><div class="value">${num(t.liters)} l</div></div><div class="tile"><div class="label">Costo/km</div><div class="value">${t.cost_per_km ? eur(t.cost_per_km) : '—'}</div></div></div>
+    modal(`<h2>🏁 Viaggio concluso</h2><div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Totale</div><div class="value">${eur(t.total)}</div></div><div class="tile"><div class="label">Km</div><div class="value">${num(t.km)}</div></div><div class="tile"><div class="label">Gasolio</div><div class="value">${num(t.liters)} l</div></div><div class="tile"><div class="label">Al km di strada</div><div class="value">${t.cost_per_km ? eur(t.cost_per_km) : '—'}</div></div></div>
       <table>${t.by_category.map(c => `<tr><td>${catLabel(c.category)}</td><td class="num">${eur(c.total)}</td></tr>`).join('')}</table><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary" data-x>Ok</button></div>`, (el, close) => $('[data-x]', el).onclick = () => { close(); render(); });
   }));
   $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
@@ -3319,7 +3320,7 @@ async function viewSummary() {
       ${atleti.length > 1 ? `<div class="field w-sm"><label class="f">Allenamenti di</label><select id="f-atleta">
         <option value="">Tutti insieme</option>${atleti.map(a => `<option value="${a.id}" ${state.atleta === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>` : ''}
       <div class="field w-sm"><label class="f">Raggruppa</label><select id="group">${[['day', 'Giorno'], ['week', 'Settimana'], ['month', 'Mese'], ['year', 'Anno']].map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>${viaggio ? '' : '<div class="field" style="align-self:flex-end"><button class="btn primary" id="go">Applica</button></div>'}</div></div>
-    <div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Speso</div><div class="value">${eur(s.totals.spent)}</div><div class="sub">${s.totals.trips} viagg${s.totals.trips === 1 ? 'io' : 'i'}</div></div><div class="tile"><div class="label">Km in camper</div><div class="value">${num(s.totals.km, 0)}</div><div class="sub">${s.totals.legs} tappe · ${s.totals.km ? eur(s.totals.spent / s.totals.km) + '/km' : ''}</div></div><div class="tile"><div class="label">Allenamenti</div><div class="value">${s.totals.workouts}</div><div class="sub">${num(s.totals.workout_km)} km</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(s.totals.calories, 0)}</div></div></div>
+    <div class="tiles" style="margin:14px 0"><div class="tile accent"><div class="label">Speso</div><div class="value">${eur(s.totals.spent)}</div><div class="sub">${s.totals.trips} viagg${s.totals.trips === 1 ? 'io' : 'i'}</div></div><div class="tile"><div class="label">Km in camper</div><div class="value">${num(s.totals.km, 0)}</div><div class="sub" title="Gasolio e pedaggi divisi per i chilometri in camper">${s.totals.legs} tappe${s.totals.km_tutti > s.totals.km ? ` · ${num(s.totals.km_tutti - s.totals.km, 0)} km con altri mezzi` : ''}${s.totals.km ? `<br>${eur(s.totals.strada / s.totals.km)}/km di strada` : ''}</div></div><div class="tile"><div class="label">Allenamenti</div><div class="value">${s.totals.workouts}</div><div class="sub">${num(s.totals.workout_km)} km</div></div><div class="tile"><div class="label">Calorie</div><div class="value">${num(s.totals.calories, 0)}</div></div></div>
     ${dettaglio ? graficiDelViaggio(dettaglio) : ''}
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card"><h2>Spese per ${({ day: 'giorno', week: 'settimana', month: 'mese', year: 'anno' })[state.group]}</h2>
