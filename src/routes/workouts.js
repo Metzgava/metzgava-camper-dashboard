@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
 import { luogoDaCoordinate } from '../lib/geo.js';
-import { wrap, encrypt, decrypt, num, samplePoints } from '../lib/util.js';
+import { wrap, encrypt, decrypt, num, samplePoints, haversineKm } from '../lib/util.js';
 import { parseGpx } from '../lib/gpx.js';
 import * as komoot from '../lib/komoot.js';
 import * as strava from '../lib/strava.js';
@@ -341,17 +341,33 @@ const SOGLIA_SALITA_M = 2;
 // quaranta metri in un battito sono un errore del sensore, non una parete.
 const QUOTA_MINIMA = -430;            // il punto piu' basso di terra emersa
 const SALTO_IMPOSSIBILE_M = 40;
+// Oltre il quarantacinque per cento non e' piu' una salita da camminare: e'
+// una parete. Nei primi secondi di registrazione la quota del GPS si assesta -
+// parte da zero o da trenta metri e in un minuto arriva ai millecinquecento
+// veri - e quella rampa, letta passo per passo, sommava settecento metri di
+// dislivello a una passeggiata in pianoro. Misurata contro la strada fatta si
+// riconosce: cinquanta metri di quota in dieci metri di terreno non li fa
+// nessuno.
+const PENDENZA_MASSIMA = 0.45;
 export function salitaDallaTraccia(track) {
-  const quote = (Array.isArray(track) ? track : [])
-    .map(p => (Array.isArray(p) ? Number(p[2]) : NaN))
-    .filter(q => Number.isFinite(q) && q !== 0 && q > QUOTA_MINIMA && q < 9000);
-  if (quote.length < 10) return null;
-  let totale = 0, riferimento = quote[0], precedente = quote[0];
-  for (const q of quote) {
-    if (Math.abs(q - precedente) > SALTO_IMPOSSIBILE_M) { precedente = riferimento = q; continue; }
-    precedente = q;
-    if (q > riferimento + SOGLIA_SALITA_M) { totale += q - riferimento; riferimento = q; }
-    else if (q < riferimento) riferimento = q;
+  const punti = (Array.isArray(track) ? track : [])
+    .filter(p => Array.isArray(p) && p.length > 2)
+    .map(p => ({ lat: Number(p[0]), lon: Number(p[1]), q: Number(p[2]) }))
+    .filter(p => Number.isFinite(p.q) && p.q !== 0 && p.q > QUOTA_MINIMA && p.q < 9000
+      && Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  if (punti.length < 10) return null;
+  let totale = 0, riferimento = punti[0].q, precedente = punti[0];
+  for (const p of punti) {
+    const passo = haversineKm([precedente.lat, precedente.lon], [p.lat, p.lon]) * 1000;
+    const salto = Math.abs(p.q - precedente.q);
+    // Il margine fisso serve quando due punti stanno quasi nello stesso posto:
+    // li' la pendenza non significa niente
+    if (salto > SALTO_IMPOSSIBILE_M || salto > passo * PENDENZA_MASSIMA + 5) {
+      precedente = p; riferimento = p.q; continue;
+    }
+    precedente = p;
+    if (p.q > riferimento + SOGLIA_SALITA_M) { totale += p.q - riferimento; riferimento = p.q; }
+    else if (p.q < riferimento) riferimento = p.q;
   }
   return Math.round(totale) || null;
 }
