@@ -723,7 +723,7 @@ router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
   const scelto = await percorsoVicinoAiKm(
     { name: l.from_name, lat: l.from_lat, lon: l.from_lon },
     { name: l.to_name, lat: l.to_lat, lon: l.to_lon },
-    num(l.distance_km));
+    num(l.distance_km), num(l.duration_min));
   await q('UPDATE legs SET geometry=$2, pedaggio_km=$3 WHERE id=$1',
     [l.id, JSON.stringify(scelto.geometry), scelto.pedaggio_km ?? null]);
   await costiTappa(l.id);
@@ -908,10 +908,11 @@ router.post('/legs/:id/carlock', upload.single('file'), wrap(async (req, res) =>
   const da = await geocodaCarlock(primo.from, cache), a = await geocodaCarlock(ultimo.to, cache);
   if (!da || !a) return res.status(422).json({ error: `Indirizzo non riconosciuto: ${!da ? primo.from : ultimo.to}` });
   const km = +scelte.reduce((t, x) => t + x.km, 0).toFixed(1);
-  // La strada da disegnare e' quella che misura quanto il contachilometri
-  let geometry = [[da.lat, da.lon], [a.lat, a.lon]], pedaggioKm = null;
-  try { const str = await percorsoVicinoAiKm(da, a, km); geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null; } catch { }
   const minuti = scelte.reduce((t, x) => t + x.duration_min, 0);
+  // La strada da disegnare e' quella che misura quanto il contachilometri, e
+  // che si poteva fare nel tempo che ci e' voluto
+  let geometry = [[da.lat, da.lon], [a.lat, a.lon]], pedaggioKm = null;
+  try { const str = await percorsoVicinoAiKm(da, a, km, minuti); geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null; } catch { }
   const id_esterno = scelte.map(x => x.external_id).join('+');
   let aggiornata;
   try {
@@ -1004,7 +1005,7 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
     const from = await geo(l.from), to = await geo(l.to);
     if (!from || !to) continue;
     let geometry = [[from.lat, from.lon], [to.lat, to.lon]], pedaggioKm = null;
-    try { const str = await percorsoVicinoAiKm(from, to, l.km); geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null; } catch { }
+    try { const str = await percorsoVicinoAiKm(from, to, l.km, l.duration_min); geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null; } catch { }
     const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,distance_km,duration_min,geometry,notes,source,external_id,start_time,end_time,pedaggio_km)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'carlock',$14,$15,$16,$17) ON CONFLICT (trip_id, external_id) WHERE external_id IS NOT NULL DO NOTHING RETURNING *`,
       [trip.id, ++pos, l.date, from.name, from.lat, from.lon, to.name, to.lat, to.lon, l.km, l.duration_min, JSON.stringify(geometry),
