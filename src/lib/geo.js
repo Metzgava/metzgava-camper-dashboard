@@ -183,21 +183,22 @@ export async function percorsoVicinoAiKm(from, to, kmVeri, minutiVeri) {
   if (!varianti.length) throw new Error('nessun percorso');
   if (!(kmVeri > 0)) return { ...varianti[0], scelta_per_km: false };
   // I chilometri da soli non bastano a dire che strada si e' fatta: fra
-  // Piacenza e Treviso la statale misura meno dell'autostrada, e scegliendo
-  // per i chilometri si disegna la statale anche a chi ha corso in autostrada.
-  // La media oraria lo dice: sopra i settanta all'ora, per due ore e mezza, su
-  // una provinciale non ci si sta. In quel caso la variante senza pedaggi si
-  // scarta anche se i suoi chilometri tornano meglio - sarebbe una strada
-  // diversa da quella percorsa, disegnata solo perche' misura uguale.
-  const media = minutiVeri > 0 ? kmVeri / (minutiVeri / 60) : null;
-  const diScorrimento = media != null && media >= 70;
-  const papabili = diScorrimento && varianti.some(v => v.chiave !== 'senza_pedaggi')
-    ? varianti.filter(v => v.chiave !== 'senza_pedaggi')
-    : varianti;
+  // Piacenza e Treviso la statale ne misura meno dell'autostrada, e scegliendo
+  // per i chilometri si disegnava la statale a chi era corso in A4. A
+  // smentirla e' il tempo: quella strada il navigatore la stima in sei ore e
+  // mezza, e il tracker dice due e venticinque. Le strade che nel tempo vero
+  // non ci stanno si scartano, per quanto i chilometri tornino. Il margine e'
+  // largo - le stime sono prudenti e in autostrada si va piu' svelti di quanto
+  // mettano in conto - ma sei ore contro due e mezza non le colma nessun
+  // margine.
+  const tetto = minutiVeri > 0 ? minutiVeri * 1.35 + 10 : null;
+  const possibili = tetto ? varianti.filter(v => !(v.duration_min > 0) || v.duration_min <= tetto) : varianti;
+  const papabili = possibili.length ? possibili : varianti;
   const vicino = papabili.reduce((migliore, v) =>
     Math.abs(v.distance_km - kmVeri) < Math.abs(migliore.distance_km - kmVeri) ? v : migliore);
   return { ...vicino, scelta_per_km: papabili.length > 1, scarto_km: +(vicino.distance_km - kmVeri).toFixed(1),
-    media_oraria: media != null ? Math.round(media) : null, scartate_senza_pedaggi: diScorrimento && papabili.length < varianti.length };
+    media_oraria: minutiVeri > 0 ? Math.round(kmVeri / (minutiVeri / 60)) : null,
+    scartate: varianti.length - papabili.length };
 }
 
 export async function percorsiConTappe(punti) {
