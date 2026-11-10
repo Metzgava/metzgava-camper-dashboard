@@ -129,7 +129,8 @@ async function viewViaggio(id) {
       <div class="tile"><div class="label">Giorni</div><div class="value">${g || '—'}</div><div class="sub">${pernotti ? pernotti + (pernotti === 1 ? ' pernotto' : ' pernotti') : ''}</div></div>
       <div class="tile"><div class="label">Ore di viaggio</div><div class="value">${dur((totals.minutes || 0) * 60)}</div><div class="sub">${ore > 0.2 && totals.km ? num(totals.km / ore, 0) + ' km/h di media' : ''}</div></div>
       ${workouts.length ? `<div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività</div></div>` : ''}
-      ${permessi.spese ? `<div class="tile"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub">${totals.cost_per_km ? eur(totals.cost_per_km) + ' al km' : ''}</div></div>` : ''}
+      ${permessi.spese ? `<div class="tile"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div>
+        <div class="sub">${g ? eur(totals.total / g) + ' al giorno' : ''}${totals.cost_per_km ? `<br>${eur(totals.cost_per_km)} al km di strada` : ''}</div></div>` : ''}
     </div>
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${legendaViaggio(d, { tracciati: permessi.tracciati })}</div>

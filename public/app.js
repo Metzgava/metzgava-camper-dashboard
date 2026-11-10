@@ -664,7 +664,12 @@ function dateForm(trip, dopo) {
 // un viaggio che parte e torna lo stesso giorno e' comunque un giorno.
 const giorniViaggio = t => {
   if (!t.start_date) return 0;
-  const da = new Date(iso(t.start_date)), a = new Date(iso(t.end_date || t.start_date));
+  // Un viaggio in corso che non ha ancora una data di rientro dura da quando
+  // e' partito a oggi: contarlo un giorno solo direbbe che in una settimana di
+  // vacanza si sono spesi settecento euro al giorno
+  const oggi = iso(new Date());
+  const fine = t.end_date || (t.status === 'open' && iso(t.start_date) <= oggi ? oggi : t.start_date);
+  const da = new Date(iso(t.start_date)), a = new Date(iso(fine));
   const g = Math.round((a - da) / 86400000) + 1;
   return g > 0 && g < 4000 ? g : 0;
 };
@@ -1096,7 +1101,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v79';
+const VERSIONE = 'v80';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1371,6 +1376,7 @@ function mappaDelViaggio(el, d, opz = {}) {
         totals.pedaggio_km ? [num(totals.pedaggio_km, 0), 'km di autostrada'] : null,
         pernotti ? [pernotti, pernotti === 1 ? 'pernotto' : 'pernotti'] : null,
         conSpese && totals.cost_per_km ? [eur(totals.cost_per_km), 'al km di strada'] : null,
+        conSpese && giorniViaggio(trip) ? [eur(totals.total / giorniViaggio(trip)), 'al giorno'] : null,
       ],
       categorie: conSpese ? totals.by_category.map(c => [catLabel(c.category), eur(c.total)]) : [],
       totale: conSpese ? eur(totals.total) : null,
@@ -1521,6 +1527,16 @@ async function viewTrip(id) {
         : '<button class="btn primary" id="close">Concludi viaggio</button>'}${trip.status === 'bozza' ? '' : '<button class="btn" id="incostruzione" title="Rimettilo fra i viaggi che stiamo preparando">\ud83e\uddf0 In costruzione</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile accent"><div class="label">Totale speso</div><div class="value">${eur(totals.total)}</div><div class="sub" title="Gasolio e pedaggi divisi per i chilometri fatti in camper. Campeggi, vitto e biglietti sono spese del viaggio, non della strada.">${totals.cost_per_km ? `${eur(totals.cost_per_km)} al km di strada<br><span class="muted">${eur(totals.costo_strada)} fra gasolio e pedaggi</span>` : ''}</div></div>
+      ${(() => {
+        // Quanto costa un giorno di viaggio: tutto quello che si e' speso
+        // diviso i giorni che e' durato. Qui dentro ci sta tutto - campeggi,
+        // mangiare, visite, traghetti - perche' e' quello che un giorno di
+        // vacanza costa davvero, non solo la strada.
+        const g = giorniViaggio(trip);
+        if (!g) return '';
+        return `<div class="tile"><div class="label">Giorni</div><div class="value">${g}</div>
+          <div class="sub" title="Tutte le spese del viaggio divise per i giorni che e\u2019 durato">${eur(totals.total / g)} al giorno${trip.status === 'open' && !trip.end_date ? '<br><span class="muted">finora</span>' : ''}</div></div>`;
+      })()}
       <div class="tile"><div class="label">Distanza in camper</div><div class="value">${num(totals.km)} km</div><div class="sub">${totals.legs} tappe \u00b7 ${totals.km && totals.minutes ? num(totals.km / (totals.minutes / 60), 0) + ' km/h di media' : ''}</div></div>
       <div class="tile"><div class="label">Ore di guida</div><div class="value">${dur(totals.minutes * 60)}</div><div class="sub">${totals.minuti_strada > totals.minutes + 5 ? `${dur(totals.minuti_strada * 60)} in strada, soste comprese` : ''}${totals.tappe_con_soste ? `${totals.minuti_strada > totals.minutes + 5 ? '<br>' : ''}su ${totals.tappe_con_soste} tapp${totals.tappe_con_soste === 1 ? 'a' : 'e'} comprende le soste` : ''}</div></div>
       <div class="tile"><div class="label">Gasolio</div><div class="value">${num(totals.liters)} l</div><div class="sub">${eur(totals.by_category.find(c => c.category === 'gasolio')?.total || 0)}</div></div>
