@@ -1101,7 +1101,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v81';
+const VERSIONE = 'v82';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -3343,19 +3343,56 @@ async function viewSummary() {
     ${dettaglio ? graficiDelViaggio(dettaglio) : ''}
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card"><h2>Spese per ${({ day: 'giorno', week: 'settimana', month: 'mese', year: 'anno' })[state.group]}</h2>
-        <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${eur(spentBy[p])}"><i style="height:${(spentBy[p] || 0) / max * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
+        <div class="bars">${periods.map(p => `<div class="bar" data-periodo="${p}" title="${fmtP(p)}: ${eur(spentBy[p])}"><i style="height:${(spentBy[p] || 0) / max * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
       <div class="card"><h2>Per categoria</h2><div class="donut" style="margin-top:10px"><div class="ring" style="background:conic-gradient(${grad || 'var(--surface-2) 0 100%'})"><b>${eur(s.totals.spent)}</b></div>
         <div class="legend" style="flex-direction:column;gap:6px">${s.by_category.map(c => `<span><i class="dot" style="display:inline-block;background:${catColor(c.category)}"></i>${catLabel(c.category)} <b>${eur(c.total)}</b> <span class="muted">${Math.round(c.total / total * 100)}%</span></span>`).join('') || '<span class="muted">—</span>'}</div></div></div>
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card"><h2>Km in camper</h2><div class="small muted">dalle tappe del viaggio</div>
-        <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${num(kmBy[p] || 0, 0)} km in camper"><i style="height:${(kmBy[p] || 0) / maxKmCamper * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
+        <div class="bars">${periods.map(p => `<div class="bar" data-periodo="${p}" title="${fmtP(p)}: ${num(kmBy[p] || 0, 0)} km in camper"><i style="height:${(kmBy[p] || 0) / maxKmCamper * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
       <div class="card"><h2>Km di allenamento</h2><div class="small muted">a piedi, in bici e le altre attività</div>
-        <div class="bars">${periods.map(p => `<div class="bar" title="${fmtP(p)}: ${num(woBy[p]?.km || 0)} km di attività"><i class="sport" style="height:${(woBy[p]?.km || 0) / maxKmSport * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
+        <div class="bars">${periods.map(p => `<div class="bar" data-periodo="${p}" title="${fmtP(p)}: ${num(woBy[p]?.km || 0)} km di attività"><i class="sport" style="height:${(woBy[p]?.km || 0) / maxKmSport * 100}%"></i><b>${fmtP(p)}</b></div>`).join('') || '<div class="empty grow">Nessun dato nel periodo</div>'}</div></div>
     </div>
     <div class="small muted" style="margin:6px 2px 0">I due grafici hanno scale indipendenti: le altezze non sono confrontabili fra loro.${atleti.length > 1 ? ` Gli allenamenti mostrati sono ${state.atleta ? 'di ' + esc((atleti.find(a => a.id === state.atleta) || {}).name || '') : 'di tutti gli atleti insieme'}; spese e chilometri in camper riguardano il viaggio e restano comuni.` : ''}</div>
     <div class="card pad-0" style="margin-top:14px"><div class="table-wrap"><table><thead><tr><th>Periodo</th><th class="num">Spese</th><th class="num">Km camper</th><th class="num">Allenamenti</th><th class="num">Km allenamento</th><th class="num">Calorie</th><th class="num">❤️ medio</th></tr></thead>
       <tbody>${periods.map(p => `<tr><td>${fmtP(p)}</td><td class="num"><b>${eur(spentBy[p])}</b></td><td class="num">${num(kmBy[p] || 0, 0)}</td><td class="num">${woBy[p]?.n || 0}</td><td class="num">${num(woBy[p]?.km || 0)}</td><td class="num">${num(woBy[p]?.calories || 0, 0)}</td><td class="num">${woBy[p]?.hr_avg || '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nessun dato</td></tr>'}</tbody></table></div></div>`);
+  // Il titolo che compare passando il mouse su una colonna, sul telefono non
+  // esiste: li' il mouse non c'e', e il grafico resta un disegno muto. Toccando
+  // una colonna si aprono i numeri di quel giorno - tutti, non solo quello del
+  // grafico che si sta guardando, che quando si chiede «quanto?» di solito si
+  // vuole sapere anche «e quanta strada?».
+  const numeriDelPeriodo = p => [
+    ['Spese', eur(spentBy[p] || 0)],
+    ['Km in camper', num(kmBy[p] || 0, 0)],
+    woBy[p]?.n ? ['Allenamenti', `${woBy[p].n} \u00b7 ${num(woBy[p].km || 0)} km`] : null,
+    woBy[p]?.calories ? ['Calorie', num(woBy[p].calories, 0)] : null,
+    woBy[p]?.hr_avg ? ['Battito medio', `${woBy[p].hr_avg} bpm`] : null,
+  ].filter(Boolean);
+  let cifre = null;
+  const viaCifre = () => {
+    cifre?.remove(); cifre = null;
+    $$('.bars .bar.scelta').forEach(x => x.classList.remove('scelta'));
+  };
+  $$('.bars .bar[data-periodo]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const gia = b.classList.contains('scelta');
+    viaCifre();
+    if (gia) return;                                   // toccata di nuovo, si chiude
+    b.classList.add('scelta');
+    cifre = document.createElement('div');
+    cifre.className = 'cifre-grafico';
+    cifre.innerHTML = `<div class="quando">${esc(fmtP(b.dataset.periodo))}</div>`
+      + numeriDelPeriodo(b.dataset.periodo).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+    $('#app').appendChild(cifre);
+    // Sopra la colonna, se ci sta; sotto se la colonna e' alta e il fumetto
+    // finirebbe fuori dallo schermo. E mai oltre i bordi.
+    const r = b.getBoundingClientRect(), c = cifre.getBoundingClientRect();
+    cifre.style.left = `${Math.min(Math.max(8, r.left + r.width / 2 - c.width / 2), innerWidth - c.width - 8)}px`;
+    cifre.style.top = `${r.top - c.height - 10 > 8 ? r.top - c.height - 10 : r.bottom + 10}px`;
+    setTimeout(() => document.addEventListener('click', viaCifre, { once: true }), 0);
+  });
+  window.addEventListener('scroll', viaCifre, { passive: true, once: true });
+
   $$('.chip').forEach(c => c.onclick = () => { state.period = c.dataset.p; render(); });
   if ($('#go')) $('#go').onclick = () => { state.period = 'custom'; state.from = $('#from').value; state.to = $('#to').value; state.group = $('#group').value; render(); };
   // Col viaggio scelto non c'e' un «Applica» da premere: il raggruppamento si
