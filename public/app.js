@@ -665,9 +665,29 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       + `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>`
       + `${seconda ? `<div class="sotto">${esc(seconda)}</div>` : ''}`
       + `${p.sotto ? `<div class="sotto">${esc(p.sotto)}</div>` : ''}`
+      + `${p.legId && (p.nota || opzioni.scriviNota) ? `<div class="nota-tappa">${p.nota ? `\ud83d\udcac ${esc(p.nota)}`
+        : '<span class="invito">\u270f\ufe0f Soste lungo la strada: pranzo, rifornimento\u2026</span>'}</div>` : ''}`
       + `<div class="diario">${rigaDiario(p.data)}</div>`;
     map.getContainer().appendChild(scheda);
     collegaScrittura(scheda, p.data);
+    // La riga delle soste si scrive da se', senza toccare il diario del giorno
+    const riga = scheda.querySelector('.nota-tappa');
+    if (riga && opzioni.scriviNota) {
+      riga.classList.add('si-scrive');
+      riga.onclick = e => {
+        e.stopPropagation();
+        metti(true);
+        opzioni.scriviNota(p.legId, p.titolo, p.nota, nuova => {
+          if (nuova) {
+            p.nota = nuova.notes;
+            riga.innerHTML = nuova.notes ? `\ud83d\udcac ${esc(nuova.notes)}`
+              : '<span class="invito">\u270f\ufe0f Soste lungo la strada: pranzo, rifornimento\u2026</span>';
+          }
+          aspetta(4600);
+          metti(false);
+        });
+      };
+    }
     return 4600;
   };
 
@@ -1444,7 +1464,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v102';
+const VERSIONE = 'v103';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1742,6 +1762,8 @@ function mappaDelViaggio(el, d, opz = {}) {
         quando: l.date ? fdate(l.date) : '',
         giorno: giornoDi(l.date),
         data: l.date ? iso(l.date) : null,
+        legId: l.id,
+        nota: l.notes || '',
         numeri: numeriTappa(l),
         ordine: l.date ? new Date(l.date).getTime() : 0,
       })),
@@ -1808,6 +1830,7 @@ function mappaDelViaggio(el, d, opz = {}) {
       fotoTutte: fotoSullaMappa(),
       fermi: giorniFermi(),
       scriviMotivo: window.OSPITE ? null : (sosta, fatto) => motivoSostaForm(sosta, fatto),
+      scriviNota: window.OSPITE ? null : (legId, titolo, nota, fatto) => notaTappaForm(legId, titolo, nota, fatto),
       diario: new Map((d.giornate || []).map(x => [x.data, x])),
       // Chi guarda da un link legge il diario, non lo scrive
       scriviGiornata: window.OSPITE ? null : (data, fatto) => giornataForm(trip.id, data,
@@ -1926,7 +1949,7 @@ async function viewTrip(id) {
       <button class="freccia" data-giu="${l.id}" title="Sposta dopo" ${i === legs.length - 1 ? 'disabled' : ''}>\u25bc</button>
     </div><div class="grow">
       <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${!inCamper(l) ? 'in ' + MEZZI[mezzoDi(l)][1].toLowerCase().replace('in camper', 'camper') : conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
-      <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' · ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
+      <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' \u00b7 \ud83d\udcac ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
       ${rigaCosti(l)}
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}${inCamper(l) ? `<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>` : ''}${inCamper(l) && l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   // Ogni materiale si presenta per quello che e': l'appunto si legge, il link
@@ -2344,6 +2367,28 @@ function giornataForm(tripId, data, intestazione, corrente, dopo) {
 // Il perche' di una sosta, scritto senza aprire tutto il modulo: serve mentre
 // si rivede il viaggio, quando il cartellino passa e ci si ricorda che quel
 // giorno ci si era fermati per il pranzo.
+// Le soste di una tappa, scritte senza aprire il modulo intero: serve mentre
+// si rivede il viaggio, che e' quando ci si ricorda del pranzo a Ferrara.
+function notaTappaForm(legId, titolo, nota, dopo) {
+  modal(`<h2>\ud83d\ude90 ${esc(titolo)}</h2>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Soste lungo la strada</label>
+        <input name="notes" maxlength="500" value="${esc(nota || '')}" placeholder="Es. pranzo a Ferrara, rifornimento in A1, visita al borgo">
+        <div class="small muted" style="margin-top:4px">Le fermate fatte strada facendo: quelle che non sono un pernotto.</div></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = () => { close(); dopo?.(null); };
+    $('[name=notes]', el).focus();
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const r = await api(`/legs/${legId}/nota`, { method: 'PUT', body: { notes: $('[name=notes]', el).value } });
+      close();
+      toast(r.notes ? 'Soste salvate' : 'Nota tolta');
+      dopo?.(r);
+    });
+  });
+}
+
 function motivoSostaForm(sosta, dopo) {
   modal(`<h2>${tipoIco(sosta.kind)} ${esc(sosta.name)}</h2>
     <form id="f" class="stack" style="margin-top:12px">
@@ -2581,7 +2626,8 @@ function legForm(trip, legs, leg = null, costi = null) {
       <div><label class="f">Condizioni</label><textarea name="condizioni" rows="2" placeholder="Es. cabina interna, camper fino a 7 m, modificabile entro 48 h, bagaglio 20 kg">${esc(leg?.condizioni || '')}</textarea></div>
       <p class="small muted" style="margin:-4px 0 0">La tariffa entra da sola fra le spese del viaggio, nella categoria del mezzo. I chilometri di questa tappa non contano come chilometri di camper, e le ore non sono ore di guida.</p>
     </div>
-    <div><label class="f">Note</label><input name="notes" value="${esc(leg?.notes || '')}"></div>
+    <div><label class="f">Soste lungo la strada e note</label><input name="notes" maxlength="500" value="${esc(leg?.notes || '')}" placeholder="Es. pranzo a Ferrara, rifornimento in A1, deviazione per il borgo">
+      <div class="small muted" style="margin-top:4px">Le fermate fatte in viaggio: quelle che non sono un pernotto e non hanno una scheda tutta loro.</div></div>
     <div id="costi-camper">${leg ? `<div class="form-grid">
       <div><label class="f">Costo gasolio €</label><input type="number" step="0.01" min="0" name="costo_gasolio" value="${costi?.gMano && costi.g != null ? (+costi.g).toFixed(2) : ''}" placeholder="${costi?.g != null ? (+costi.g).toFixed(2) : 'calcolato'}"></div>
       <div><label class="f">Km in autostrada</label><input type="number" step="0.1" min="0" name="pedaggio_km" value="${leg.pedaggio_km ?? ''}" placeholder="0"></div>

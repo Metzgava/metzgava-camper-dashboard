@@ -127,6 +127,10 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
   max-height: 7.2em; overflow: hidden; }
 .corsa-scheda .diario .invito { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .corsa-scheda.si-scrive { cursor: pointer; }
+/* Le soste lungo la strada, sul cartello della tappa */
+.corsa-scheda .nota-tappa { margin-top: 8px; font-size: 14px; font-weight: 600; }
+.corsa-scheda .nota-tappa .invito { font-weight: 400; color: var(--muted); font-size: 13px; }
+.corsa-scheda .nota-tappa.si-scrive { cursor: pointer; }
 .corsa-scheda .giorno-riga { font-size: 13px; font-weight: 700; letter-spacing: .06em;
   text-transform: uppercase; color: var(--accent); margin-bottom: 5px; }
 .corsa-scheda .sotto { margin-top: 4px; color: var(--muted); font-size: 13px; }

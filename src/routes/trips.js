@@ -799,6 +799,16 @@ router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
     scarto_km: scelto.scarto_km ?? null, confrontate: !!scelto.scelta_per_km });
 }));
 
+// La nota di una tappa, da sola: le soste lungo la strada - il pranzo, il
+// rifornimento, la deviazione per il borgo - si scrivono anche dopo averla
+// caricata, senza passare dal modulo intero che rifa' percorso e costi.
+router.put('/legs/:id/nota', wrap(async (req, res) => {
+  const nota = String(req.body?.notes ?? '').trim().slice(0, 500) || null;
+  const r = (await q('UPDATE legs SET notes=$2 WHERE id=$1 RETURNING id, notes', [req.params.id, nota])).rows[0];
+  if (!r) return res.status(404).json({ error: 'Tappa non trovata' });
+  res.json(r);
+}));
+
 router.post('/legs/:id/sposta', wrap(async (req, res) => {
   const cur = (await q('SELECT id, trip_id, position FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
