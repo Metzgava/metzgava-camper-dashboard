@@ -195,7 +195,13 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 /* Sopra una foto satellitare il grigio chiaro sparisce: il cartellino della
    sosta e' pieno, non velato, con il bordo del colore di casa e i caratteri di
    una misura che si legge mentre la mappa scorre. */
-.corsa-sosta { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); text-align: center;
+/* Il cartellino sta sopra al punto della sosta e ci e' attaccato da una
+   punta: il vertice della punta cade esattamente sulle coordinate del posto.
+   I nove pixel di distacco sono l'altezza della punta. */
+.sosta-icona .punta { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent;
+  border-top: 9px solid var(--accent); filter: drop-shadow(0 3px 3px rgba(0,0,0,.4)); }
+.corsa-sosta { position: absolute; left: 50%; bottom: 9px; transform: translateX(-50%); text-align: center;
   min-width: 235px; max-width: min(370px, 88vw); padding: 11px 18px; border-radius: 14px;
   max-height: 74vh; max-height: 74dvh; overflow-y: auto; -webkit-overflow-scrolling: touch;
   background: var(--surface); border: 2px solid var(--accent);

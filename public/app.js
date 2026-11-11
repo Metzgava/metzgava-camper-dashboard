@@ -441,8 +441,11 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     map.setView(map.unproject(map.project(map.getCenter(), z).add([px, py]), z), z, { animate: false });
   };
 
-  let sostaAperta = null;
-  const chiudiSosta = () => { if (sostaAperta) { map.removeLayer(sostaAperta); sostaAperta = null; } };
+  let sostaAperta = null, puntoSosta = null;
+  const chiudiSosta = () => {
+    if (sostaAperta) { map.removeLayer(sostaAperta); sostaAperta = null; }
+    if (puntoSosta) { map.removeLayer(puntoSosta); puntoSosta = null; }
+  };
   // Passando davanti a una sosta si legge di che posto era, quanto ci si e'
   // fermati e quanto e' costato. E che tempo faceva, se si riesce a saperlo:
   // arriva dopo, e se nel frattempo la cartolina se n'e' andata, pazienza.
@@ -457,11 +460,19 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
           + `${orari ? `<span class="orari">${orari}${s.orari_dedotti ? ' <i>dalle tappe</i>' : ''}</span>` : ''}`
           + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>`
             : opzioni.scriviMotivo ? '<span class="motivo invito">\u270f\ufe0f Tocca per dire perch\u00e9</span>' : ''}`
-          + `<i class="meteo"></i>${bloccoFoto(fotoDelGiorno(s.from_date ? iso(s.from_date) : null, s))}${tastoContinua}</div>`,
-        iconSize: [360, 130], iconAnchor: [180, 146],
+          + `<i class="meteo"></i>${bloccoFoto(fotoDelGiorno(s.from_date ? iso(s.from_date) : null, s))}${tastoContinua}</div>`
+          + '<i class="punta"></i>',
+        // La punta in fondo cade sul fondo del riquadro, e il fondo del
+        // riquadro e' il punto: il cartellino indica il posto esatto dove ci
+        // si e' fermati, non un dintorno.
+        iconSize: [360, 130], iconAnchor: [180, 130],
       }),
       zIndexOffset: 1150, interactive: true,
     }).addTo(map);
+    // Il posto resta segnato sotto la punta: un bollo del colore di casa,
+    // sulle coordinate vere della sosta e non su un dintorno
+    puntoSosta = L.circleMarker([s.lat, s.lon], { radius: 6, weight: 3, color: '#fff', fillColor: '#0f766e', fillOpacity: 1, interactive: false })
+      .addTo(map);
     const cartellino = sostaAperta.getElement()?.querySelector('.corsa-sosta');
     if (cartellino) {
       L.DomEvent.disableClickPropagation(cartellino);
@@ -1560,7 +1571,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v107';
+const VERSIONE = 'v108';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
