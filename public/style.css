@@ -279,7 +279,9 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
    cartellino non ci sta tutto. La foto si stringe, il resto si scorre. */
 @media (max-height: 500px) {
   .foto-giorno img, .leaflet-container .foto-giorno img { max-height: 96px !important; }
-  .corsa-sosta { max-height: 88vh; max-height: 88dvh; }
+  /* Non piu' alto dello spazio libero fra la data e la barra: altrimenti un
+     pezzetto resta sempre fuori dal bordo di sotto */
+  .corsa-sosta { max-height: 70vh; max-height: 70dvh; }
   .corsa-scheda { max-height: calc(100% - 76px); }
 }
 
@@ -383,9 +385,13 @@ body.corsa-in-corso { overflow: hidden; }
 /* Sopra ogni cosa, anche sopra la mappa a schermo pieno di un viaggio
    rivisto: un riquadro da riempire che si apre dietro non si riempie */
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 2200; display: flex; align-items: flex-end; justify-content: center; animation: fade .2s; }
-@media (min-width: 801px) { .modal-bg { align-items: center; } }
+/* Il foglio che sale dal basso e' giusto sul telefono - il pollice ci arriva,
+   la tastiera non lo copre. Su iPad no: li' c'e' spazio e il modulo sta in
+   mezzo allo schermo, come la foto guardata grande. Il telefono girato resta
+   un foglio: con la tastiera aperta, in mezzo non ci starebbe. */
+@media (min-width: 601px) and (min-height: 500px) { .modal-bg { align-items: center; } }
 .modal { background: var(--surface); border-radius: 22px 22px 0 0; padding: 22px 20px calc(22px + env(safe-area-inset-bottom)); width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; }
-@media (min-width: 801px) { .modal { border-radius: 22px; } }
+@media (min-width: 601px) and (min-height: 500px) { .modal { border-radius: 22px; max-height: 86vh; max-height: 86dvh; } }
 .suggest { position: absolute; left: 0; right: 0; top: 100%; background: var(--surface); border-radius: 12px; box-shadow: var(--shadow); z-index: 20; max-height: 220px; overflow: auto; border: 1px solid var(--line); }
 .suggest div { padding: 9px 12px; cursor: pointer; font-size: 14px; } .suggest div:hover { background: var(--surface-2); }
 .rel { position: relative; }

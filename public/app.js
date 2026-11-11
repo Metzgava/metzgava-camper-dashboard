@@ -385,11 +385,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       // All'ultima, il tasto avanti fa ripartire il viaggio invece di girare a vuoto
       succ.title = i + 1 < lista.length ? 'Avanti' : 'Finite le foto: riparti';
     };
-    prec.onclick = e => { e.stopPropagation(); if (i > 0) { i--; mostra(); } };
-    succ.onclick = e => { e.stopPropagation(); if (i + 1 < lista.length) { i++; mostra(); } else riprendiDalCartello(); };
+    // Sfogliando, ogni foto ha la sua forma e il cartellino cambia misura: si
+    // rimette al centro da se', cosi' non balla sullo schermo
+    prec.onclick = e => { e.stopPropagation(); if (i > 0) { i--; mostra(); tieniDentro(card, true); } };
+    succ.onclick = e => { e.stopPropagation(); if (i + 1 < lista.length) { i++; mostra(); tieniDentro(card, true); } else riprendiDalCartello(); };
     // Ogni foto ha la sua forma: quando arriva, il cartellino cresce o si
     // accorcia, e la mappa si risistema perche' resti tutto dentro
-    img.onload = () => tieniDentro(card);
+    img.onload = () => tieniDentro(card, card.dataset.centrato === 's');
     mostra();
   };
   const tastoContinua = '<button type="button" class="btn sm primary continua">Continua \u25b6</button>';
@@ -404,7 +406,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   // basta perche' ci stia tutto: i limiti non sono i bordi dello schermo ma
   // quelli liberi, sotto la data e sopra la barra, che sul telefono tengono
   // gia' conto della tacca e della striscia di casa.
-  const tieniDentro = el => {
+  const tieniDentro = (el, alCentro) => {
     if (!el || chiuso) return;
     const c = map.getContainer().getBoundingClientRect();
     const r = el.getBoundingClientRect();
@@ -417,10 +419,19 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     // l'inizio: se la scheda e' piu' grande dello schermo si vede da sopra e
     // da sinistra, che e' da dove si legge.
     let px = 0, py = 0;
-    if (r.right > dx) px = r.right - dx;
-    if (r.left - px < sx) px = r.left - sx;
-    if (r.bottom > giu) py = r.bottom - giu;
-    if (r.top - py < su) py = r.top - su;
+    // Toccato un cartellino, quello va messo in mezzo allo schermo: e' quello
+    // che si sta guardando, e leggerlo in un angolo mentre si apre un modulo
+    // non e' comodo. Se pero' e' piu' alto dello spazio libero si tiene in
+    // alto, che e' da dove si legge.
+    if (alCentro && r.height <= giu - su) {
+      px = r.left + r.width / 2 - (sx + dx) / 2;
+      py = r.top + r.height / 2 - (su + giu) / 2;
+    } else {
+      if (r.right > dx) px = r.right - dx;
+      if (r.left - px < sx) px = r.left - sx;
+      if (r.bottom > giu) py = r.bottom - giu;
+      if (r.top - py < su) py = r.top - su;
+    }
     if (Math.abs(px) < 2 && Math.abs(py) < 2) return;
     // Si sposta ricentrando la mappa, non con un «panBy»: quello muove il
     // riquadro ma poi Leaflet rimette i cartellini dove stavano, e il cartello
@@ -466,6 +477,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
         dentro.classList.add('si-scrive');
         dentro.onclick = () => {
           metti(true);
+          dentro.dataset.centrato = 's';
+          tieniDentro(dentro, true);
           opzioni.scriviMotivo(s, nuova => {
             if (nuova) {
               s.motivo = nuova.motivo;
@@ -474,6 +487,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
               else if (nuova.motivo) dentro.querySelector('.meteo')
                 ?.insertAdjacentHTML('beforebegin', `<span class="motivo">\ud83d\udcac ${esc(nuova.motivo)}</span>`);
             }
+            tieniDentro(dentro, true);
             aspetta(ATTESA_LUNGA);
           });
         };
@@ -1546,7 +1560,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v106';
+const VERSIONE = 'v107';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
