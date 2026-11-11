@@ -280,6 +280,21 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 
 /* Il materiale con cui si prepara un viaggio: l'appunto si legge nella riga,
    l'immagine si riconosce dalla miniatura */
+/* Le sequenze: una striscia di foto per ogni giorno, luogo o disciplina. Si
+   scorre col dito, come nella raccolta del telefono. */
+.sequenza { padding: 10px 16px 14px; border-top: 1px solid var(--line); }
+.sequenza:first-child { border-top: 0; }
+.sequenza .titolo { font-weight: 650; }
+.striscia { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch; }
+.striscia figure { margin: 0; flex: 0 0 auto; width: 150px; scroll-snap-align: start; cursor: zoom-in; }
+.striscia img { width: 150px; height: 110px; object-fit: cover; border-radius: 10px; display: block; background: var(--surface-2); }
+.striscia figcaption { font-size: 12px; color: var(--muted); margin-top: 3px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.chip.spenta { opacity: .45; }
+/* Mentre il carosello scorre, la foto si cambia con una dissolvenza */
+.lente.in-giostra img { animation: fade .5s; }
+
 /* Il diario: il numero del giorno al posto dell'icona, e l'appunto a capo */
 .item.giornata { cursor: pointer; }
 .item.giornata .sport-ico { font-weight: 700; font-size: 15px; color: var(--accent); }

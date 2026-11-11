@@ -1333,7 +1333,7 @@ const stellaCopertina = (p, scelta) => eVideo(p) ? '' : `<button class="copertin
 // con Esc. Sotto la miniatura non si legge niente: e' li' che si va a vedere se
 // quella curva era davvero cosi' stretta.
 let chiudiLente = null;
-function apriLente(foto, i = 0) {
+function apriLente(foto, i = 0, opz = {}) {
   chiudiLente?.();
   if (!foto.length) return;
   const el = document.createElement('div');
@@ -1410,12 +1410,26 @@ function apriLente(foto, i = 0) {
     penna.hidden = !scrivibile();
     penna.title = foto[i].caption ? 'Cambia la didascalia' : 'Scrivi la didascalia';
   };
+  // Il carosello: le foto scorrono da sole finche' non si tocca qualcosa. Al
+  // primo gesto si ferma - chi prende in mano la pila di fotografie decide lui
+  // quanto guardarle.
+  let giostra = null;
+  const fermaGiostra = () => { if (giostra) { clearInterval(giostra); giostra = null; el.classList.remove('in-giostra'); } };
+  if (opz.carosello && foto.length > 1) {
+    el.classList.add('in-giostra');
+    giostra = setInterval(() => {
+      if (i + 1 >= foto.length) { fermaGiostra(); return; }
+      mostra(i + 1);
+    }, 2800);
+  }
+
   const tasti = e => {
     if (e.key === 'Escape') chiudi();
-    else if (e.key === 'ArrowLeft') mostra(i - 1);
-    else if (e.key === 'ArrowRight') mostra(i + 1);
+    else if (e.key === 'ArrowLeft') { fermaGiostra(); mostra(i - 1); }
+    else if (e.key === 'ArrowRight') { fermaGiostra(); mostra(i + 1); }
   };
   const chiudi = () => {
+    fermaGiostra();
     document.removeEventListener('keydown', tasti);
     document.body.style.overflow = scorrimento;
     el.remove();
@@ -1426,8 +1440,8 @@ function apriLente(foto, i = 0) {
   // Un tocco fuori dalla foto chiude: e' il gesto che viene da se'
   el.addEventListener('click', e => {
     if (e.target.closest('.chiudi')) return chiudi();
-    if (e.target.closest('.prima')) return mostra(i - 1);
-    if (e.target.closest('.dopo')) return mostra(i + 1);
+    if (e.target.closest('.prima')) { fermaGiostra(); return mostra(i - 1); }
+    if (e.target.closest('.dopo')) { fermaGiostra(); return mostra(i + 1); }
     if (e.target.closest('figcaption')) return;
     if (!e.target.closest('img, video')) chiudi();
   });
@@ -1470,7 +1484,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v104';
+const VERSIONE = 'v105';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2076,6 +2090,19 @@ async function viewTrip(id) {
           <div class="small muted">${conNota} giornat${conNota === 1 ? 'a scritta' : 'e scritte'} su ${righe.length}</div></div>
           <div class="list">${righe.join('')}</div></div>`;
       })()}
+      ${(() => {
+        const seq = sequenzeDiFoto(d);
+        if (!seq.quante) return '';
+        const quante = n => `${n} fot${n === 1 ? 'o' : 'o'}`;
+        return `<div class="card pad-0" style="grid-column:1/-1" id="sequenze">
+          <div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udf9e\ufe0f Sequenze di foto</h2>
+            <div class="chips">
+              ${[['giorni', '\ud83d\udcc5 Giorni', seq.giorni.length], ['luoghi', '\ud83d\udccd Luoghi', seq.luoghi.length], ['allenamenti', '\ud83d\udc5f Allenamenti', seq.allenamenti.length]]
+                .map(([k, l, n], i) => `<span class="chip ${i === 0 ? 'active' : ''} ${n ? '' : 'spenta'}" data-seq="${k}">${l}${n ? ` <b>${n}</b>` : ''}</span>`).join('')}
+            </div></div>
+          <div class="small muted" style="padding:0 16px 10px">Le ${quante(seq.quante)} si sistemano da sole: il giorno dall\u2019ora dello scatto, il luogo dal GPS o dalla sosta, l\u2019allenamento dall\u2019essere state scattate mentre lo facevate. Tocca una foto per aprirla, o \u00ab\u25b6 Carosello\u00bb per vederle scorrere.</div>
+          <div id="sequenze-corpo"></div></div>`;
+      })()}
       <div class="card pad-0" style="grid-column:1/-1" id="materiali"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83d\udcce Info e dati utili</h2>
         <div class="row"><button class="btn sm" id="m-nota">\uff0b Nota</button><button class="btn sm" id="m-link">\uff0b Link</button><button class="btn sm primary" id="m-file">\uff0b File</button>
           <input type="file" id="m-input" multiple hidden></div></div>
@@ -2124,6 +2151,32 @@ async function viewTrip(id) {
   $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
   $('#parti')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/stato`, { method: 'POST', body: { stato: 'open' } }); toast('Buon viaggio'); render(); }));
   $('#incostruzione')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/stato`, { method: 'POST', body: { stato: 'bozza' } }); toast('Torna fra i viaggi in costruzione'); render(); }));
+
+  // ---- le sequenze di foto ----
+  const sequenze = sequenzeDiFoto(d);
+  const disegnaSequenze = quale => {
+    const corpo = $('#sequenze-corpo');
+    if (!corpo) return;
+    const gruppi = sequenze[quale] || [];
+    corpo.innerHTML = gruppi.length ? gruppi.map((g, i) => `<div class="sequenza" data-gruppo="${i}">
+      <div class="row between" style="margin-bottom:6px"><div><div class="titolo">${esc(g.titolo)}</div>
+        ${g.sotto ? `<div class="small muted">${esc(g.sotto)}</div>` : ''}</div>
+        <button class="btn sm" data-carosello="${i}">\u25b6 Carosello</button></div>
+      <div class="striscia">${g.foto.map((p, j) => `<figure data-scatto="${i}:${j}">
+        <img src="/uploads/${esc(p.filename)}" alt="" loading="lazy">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}</figure>`).join('')}</div></div>`).join('')
+      : '<div class="empty">Niente da raccogliere in questo modo: alle foto manca l\u2019informazione che serve.</div>';
+    const album = i => (sequenze[quale][i].foto || []).map(p => ({ src: `/uploads/${p.filename}`, caption: [p.luogo, p.caption].filter(Boolean).join(' \u00b7 '), id: p.id }));
+    $$('[data-carosello]', corpo).forEach(b2 => b2.onclick = () => apriLente(album(+b2.dataset.carosello), 0, { carosello: true }));
+    $$('[data-scatto]', corpo).forEach(f => f.onclick = () => {
+      const [i, j] = f.dataset.scatto.split(':').map(Number);
+      apriLente(album(i), j);
+    });
+  };
+  disegnaSequenze('giorni');
+  $$('[data-seq]').forEach(c => c.onclick = () => {
+    $$('[data-seq]').forEach(x => x.classList.toggle('active', x === c));
+    disegnaSequenze(c.dataset.seq);
+  });
 
   // ---- il diario ----
   const apriGiornata = (g, intestazione) => giornataForm(id, g, intestazione, (d.giornate || []).find(x => x.data === g), (nuovo, annullato) => {
@@ -3869,6 +3922,64 @@ const barreOriz = (voci, unita) => {
     <div class="riga"><span class="etichetta">${v.etichetta}</span><b class="valore">${v.testo ?? (num(v.valore) + ' ' + unita)}</b></div>
     <span class="traccia"><i style="width:${Math.max(2, v.valore / massimo * 100)}%"></i></span></div>`).join('')}</div>`;
 };
+
+// Le foto si sistemano da sole in tre modi: il giorno lo dice l'ora dello
+// scatto, il luogo il GPS (o la sosta a cui appartengono), l'allenamento il
+// fatto di essere state scattate mentre si camminava. Non c'e' niente da
+// ordinare a mano: si carica e si trova gia' tutto diviso.
+function sequenzeDiFoto(d) {
+  const { photos, soste, legs, workouts, trip } = d;
+  const utili = (photos || []).filter(p => !eVideo(p));
+  const sostaDi = p => (soste || []).find(x => x.id === p.stop_id);
+  const giornoDellaFoto = p => {
+    if (p.taken_at) return iso(p.taken_at);
+    const s = sostaDi(p);
+    return s?.from_date ? iso(s.from_date) : null;
+  };
+  const luogoDellaFoto = p => p.luogo || sostaDi(p)?.name || null;
+  const dentroUnAllenamento = p => {
+    if (!p.taken_at) return null;
+    const t = new Date(p.taken_at).getTime();
+    return (workouts || []).find(w => {
+      const da = new Date(w.started_at).getTime();
+      return t >= da - 300000 && t <= da + (w.duration_s || 0) * 1000 + 300000;
+    }) || null;
+  };
+  const raccogli = (chiave, etichetta) => {
+    const gruppi = new Map();
+    utili.forEach(p => {
+      const k = chiave(p);
+      if (k == null || k === '') return;
+      if (!gruppi.has(k)) gruppi.set(k, []);
+      gruppi.get(k).push(p);
+    });
+    return [...gruppi.entries()].map(([k, foto]) => ({ k, foto, ...etichetta(k, foto) }));
+  };
+  const numeroGiorno = g => {
+    if (!trip?.start_date || !g) return null;
+    const n = Math.round((new Date(g) - new Date(iso(trip.start_date))) / 86400000) + 1;
+    return n > 0 && n < 400 ? n : null;
+  };
+  const giorni = raccogli(giornoDellaFoto, g => {
+    const n = numeroGiorno(g);
+    const dove = [...new Set(utili.filter(p => giornoDellaFoto(p) === g).map(luogoDellaFoto).filter(Boolean))];
+    return { titolo: `${n ? `Giorno ${n} \u00b7 ` : ''}${fdate(g)}`, sotto: dove.slice(0, 3).join(' \u00b7 '), ordine: g };
+  }).sort((a, b) => String(a.ordine).localeCompare(String(b.ordine)));
+  const luoghi = raccogli(luogoDellaFoto, (k, foto) => ({
+    titolo: k,
+    sotto: (() => { const gg = [...new Set(foto.map(giornoDellaFoto).filter(Boolean))].sort(); return gg.length ? `${fdate(gg[0])}${gg.length > 1 ? ` \u2192 ${fdate(gg[gg.length - 1])}` : ''}` : ''; })(),
+    ordine: -foto.length,
+  })).sort((a, b) => a.ordine - b.ordine);
+  const allenamenti = raccogli(p => dentroUnAllenamento(p)?.sport || null, (k, foto) => ({
+    titolo: `${sportIco(k)} ${k}`,
+    sotto: (() => {
+      const quali = [...new Set(foto.map(p => dentroUnAllenamento(p)).filter(Boolean).map(w => w.athlete))];
+      return `${foto.length} scatt${foto.length === 1 ? 'o' : 'i'}${quali.length ? ' \u00b7 ' + quali.join(' e ') : ''}`;
+    })(),
+    ordine: -foto.length,
+  })).sort((a, b) => a.ordine - b.ordine);
+  return { giorni, luoghi, allenamenti, quante: utili.length };
+}
 
 function graficiDelViaggio(d) {
   const { trip, legs, expenses, workouts, totals } = d;
