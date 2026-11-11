@@ -122,10 +122,21 @@ router.post('/trips/:id/photos', upload.array('photos', 20), wrap(async (req, re
   }
   res.json(out);
 }));
+// Si cambia solo quello che arriva. Prima bastava mandare una didascalia
+// perche' la foto perdesse la tappa e la sosta a cui apparteneva: campi non
+// nominati, azzerati lo stesso.
 router.put('/photos/:id', wrap(async (req, res) => {
   const b = req.body || {};
-  res.json((await q('UPDATE photos SET caption=$2, leg_id=$3, stop_id=$4 WHERE id=$1 RETURNING *',
-    [req.params.id, b.caption ?? null, b.leg_id || null, b.stop_id || null])).rows[0]);
+  const dato = k => Object.prototype.hasOwnProperty.call(b, k);
+  const r = (await q(`UPDATE photos SET
+      caption = CASE WHEN $2 THEN $3 ELSE caption END,
+      leg_id  = CASE WHEN $4 THEN $5 ELSE leg_id END,
+      stop_id = CASE WHEN $6 THEN $7 ELSE stop_id END
+    WHERE id=$1 RETURNING *`,
+    [req.params.id, dato('caption'), String(b.caption ?? '').trim().slice(0, 300) || null,
+      dato('leg_id'), b.leg_id || null, dato('stop_id'), b.stop_id || null])).rows[0];
+  if (!r) return res.status(404).json({ error: 'Foto non trovata' });
+  res.json(r);
 }));
 // Piu' foto in una volta: con venti scatti da togliere, venti richieste e venti
 // conferme sono venti occasioni di sbagliare. I file spariscono dal disco solo

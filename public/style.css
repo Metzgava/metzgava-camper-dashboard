@@ -227,6 +227,13 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
   display: grid; place-items: center; pointer-events: none; padding-left: 2px; }
 .foto-sosta figure.e-video .segno-video { width: 22px; height: 22px; font-size: 9px; }
 .lente video { max-width: 92vw; max-height: 82vh; border-radius: 10px; background: #000; display: block; }
+/* La didascalia si scrive qui, guardando la foto */
+.lente figcaption { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.lente figcaption .testo { cursor: text; }
+.lente figcaption .testo.vuota { opacity: .65; font-style: italic; }
+.lente figcaption .scrivi { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.3); color: #fff; padding: 4px 10px; }
+.lente figcaption input { width: min(520px, 80vw); font-size: 15px; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.4); background: rgba(0,0,0,.45); color: #fff; }
 
 /* Il materiale con cui si prepara un viaggio: l'appunto si legge nella riga,
    l'immagine si riconosce dalla miniatura */

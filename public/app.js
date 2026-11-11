@@ -1120,7 +1120,7 @@ const eVideo = p => /^video\//.test(p?.mime || '') || /\.(mp4|mov|m4v|webm|avi|m
 const facciaMedia = (p, dentro = '') => eVideo(p)
   ? `<video src="/uploads/${esc(p.filename)}#t=0.1" preload="metadata" muted playsinline${dentro}></video><span class="segno-video">\u25b6</span>`
   : `<img src="/uploads/${esc(p.filename)}" loading="lazy" alt=""${dentro}>`;
-const datiLente = p => `data-grande="/uploads/${esc(p.filename)}" data-didascalia="${esc(p.caption || '')}"${eVideo(p) ? ' data-video="1"' : ''}`;
+const datiLente = p => `data-grande="/uploads/${esc(p.filename)}" data-didascalia="${esc(p.caption || '')}" data-id="${p.id}"${eVideo(p) ? ' data-video="1"' : ''}`;
 
 const stellaCopertina = (p, scelta) => eVideo(p) ? '' : `<button class="copertina-scelta${scelta === p.id ? ' scelta' : ''}" data-copertina="${p.id}"
   title="${scelta === p.id ? 'E\u2019 la copertina del viaggio \u00b7 tocca per togliere la scelta' : 'Usa come copertina del viaggio'}">${scelta === p.id ? '\u2605' : '\u2606'}</button>`;
@@ -1138,11 +1138,59 @@ function apriLente(foto, i = 0) {
   el.className = 'lente';
   el.innerHTML = `<button class="chiudi" title="Chiudi (Esc)">\u2715</button>
     ${foto.length > 1 ? '<button class="passo prima" title="Precedente">\u2039</button><button class="passo dopo" title="Successiva">\u203a</button>' : ''}
-    <figure><img alt=""><video controls playsinline hidden></video><figcaption></figcaption></figure>`;
+    <figure><img alt=""><video controls playsinline hidden></video>
+      <figcaption><span class="testo"></span><button class="btn sm ghost scrivi" hidden>\u270f\ufe0f</button></figcaption></figure>`;
   document.body.appendChild(el);
   const scorrimento = document.body.style.overflow;
   document.body.style.overflow = 'hidden';
   const img = $('img', el), filmato = $('video', el), didascalia = $('figcaption', el);
+  const testo = $('.testo', didascalia), penna = $('.scrivi', didascalia);
+
+  // La didascalia si scrive guardando la foto, che e' il momento in cui uno sa
+  // cosa scriverci. Chi guarda da un link non scrive niente.
+  const scrivibile = () => !window.OSPITE && foto[i]?.id && !foto[i]?.video;
+  const scriviDidascalia = () => {
+    if (!scrivibile() || $('input', didascalia)) return;
+    const quale = foto[i];
+    const campo = document.createElement('input');
+    campo.type = 'text';
+    campo.maxLength = 300;
+    campo.value = quale.caption || '';
+    campo.placeholder = 'Che cos\u2019\u00e8, dov\u2019\u00e8, chi c\u2019\u00e8';
+    testo.hidden = true; penna.hidden = true;
+    didascalia.appendChild(campo);
+    campo.focus();
+    campo.select();
+    let salvato = false;
+    const chiudiCampo = () => { campo.remove(); testo.hidden = false; penna.hidden = !scrivibile(); };
+    const salva = safe(async () => {
+      if (salvato) return;
+      salvato = true;
+      const nuova = campo.value.trim();
+      chiudiCampo();
+      if (nuova === (quale.caption || '')) return;
+      await api('/photos/' + quale.id, { method: 'PUT', body: { caption: nuova } });
+      quale.caption = nuova;
+      // La miniatura da cui si e' partiti si aggiorna da se', senza ridisegnare
+      // tutta la pagina: chi sta guardando le foto resta dove si trova
+      if (quale.el) {
+        quale.el.dataset.didascalia = nuova;
+        const figura = quale.el.closest('figure');
+        if (figura) {
+          let sotto = figura.querySelector('figcaption');
+          if (!sotto && nuova) { sotto = document.createElement('figcaption'); figura.appendChild(sotto); }
+          if (sotto) { sotto.textContent = nuova; sotto.hidden = !nuova; }
+        }
+      }
+      mostra(i);
+      toast(nuova ? 'Didascalia salvata' : 'Didascalia tolta');
+    });
+    campo.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); salva(); } else if (e.key === 'Escape') { e.stopPropagation(); salvato = true; chiudiCampo(); } };
+    campo.onblur = salva;
+  };
+  penna.onclick = e => { e.stopPropagation(); scriviDidascalia(); };
+  testo.onclick = e => { if (scrivibile()) { e.stopPropagation(); scriviDidascalia(); } };
+
   const mostra = n => {
     i = (n + foto.length) % foto.length;
     // Un video si apre nella stessa cornice, ma con i suoi comandi: fermarlo
@@ -1151,7 +1199,14 @@ function apriLente(foto, i = 0) {
     const video = !!foto[i].video;
     img.hidden = video; filmato.hidden = !video;
     if (video) { filmato.src = foto[i].src; filmato.play().catch(() => {}); } else img.src = foto[i].src;
-    didascalia.textContent = [foto[i].caption, foto.length > 1 ? `${i + 1} di ${foto.length}` : ''].filter(Boolean).join(' \u00b7 ');
+    $('input', didascalia)?.remove();
+    testo.hidden = false;
+    const senza = !foto[i].caption && scrivibile();
+    testo.textContent = [foto[i].caption || (senza ? 'Scrivi una didascalia' : ''), foto.length > 1 ? `${i + 1} di ${foto.length}` : '']
+      .filter(Boolean).join(' \u00b7 ');
+    testo.classList.toggle('vuota', senza);
+    penna.hidden = !scrivibile();
+    penna.title = foto[i].caption ? 'Cambia la didascalia' : 'Scrivi la didascalia';
   };
   const tasti = e => {
     if (e.key === 'Escape') chiudi();
@@ -1171,7 +1226,8 @@ function apriLente(foto, i = 0) {
     if (e.target.closest('.chiudi')) return chiudi();
     if (e.target.closest('.prima')) return mostra(i - 1);
     if (e.target.closest('.dopo')) return mostra(i + 1);
-    if (!e.target.closest('img')) chiudi();
+    if (e.target.closest('figcaption')) return;
+    if (!e.target.closest('img, video')) chiudi();
   });
   // Col dito si scorre, come in qualunque raccolta di foto
   let partenza = null;
@@ -1195,7 +1251,8 @@ document.addEventListener('click', e => {
   e.preventDefault(); e.stopPropagation();
   const gruppo = scatto.closest('.photos, .foto-sosta');
   const tutte = gruppo ? $$('[data-grande]', gruppo) : [scatto];
-  apriLente(tutte.map(x => ({ src: x.dataset.grande, caption: x.dataset.didascalia || '', video: x.dataset.video === '1' })), Math.max(0, tutte.indexOf(scatto)));
+  apriLente(tutte.map(x => ({ src: x.dataset.grande, caption: x.dataset.didascalia || '', video: x.dataset.video === '1',
+    id: +(x.dataset.id || x.closest('[data-foto]')?.dataset.foto || 0) || null, el: x })), Math.max(0, tutte.indexOf(scatto)));
 });
 
 
@@ -1211,7 +1268,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v87';
+const VERSIONE = 'v88';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
