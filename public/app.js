@@ -489,6 +489,19 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     interactive: false, zIndexOffset: 900,
   }).addTo(map);
 
+  // Un viaggio si racconta a giornate: prima di ripartire, quando cambia il
+  // giorno, lo si dice. E' il «giorno 3» che fa capire che si e' dormito.
+  let giornoMostrato = null, daAnnunciare = null;
+  const mostraGiorno = p => {
+    viaScheda();
+    scheda = document.createElement('div');
+    scheda.className = 'corsa-scheda annuncio giorno';
+    scheda.innerHTML = `<div class="titolo">\ud83d\udcc5 Giorno ${p.giorno}</div>`
+      + `${p.quando ? `<div class="sotto">${esc(p.quando)}</div>` : ''}`;
+    map.getContainer().appendChild(scheda);
+    return 2600;
+  };
+
   const mostraTitolo = p => {
     if (!p.titolo) return 0;
     viaScheda();
@@ -525,8 +538,16 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     viaCartelli(); viaScheda();
     if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
     if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
-    // Chi sta camminando si dice prima di partire, non alla fine
-    aspetta(mostraTitolo(p));
+    // Chi sta camminando si dice prima di partire, non alla fine. E se comincia
+    // una giornata nuova, quella viene prima di tutto: il cartello del giorno,
+    // e subito dopo quello della tratta.
+    if (p.giorno && p.giorno !== giornoMostrato) {
+      giornoMostrato = p.giorno;
+      daAnnunciare = p;
+      aspetta(mostraGiorno(p));
+    } else {
+      aspetta(mostraTitolo(p));
+    }
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
     // chilometri e una camminata di tre non si guardano dalla stessa altezza
     map.flyToBounds(L.latLngBounds(p.punti), { padding: [50, 50], duration: .8, maxZoom: 15 });
@@ -556,6 +577,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       finoA = 0;
       chiudiFoto(); chiudiSosta();
       rinquadra();
+      // Finito il cartello del giorno tocca a quello della tratta
+      if (daAnnunciare) { const q = daAnnunciare; daAnnunciare = null; aspetta(mostraTitolo(q)); return; }
       if (scheda?.classList.contains('annuncio')) viaScheda();
       return;
     }
@@ -1268,7 +1291,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v91';
+const VERSIONE = 'v92';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1473,8 +1496,16 @@ function mappaDelViaggio(el, d, opz = {}) {
   // le foto scattate lungo il percorso compaiono quando ci si passa davanti.
   // Com'e' fatto il pezzo di un allenamento: serve ai tasti del viaggio e a
   // quello su ogni singola uscita
+  // Il giorno del viaggio: il primo e' uno, non zero, come si conta a voce
+  const giornoDi = data => {
+    if (!data || !trip.start_date) return null;
+    const n = Math.round((new Date(iso(data)) - new Date(iso(trip.start_date))) / 86400000) + 1;
+    return n > 0 && n < 400 ? n : null;
+  };
+
   const pezzoAllenamento = w => ({
     punti: w.track.map(p => [p[0], p[1]]),
+    giorno: giornoDi(w.started_at),
     meteo: { lat: w.track[0][0], lon: w.track[0][1], giorno: iso(w.started_at) },
     faccia: sportIco(w.sport),
     da: w.luogo || null,
@@ -1514,7 +1545,7 @@ function mappaDelViaggio(el, d, opz = {}) {
     const w = workouts.find(x => x.id === +b.dataset.rivediUno);
     if (!w?.track?.length) return;
     $('#map')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setTimeout(() => riproduci(map, [pezzoAllenamento(w)], fotoSullaMappa(), { secondi: 18 }), 400);
+    setTimeout(() => riproduci(map, [pezzoAllenamento(w)], fotoSullaMappa(), { secondi: 28 }), 400);
   });
 
   $$('[data-rivedi]').forEach(b => b.onclick = () => {
@@ -1534,6 +1565,7 @@ function mappaDelViaggio(el, d, opz = {}) {
         nome: `${l.from_name.split(',')[0]} \u2192 ${l.to_name.split(',')[0]}`,
         sotto: orariTappa(l),
         quando: l.date ? fdate(l.date) : '',
+        giorno: giornoDi(l.date),
         numeri: numeriTappa(l),
         ordine: l.date ? new Date(l.date).getTime() : 0,
       })),
@@ -1565,7 +1597,7 @@ function mappaDelViaggio(el, d, opz = {}) {
     // spediti: il passo di prima faceva aspettare davanti a una strada ferma.
     const secondi = soloCamper
       ? Math.min(36, 7 + pezzi.length * 3)
-      : Math.min(96, 24 + pezzi.length * 9);
+      : Math.min(130, 32 + pezzi.length * 13);
     // In camper le foto sono quelle delle soste: nel giro di tutto un viaggio
     // ogni scatto della vacanza fermerebbe la strada ogni tre secondi
     riproduci(map, pezzi, fotoSullaMappa(soloCamper), {
