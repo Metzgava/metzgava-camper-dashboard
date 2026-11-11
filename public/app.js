@@ -489,19 +489,6 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     interactive: false, zIndexOffset: 900,
   }).addTo(map);
 
-  // Un viaggio si racconta a giornate: prima di ripartire, quando cambia il
-  // giorno, lo si dice. E' il «giorno 3» che fa capire che si e' dormito.
-  let giornoMostrato = null, daAnnunciare = null;
-  const mostraGiorno = p => {
-    viaScheda();
-    scheda = document.createElement('div');
-    scheda.className = 'corsa-scheda annuncio giorno';
-    scheda.innerHTML = `<div class="titolo">\ud83d\udcc5 Giorno ${p.giorno}</div>`
-      + `${p.quando ? `<div class="sotto">${esc(p.quando)}</div>` : ''}`;
-    map.getContainer().appendChild(scheda);
-    return 2600;
-  };
-
   const mostraTitolo = p => {
     if (!p.titolo) return 0;
     viaScheda();
@@ -509,7 +496,10 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scheda.className = 'corsa-scheda annuncio';
     // Il nome dei due capi non si ripete se e' gia' il titolo
     const seconda = [p.nome === p.titolo ? '' : p.nome, p.quando].filter(Boolean).join(' \u00b7 ');
-    scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>`
+    // Il giorno del viaggio sta qui dentro, sopra al titolo: un cartello solo,
+    // che due di fila sono due attese
+    scheda.innerHTML = `${p.giorno ? `<div class="giorno-riga">\ud83d\udcc5 Giorno ${p.giorno}</div>` : ''}`
+      + `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>`
       + `${seconda ? `<div class="sotto">${esc(seconda)}</div>` : ''}`
       + `${p.sotto ? `<div class="sotto">${esc(p.sotto)}</div>` : ''}`;
     map.getContainer().appendChild(scheda);
@@ -538,16 +528,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     viaCartelli(); viaScheda();
     if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
     if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
-    // Chi sta camminando si dice prima di partire, non alla fine. E se comincia
-    // una giornata nuova, quella viene prima di tutto: il cartello del giorno,
-    // e subito dopo quello della tratta.
-    if (p.giorno && p.giorno !== giornoMostrato) {
-      giornoMostrato = p.giorno;
-      daAnnunciare = p;
-      aspetta(mostraGiorno(p));
-    } else {
-      aspetta(mostraTitolo(p));
-    }
+    // Chi sta camminando si dice prima di partire, non alla fine
+    aspetta(mostraTitolo(p));
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
     // chilometri e una camminata di tre non si guardano dalla stessa altezza
     map.flyToBounds(L.latLngBounds(p.punti), { padding: [50, 50], duration: .8, maxZoom: 15 });
@@ -577,8 +559,6 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       finoA = 0;
       chiudiFoto(); chiudiSosta();
       rinquadra();
-      // Finito il cartello del giorno tocca a quello della tratta
-      if (daAnnunciare) { const q = daAnnunciare; daAnnunciare = null; aspetta(mostraTitolo(q)); return; }
       if (scheda?.classList.contains('annuncio')) viaScheda();
       return;
     }
@@ -1291,7 +1271,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v92';
+const VERSIONE = 'v93';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
