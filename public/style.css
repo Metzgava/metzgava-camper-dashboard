@@ -92,6 +92,16 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
   color: #fff; font-weight: 700; font-size: 16px; letter-spacing: .02em; padding: 6px 16px;
   border-radius: 999px; box-shadow: 0 3px 14px rgba(0,0,0,.35); pointer-events: none; white-space: nowrap; }
 
+/* Sotto la mappa, due riquadri: il tracciato del camper e quello degli
+   allenamenti. Sono due filmati diversi e si vede. */
+.rivedi-sezioni { display: flex; gap: 10px; width: 100%; flex-wrap: wrap; margin-bottom: 4px; }
+.sezione-rivedi { flex: 1 1 240px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start;
+  background: var(--surface-2); border-radius: 12px; padding: 11px 13px; }
+.sezione-rivedi .intestazione { font-weight: 700; font-size: 15px; }
+.sezione-rivedi .btn { display: inline-flex; align-items: center; gap: 6px; }
+.sezione-rivedi .btn svg { width: 1.1em; height: auto; }
+.sezione-rivedi .row { gap: 6px; }
+
 /* I tasti per rivedere: il camper e, accanto, una persona per volta */
 .rivedi-tasti { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-bottom: 2px; }
 .rivedi-tasti .btn { display: inline-flex; align-items: center; gap: 6px; }

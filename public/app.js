@@ -567,13 +567,19 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc([p.nome, p.quando].filter(Boolean).join(' \u00b7 '))}</div>
       ${p.chi ? `<div class="sotto">${esc(p.chi)}</div>` : ''}
       <div class="numeri">${p.numeri.map(([v, u]) => `<div><b>${v}</b><span>${esc(u)}</span></div>`).join('')}</div>`;
+    scheda.insertAdjacentHTML('beforeend', `<div class="diario">${rigaDiario(p.data)}</div>`
+      + `${bloccoFoto(fotoDelGiorno(p.data, null))}${tastoContinua}`);
     map.getContainer().appendChild(scheda);
     const mia = scheda;
+    collegaScrittura(scheda, p.data);
+    collegaContinua(scheda);
+    collegaFoto(scheda, fotoDelGiorno(p.data, null));
+    metti(true);
     if (p.meteo) meteoDi(p.meteo.lat, p.meteo.lon, p.meteo.giorno).then(m => {
       if (mia !== scheda || !rigaMeteo(m)) return;
-      mia.insertAdjacentHTML('beforeend', `<div class="meteo">${rigaMeteo(m)}${m.nome ? ` <span>${esc(m.nome)}</span>` : ''}</div>`);
+      mia.querySelector('.numeri')?.insertAdjacentHTML('afterend', `<div class="meteo">${rigaMeteo(m)}${m.nome ? ` <span>${esc(m.nome)}</span>` : ''}</div>`);
     });
-    return 5000;
+    return ATTESA_LUNGA;                     // riparte col tasto \u00abContinua\u00bb
   };
   const cartello = (punto, testo, arrivo) => L.marker(punto, {
     icon: L.divIcon({ className: '', html: `<div class="corsa-cartello${arrivo ? ' arrivo' : ''}">${esc(testo)}</div>`, iconSize: [0, 0], iconAnchor: [0, arrivo ? -6 : 34] }),
@@ -1464,7 +1470,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v103';
+const VERSIONE = 'v104';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1545,9 +1551,23 @@ function legendaViaggio(d, opz = {}) {
         const conPosto = photos.filter(p => p.lat != null).length;
         if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
         return `<div class="legenda-mappa">
-          ${!conTracciati ? '' : `<span class="rivedi-tasti">${legs.length ? `<button class="btn sm primary" data-rivedi="camper">\u25b6 \ud83d\ude90 Rivedi il camper</button>` : ''}
-            ${atletiDelViaggio.filter(nome => workouts.some(w => w.athlete === nome && w.track?.length > 1))
-              .map((nome, i) => `<button class="btn sm" data-rivedi="atleta:${esc(nome)}">\u25b6 ${ICO_SCARPA(coloreAtleta(nome, i))} ${esc(nome)}</button>`).join('')}</span>`}
+          ${!conTracciati ? '' : (() => {
+            // Due cose diverse, due riquadri: la strada del camper e le uscite
+            // a piedi o in bici. Mischiati in una fila di tasti, uno non capiva
+            // che erano due filmati diversi.
+            const conTraccia = atletiDelViaggio.filter(nome => workouts.some(w => w.athlete === nome && w.track?.length > 1));
+            if (!legs.length && !conTraccia.length) return '';
+            return `<div class="rivedi-sezioni">
+              ${legs.length ? `<div class="sezione-rivedi">
+                <div class="intestazione">\ud83d\ude90 Tracciato in camper</div>
+                <div class="small muted">Tutto il viaggio, giorno per giorno: le tratte, le soste, le foto e i conti</div>
+                <button class="btn sm primary" data-rivedi="camper">\u25b6 Rivedi il tracciato</button></div>` : ''}
+              ${conTraccia.length ? `<div class="sezione-rivedi">
+                <div class="intestazione">\ud83d\udc5f Tracciato allenamenti</div>
+                <div class="small muted">Le uscite dentro le date del viaggio, una per una</div>
+                <div class="row">${conTraccia.map((nome, i) => `<button class="btn sm" data-rivedi="atleta:${esc(nome)}">\u25b6 ${ICO_SCARPA(coloreAtleta(nome, i))} ${esc(nome)}</button>`).join('')}</div></div>` : ''}
+            </div>`;
+          })()}
           <span class="small muted" style="width:100%">Tocca una voce per vedere solo quella, ingrandita sul suo percorso. Toccala di nuovo per rivedere tutto.</span>
           ${legs.some(inCamper) ? `<span class="voce" data-strato="camper"><i style="background:${COLORE_CAMPER}"></i>In camper</span>` : ''}
           ${legs.some(l => !inCamper(l)) ? `<span class="voce" data-strato="altri"><i class="tratteggio" style="border-top-color:${COLORE_ALTRI_MEZZI}"></i>${[...new Set(legs.filter(l => !inCamper(l)).map(l => MEZZI[mezzoDi(l)][0] + ' ' + MEZZI[mezzoDi(l)][1]))].join(', ')}</span>` : ''}
@@ -1676,10 +1696,19 @@ function mappaDelViaggio(el, d, opz = {}) {
     return n > 0 && n < 400 ? n : null;
   };
 
+  // I numeri di un'uscita, detti in una riga: come gli orari di una tratta
+  const rigaAllenamento = w => [
+    w.distance_m > 0 ? `${num(w.distance_m / 1000)} km` : '',
+    w.duration_s > 0 ? dur(w.duration_s) : '',
+    passoAlKm(w) ? `${passoAlKm(w)} al km` : (mediaKmh(w) ? `${num(mediaKmh(w))} km/h di media` : ''),
+    w.elevation_up_m > 0 ? `\u26f0\ufe0f ${num(w.elevation_up_m, 0)} m` : '',
+  ].filter(Boolean).join(' \u00b7 ');
+
   const pezzoAllenamento = w => ({
     punti: w.track.map(p => [p[0], p[1]]),
     giorno: giornoDi(w.started_at),
     data: iso(w.started_at),
+    sotto: rigaAllenamento(w),
     meteo: { lat: w.track[0][0], lon: w.track[0][1], giorno: iso(w.started_at) },
     faccia: sportIco(w.sport),
     da: w.luogo || null,
