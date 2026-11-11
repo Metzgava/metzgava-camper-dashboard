@@ -405,7 +405,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const partiFilmato = sc => {
     const el = fotoAperta?.getElement()?.querySelector('.corsa-foto');
     const v = el?.querySelector('video');
-    if (!v) return aspetta(3000);
+    if (!v) return aspetta(5000);
     L.DomEvent.disableClickPropagation(el);
     metti(true);
     const scelte = document.createElement('div');
@@ -482,7 +482,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       if (mia !== scheda || !rigaMeteo(m)) return;
       mia.insertAdjacentHTML('beforeend', `<div class="meteo">${rigaMeteo(m)}${m.nome ? ` <span>${esc(m.nome)}</span>` : ''}</div>`);
     });
-    return 3000;
+    return 5000;
   };
   const cartello = (punto, testo, arrivo) => L.marker(punto, {
     icon: L.divIcon({ className: '', html: `<div class="corsa-cartello${arrivo ? ' arrivo' : ''}">${esc(testo)}</div>`, iconSize: [0, 0], iconAnchor: [0, arrivo ? -6 : 34] }),
@@ -500,7 +500,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       + `${seconda ? `<div class="sotto">${esc(seconda)}</div>` : ''}`
       + `${p.sotto ? `<div class="sotto">${esc(p.sotto)}</div>` : ''}`;
     map.getContainer().appendChild(scheda);
-    return 2600;
+    return 4600;
   };
 
   // Quanto bisogna stare bassi perche' si legga: su una statale basta meno
@@ -566,7 +566,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       // altrimenti l'ultima immagine dura un momento e la mappa torna com'era
       if (iP + 1 >= pezzi.length) {
         avanzamento.style.width = '100%'; metti(true);
-        if (!mostraFinale()) setTimeout(fine, scheda ? 3200 : 2200);
+        if (!mostraFinale()) setTimeout(fine, scheda ? 5200 : 4200);
         return;
       }
       return apriPezzo(iP + 1);
@@ -632,7 +632,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
       // Una foto dura tre secondi; un video dura quanto dura, e alla fine
       // aspetta che tu decida se rivederlo o andare avanti
-      if (!filmato) aspetta(3000);
+      if (!filmato) aspetta(5000);
       return;
     }
     // La sosta: il cartellino resta il tempo di leggerlo tutto - nome, tipo,
@@ -641,7 +641,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (fm && (fm.iP < iP || (fm.iP === iP && fm.f <= f))) {
       prossimaFermata++;
       mostraSosta(fm);
-      aspetta(4600);
+      aspetta(6600);
     }
   };
   apriPezzo(0);
@@ -1268,7 +1268,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v88';
+const VERSIONE = 'v89';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
