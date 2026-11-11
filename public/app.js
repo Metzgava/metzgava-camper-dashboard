@@ -353,6 +353,17 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   let finoA = 0, restante = 0;
   const aspetta = ms => { finoA = ms ? performance.now() + ms : 0; };
   const totaleFrames = pezzi.reduce((a, p) => a + p.frames, 0);
+  // Davanti a una sosta il filmato si ferma: nome, tipo, orari, quanto si e'
+  // stati, quanto e' costato, perche' e che tempo faceva sono troppe cose per
+  // sei secondi. Riparte col tasto, quando chi guarda ha finito di leggere.
+  const ATTESA_LUNGA = 3600000;
+  const tastoContinua = '<button type="button" class="btn sm primary continua">Continua \u25b6</button>';
+  const riprendiDalCartello = () => { restante = 0; metti(false); aspetta(1); };
+  const collegaContinua = card => {
+    const b = card?.querySelector('.continua');
+    if (b) b.onclick = e => { e.stopPropagation(); riprendiDalCartello(); };
+  };
+
   let sostaAperta = null;
   const chiudiSosta = () => { if (sostaAperta) { map.removeLayer(sostaAperta); sostaAperta = null; } };
   // Passando davanti a una sosta si legge di che posto era, quanto ci si e'
@@ -368,18 +379,21 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
         html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}`
           + `${orari ? `<span class="orari">${orari}${s.orari_dedotti ? ' <i>dalle tappe</i>' : ''}</span>` : ''}`
           + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>`
-            : opzioni.scriviMotivo ? '<span class="motivo invito">\u270f\ufe0f Tocca per dire perch\u00e9</span>' : ''}<i class="meteo"></i></div>`,
+            : opzioni.scriviMotivo ? '<span class="motivo invito">\u270f\ufe0f Tocca per dire perch\u00e9</span>' : ''}`
+          + `<i class="meteo"></i>${tastoContinua}</div>`,
         iconSize: [360, 130], iconAnchor: [180, 146],
       }),
-      zIndexOffset: 1150, interactive: !!opzioni.scriviMotivo,
+      zIndexOffset: 1150, interactive: true,
     }).addTo(map);
+    const cartellino = sostaAperta.getElement()?.querySelector('.corsa-sosta');
+    if (cartellino) { L.DomEvent.disableClickPropagation(cartellino); collegaContinua(cartellino); }
+    metti(true);
     // Toccando il cartellino ci si ferma e si scrive perche' ci si era
     // fermati: e' li' che uno se lo ricorda, non nel modulo della sosta
     if (opzioni.scriviMotivo) {
-      const dentro = sostaAperta.getElement()?.querySelector('.corsa-sosta');
+      const dentro = cartellino;
       if (dentro) {
         dentro.classList.add('si-scrive');
-        L.DomEvent.disableClickPropagation(dentro);
         dentro.onclick = () => {
           metti(true);
           opzioni.scriviMotivo(s, nuova => {
@@ -390,16 +404,23 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
               else if (nuova.motivo) dentro.querySelector('.meteo')
                 ?.insertAdjacentHTML('beforebegin', `<span class="motivo">\ud83d\udcac ${esc(nuova.motivo)}</span>`);
             }
-            aspetta(6600);
-            metti(false);
+            aspetta(ATTESA_LUNGA);
           });
         };
       }
     }
-    // Se la sosta e' fuori dall'inquadratura il cartellino non lo vede nessuno:
-    // la mappa ci si porta sopra, e dopo torna a mostrare tutta la tratta
-    if (!map.getBounds().pad(-0.15).contains([s.lat, s.lon])) map.panTo([s.lat, s.lon], { animate: true, duration: .6 });
+    // Se la sosta e' fuori dall'inquadratura il cartellino non lo vede nessuno -
+    // e ora che il filmato si ferma, il tasto «Continua» diventa irraggiungibile.
+    // Quindi la mappa ci si porta sopra per forza, senza animazione che possa
+    // restare a meta', e si ricontrolla un attimo dopo che non l'abbia spostata
+    // qualcun altro.
     const mia = sostaAperta;
+    const inquadra = () => {
+      if (sostaAperta !== mia) return;
+      if (!map.getBounds().pad(-0.15).contains([s.lat, s.lon])) map.setView([s.lat, s.lon], map.getZoom(), { animate: false });
+    };
+    inquadra();
+    setTimeout(inquadra, 400);
     meteoDi(s.lat, s.lon, s.from_date ? iso(s.from_date) : null).then(m => {
       const el = mia === sostaAperta ? sostaAperta?.getElement()?.querySelector('.meteo') : null;
       if (el && rigaMeteo(m)) el.innerHTML = rigaMeteo(m);
@@ -545,8 +566,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
         if (nuovo) diario.set(data, nuovo);
         const dentro = card.querySelector('.diario');
         if (dentro) dentro.innerHTML = rigaDiario(data);
-        aspetta(4600);
-        metti(false);
+        // Sul cartello di un giorno fermo si riparte col tasto, non col tempo
+        aspetta(card.querySelector('.continua') ? ATTESA_LUNGA : 4600);
+        if (!card.querySelector('.continua')) metti(false);
       });
     };
   };
@@ -564,16 +586,18 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       + `<div class="titolo">\u23f8\ufe0f ${esc(f.nome)}</div>`
       + `${f.quando ? `<div class="sotto">${esc(f.quando)}</div>` : ''}`
       + `${f.sotto ? `<div class="sotto">${esc(f.sotto)}</div>` : ''}`
-      + `<div class="meteo"></div><div class="diario">${rigaDiario(f.data)}</div>`;
+      + `<div class="meteo"></div><div class="diario">${rigaDiario(f.data)}</div>${tastoContinua}`;
     map.getContainer().appendChild(scheda);
     collegaScrittura(scheda, f.data);
+    collegaContinua(scheda);
+    metti(true);
     if (f.lat != null) map.panTo([f.lat, f.lon], { animate: true, duration: .6 });
     const mia = scheda;
     meteoDi(f.lat, f.lon, f.data).then(m => {
       const el = mia === scheda ? mia.querySelector('.meteo') : null;
       if (el && rigaMeteo(m)) el.innerHTML = rigaMeteo(m);
     });
-    return 4600;
+    return ATTESA_LUNGA;                     // riparte col tasto \u00abContinua\u00bb
   };
 
   // I cartelli si mettono in fila e si aprono uno alla volta: due insieme non
@@ -755,7 +779,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (fm && (fm.iP < iP || (fm.iP === iP && fm.f <= f))) {
       prossimaFermata++;
       mostraSosta(fm);
-      aspetta(6600);
+      aspetta(ATTESA_LUNGA);                 // riparte col tasto «Continua»
     }
   };
   apriPezzo(0);
@@ -1382,7 +1406,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v99';
+const VERSIONE = 'v101';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
