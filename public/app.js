@@ -188,6 +188,14 @@ const tempoInSosta = s => {
   const detto = [gg ? `${gg} giorn${gg === 1 ? 'o' : 'i'}` : '', h ? `${h} or${h === 1 ? 'a' : 'e'}` : ''].filter(Boolean).join(' e ');
   return detto || 'meno di un\u2019ora';
 };
+// Gli orari di una sosta, detti come si dicono a voce: «arrivati alle cinque,
+// ripartiti alle nove»
+const orariDetti = s => {
+  const a = s.arrival_time ? `arrivo ${s.arrival_time}` : '';
+  const p = s.departure_time ? `partenza ${s.departure_time}` : '';
+  const detto = [a, p].filter(Boolean).join(' \u00b7 ');
+  return detto ? `\ud83d\udd52 ${detto}` : '';
+};
 const costoSosta = s => !(+s.cost > 0) ? ''
   : s.currency && s.currency !== 'EUR' ? `${num(s.cost, 2)} ${esc(s.currency)}` : eur(s.cost);
 
@@ -353,10 +361,12 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const mostraSosta = s => {
     chiudiSosta();
     const sotto = [tipoNome(s), tempoInSosta(s), costoSosta(s)].filter(Boolean).join(' \u00b7 ');
+    const orari = orariDetti(s);
     sostaAperta = L.marker([s.lat, s.lon], {
       icon: L.divIcon({
         className: 'sosta-icona',
         html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}`
+          + `${orari ? `<span class="orari">${orari}${s.orari_dedotti ? ' <i>dalle tappe</i>' : ''}</span>` : ''}`
           + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>`
             : opzioni.scriviMotivo ? '<span class="motivo invito">\u270f\ufe0f Tocca per dire perch\u00e9</span>' : ''}<i class="meteo"></i></div>`,
         iconSize: [360, 130], iconAnchor: [180, 146],
@@ -1372,7 +1382,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v98';
+const VERSIONE = 'v99';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1602,6 +1612,27 @@ function mappaDelViaggio(el, d, opz = {}) {
   // mandato da un altro - si mettono dove si era quel giorno, come si fa con
   // gli allenamenti senza traccia: e' una posizione dedotta, e si dice che lo
   // e'. Il nome del posto, quando si sa, compare sotto la foto.
+  // Si arriva in una sosta quando finisce la tappa che ci ha portati, e si
+  // riparte quando comincia quella dopo. Con CarLock quegli orari sono veri al
+  // minuto: scriverli a mano sarebbe ricopiare quello che l'app sa gia'.
+  const orariDaTappe = s => {
+    const g1 = s.from_date ? iso(s.from_date) : null;
+    if (!g1) return { arrivo: null, partenza: null };
+    const g2 = s.to_date ? iso(s.to_date) : g1;
+    const arrivata = legs.filter(l => l.date && l.end_time && iso(l.date) <= g1).pop();
+    const ripartita = legs.find(l => l.date && l.start_time && iso(l.date) >= g2);
+    return { arrivo: arrivata?.end_time || null, partenza: ripartita?.start_time || null };
+  };
+  // La sosta con gli orari addosso: i suoi se li hai scritti, quelli delle
+  // tappe se no, e il segno di dove vengono
+  const sostaConOrari = s => {
+    const dedotti = orariDaTappe(s);
+    const arrivo = s.arrival_time || dedotti.arrivo;
+    const partenza = s.departure_time || dedotti.partenza;
+    return { ...s, arrival_time: arrivo, departure_time: partenza,
+      orari_dedotti: (!s.arrival_time && !!dedotti.arrivo) || (!s.departure_time && !!dedotti.partenza) };
+  };
+
   const fotoSullaMappa = (soloSoste = false) => photos.filter(p => !soloSoste || p.stop_id != null).map(p => {
     if (p.lat != null && p.lon != null) return { ...p, dove: p.luogo || nomeSostaDi(p) || null };
     const sua = p.stop_id ? soste.find(x => x.id === p.stop_id) : null;
@@ -1689,7 +1720,7 @@ function mappaDelViaggio(el, d, opz = {}) {
         if (conTappa.has(g)) continue;
         const s = soste.find(x => x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
         const arrivo = legs.filter(l => l.date && iso(l.date) <= g).pop();
-        const dove = s ? { nome: s.name, lat: s.lat, lon: s.lon, sotto: [tipoNome(s), s.motivo].filter(Boolean).join(' \u00b7 ') }
+        const dove = s ? { nome: s.name, lat: s.lat, lon: s.lon, sotto: [tipoNome(s), orariDetti(sostaConOrari(s)), s.motivo].filter(Boolean).join(' \u00b7 ') }
           : arrivo && arrivo.to_lat != null ? { nome: arrivo.to_name.split(',')[0], lat: arrivo.to_lat, lon: arrivo.to_lon, sotto: 'Fermi qui' }
           : null;
         if (!dove || dove.lat == null) continue;
@@ -1709,7 +1740,7 @@ function mappaDelViaggio(el, d, opz = {}) {
     // ogni scatto della vacanza fermerebbe la strada ogni tre secondi
     riproduci(map, pezzi, fotoSullaMappa(soloCamper), {
       secondi, intera: soloCamper,
-      soste: soloCamper ? soste : [],
+      soste: soloCamper ? soste.map(sostaConOrari) : [],
       fermi: giorniFermi(),
       scriviMotivo: window.OSPITE ? null : (sosta, fatto) => motivoSostaForm(sosta, fatto),
       diario: new Map((d.giornate || []).map(x => [x.data, x])),
