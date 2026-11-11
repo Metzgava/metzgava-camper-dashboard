@@ -613,12 +613,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       if (!filmato) aspetta(3000);
       return;
     }
-    // La sosta: un cartellino veloce, che il camper non si ferma a leggerlo
+    // La sosta: il cartellino resta il tempo di leggerlo tutto - nome, tipo,
+    // giorni e costo sono quattro cose, e due secondi e mezzo non bastavano
     const fm = fermate[prossimaFermata];
     if (fm && (fm.iP < iP || (fm.iP === iP && fm.f <= f))) {
       prossimaFermata++;
       mostraSosta(fm);
-      aspetta(2600);
+      aspetta(4600);
     }
   };
   apriPezzo(0);
@@ -1188,7 +1189,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v83';
+const VERSIONE = 'v84';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
