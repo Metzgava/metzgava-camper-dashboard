@@ -343,10 +343,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       icon: L.divIcon({
         className: 'sosta-icona',
         html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}<i class="meteo"></i></div>`,
-        iconSize: [300, 100], iconAnchor: [150, 116],
+        iconSize: [360, 130], iconAnchor: [180, 146],
       }),
       zIndexOffset: 1150, interactive: false,
     }).addTo(map);
+    // Se la sosta e' fuori dall'inquadratura il cartellino non lo vede nessuno:
+    // la mappa ci si porta sopra, e dopo torna a mostrare tutta la tratta
+    if (!map.getBounds().pad(-0.15).contains([s.lat, s.lon])) map.panTo([s.lat, s.lon], { animate: true, duration: .6 });
     const mia = sostaAperta;
     meteoDi(s.lat, s.lon, s.from_date ? iso(s.from_date) : null).then(m => {
       const el = mia === sostaAperta ? sostaAperta?.getElement()?.querySelector('.meteo') : null;
@@ -592,8 +595,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
         icon: L.divIcon({
           className: 'foto-icona',
           html: `<div class="corsa-foto ${stretto ? 'sotto' : aDestra ? 'a-destra' : 'a-sinistra'}${filmato ? ' filmato' : ''}">${dentro}${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
-          iconSize: [340, 260],
-          iconAnchor: stretto ? [170, -22] : aDestra ? [-18, 130] : [358, 130],
+          iconSize: [420, 320],
+          iconAnchor: stretto ? [210, -22] : aDestra ? [-18, 160] : [438, 160],
         }),
         zIndexOffset: 1200,
       }).addTo(map);
@@ -1189,7 +1192,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v85';
+const VERSIONE = 'v86';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
