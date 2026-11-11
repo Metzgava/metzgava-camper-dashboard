@@ -14,6 +14,7 @@ import { q } from '../lib/db.js';
 import { wrap, randomToken } from '../lib/util.js';
 import { requireAuth, requireAdmin } from './auth.js';
 import { datiViaggio, elencoViaggi } from './trips.js';
+import { meteoDelGiorno } from '../lib/meteo.js';
 
 export const router = Router();
 
@@ -150,6 +151,14 @@ router.get('/pubblico/:token/trips/:id', conLink, wrap(async (req, res) => {
   const d = await datiViaggio(req.params.id);
   if (!d) return res.status(404).json({ error: 'Viaggio non trovato' });
   res.json(ripulisci(d, req.share));
+}));
+
+// Anche a chi guarda da un link il tempo di quel giorno: e' parte del
+// racconto, e non dice niente di piu' di quello che gia' vede
+router.get('/pubblico/:token/meteo', conLink, wrap(async (req, res) => {
+  const m = await meteoDelGiorno(req.query.lat, req.query.lon, req.query.giorno);
+  if (!m) return res.status(404).json({ error: 'Niente meteo per quel giorno' });
+  res.json(m);
 }));
 
 // ---- i link, dalla parte di chi li manda ----

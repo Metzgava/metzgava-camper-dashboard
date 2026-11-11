@@ -464,6 +464,20 @@ export async function migrate() {
   ALTER TABLE shares ADD COLUMN IF NOT EXISTS contatto_id INT REFERENCES rubrica(id) ON DELETE SET NULL;
   ALTER TABLE shares ADD COLUMN IF NOT EXISTS inviato_at TIMESTAMPTZ;
 
+  -- Il tempo che faceva: una riga per posto e per giorno, presa una volta sola
+  -- da Open-Meteo e poi tenuta qui. Rivedere dieci volte lo stesso viaggio non
+  -- deve diventare diecimila richieste a un servizio che non ci chiede niente.
+  CREATE TABLE IF NOT EXISTS meteo (
+    lat NUMERIC(6,2) NOT NULL,
+    lon NUMERIC(6,2) NOT NULL,
+    giorno DATE NOT NULL,
+    codice INT,
+    tmin REAL,
+    tmax REAL,
+    preso_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (lat, lon, giorno)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
   -- Serve a dire in fretta di che viaggio e' un file, quando a chiederlo e' un ospite
   CREATE INDEX IF NOT EXISTS idx_photos_filename ON photos(filename);

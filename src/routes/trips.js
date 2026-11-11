@@ -8,6 +8,7 @@ import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
 import { materialiDi } from './materiali.js';
+import { meteoDelGiorno } from '../lib/meteo.js';
 
 export const router = Router();
 router.use(requireAuth);
@@ -226,6 +227,14 @@ router.put('/settings/casa', wrap(async (req, res) => {
 }));
 
 router.get('/valute', wrap(async (req, res) => res.json(VALUTE)));
+
+// Che tempo faceva in quel posto quel giorno: lo chiede la riproduzione, per
+// la sosta che compare e per l'allenamento che finisce
+router.get('/meteo', wrap(async (req, res) => {
+  const m = await meteoDelGiorno(req.query.lat, req.query.lon, req.query.giorno);
+  if (!m) return res.status(404).json({ error: 'Niente meteo per quel giorno' });
+  res.json(m);
+}));
 
 // Il cambio di una valuta a una data: serve alla pagina per mostrare quanto fa
 // in euro mentre si scrive, prima di salvare

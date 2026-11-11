@@ -135,13 +135,57 @@ const metriFra = (a, b) => {
 // Quando un allenamento finisce, i suoi numeri: distanza, dislivello, calorie,
 // media oraria e battito. Sono quelli che si cercano appena finita l'uscita, e
 // in fondo alla riproduzione arrivano senza doverli andare a prendere.
+// Il passo al chilometro ha senso su quello che si fa con i piedi: in bici si
+// guarda la media oraria, e un passo di due minuti non lo legge nessuno
+const passoAlKm = w => {
+  if (!(w.distance_m > 400) || !(w.duration_s > 60)) return null;
+  if (!/camminata|corsa|escursione|trekking|nordic/i.test(w.sport || '')) return null;
+  const s = w.duration_s / (w.distance_m / 1000);
+  return s > 1800 ? null : `${Math.floor(s / 60)}'${String(Math.round(s % 60)).padStart(2, '0')}"`;
+};
 const numeriAllenamento = w => [
   w.distance_m > 0 ? [num(w.distance_m / 1000), 'km'] : null,
+  w.duration_s > 0 ? [dur(w.duration_s), 'di attivit\u00e0'] : null,
   w.elevation_up_m > 0 ? [num(w.elevation_up_m, 0), 'm di salita'] : null,
   w.calories > 0 ? [num(w.calories, 0), 'kcal'] : null,
   mediaKmh(w) ? [num(mediaKmh(w)), 'km/h di media'] : null,
+  passoAlKm(w) ? [passoAlKm(w), 'al km'] : null,
   w.hr_avg > 0 ? [num(w.hr_avg, 0), 'bpm medi'] : null,
+  w.hr_max > 0 ? [num(w.hr_max, 0), 'bpm massimi'] : null,
 ].filter(Boolean);
+
+// Che tempo faceva li' quel giorno. Lo chiede il server, che se lo tiene da
+// parte; qui si ricorda la richiesta, cosi' rivedere due volte lo stesso
+// viaggio non la rifa'.
+const METEO = new Map();
+const meteoDi = (lat, lon, giorno) => {
+  if (lat == null || lon == null || !giorno) return Promise.resolve(null);
+  const chiave = `${(+lat).toFixed(2)},${(+lon).toFixed(2)},${giorno}`;
+  if (!METEO.has(chiave)) {
+    const radice = window.OSPITE ? `/pubblico/${encodeURIComponent(window.OSPITE)}` : '';
+    METEO.set(chiave, api(`${radice}/meteo?lat=${lat}&lon=${lon}&giorno=${giorno}`).catch(() => null));
+  }
+  return METEO.get(chiave);
+};
+const rigaMeteo = m => !m ? '' : [m.faccia, m.tmax != null ? `${m.tmax}\u00b0` : '', m.tmin != null ? `/ ${m.tmin}\u00b0` : '']
+  .filter(Boolean).join(' ');
+
+// Quanto si e' stati fermi in una sosta: giorni e ore, con gli orari quando ci
+// sono. Senza orari restano le notti, che e' come si contano le soste.
+const tempoInSosta = s => {
+  if (!s.from_date) return '';
+  const g1 = iso(s.from_date), g2 = s.to_date ? iso(s.to_date) : g1;
+  const da = new Date(`${g1}T${s.arrival_time || '00:00'}`);
+  const a = new Date(`${g2}T${s.departure_time || (g1 === g2 ? s.arrival_time || '00:00' : '00:00')}`);
+  const ore = (a - da) / 3600000;
+  const n = notti(s.from_date, s.to_date);
+  if (!(ore > 0)) return n ? `${n} nott${n === 1 ? 'e' : 'i'}` : '';
+  const gg = Math.floor(ore / 24), h = Math.round(ore % 24);
+  const detto = [gg ? `${gg} giorn${gg === 1 ? 'o' : 'i'}` : '', h ? `${h} or${h === 1 ? 'a' : 'e'}` : ''].filter(Boolean).join(' e ');
+  return detto || 'meno di un\u2019ora';
+};
+const costoSosta = s => !(+s.cost > 0) ? ''
+  : s.currency && s.currency !== 'EUR' ? `${num(s.cost, 2)} ${esc(s.currency)}` : eur(s.cost);
 
 // Un traghetto, un volo, un treno non hanno una strada da seguire: fra i due
 // capi c'e' una linea sola, fatta di due punti. Bastano a disegnarla, non a
@@ -219,14 +263,21 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   // Ogni foto si aggancia al punto del percorso che le sta piu' vicino: e' li'
   // che comparira', mentre l'icona le passa davanti. Quelle lontane dalla
   // strada - scattate in gita, in un altro giorno - restano fuori.
-  const scatti = (foto || []).map(f => {
+  const agganciaAlPercorso = (lat, lon) => {
     let miglior = null;
     pezzi.forEach((p, iP) => p.punti.forEach((pt, i) => {
-      const d = metriFra([f.lat, f.lon], pt);
+      const d = metriFra([lat, lon], pt);
       if (!miglior || d < miglior.d) miglior = { d, iP, f: p.acc[i] / p.lung };
     }));
-    return { ...f, ...miglior };
-  }).filter(f => f.iP != null).sort((a, b) => a.iP - b.iP || a.f - b.f);
+    return miglior;
+  };
+  const scatti = (foto || []).map(f => ({ ...f, ...agganciaAlPercorso(f.lat, f.lon) }))
+    .filter(f => f.iP != null).sort((a, b) => a.iP - b.iP || a.f - b.f);
+  // Le soste del viaggio si agganciano alla strada come le foto: compaiono
+  // quando il camper ci passa davanti
+  const fermate = (opzioni.soste || []).filter(s => s.lat != null && s.lon != null)
+    .map(s => ({ ...s, ...agganciaAlPercorso(s.lat, s.lon) }))
+    .filter(s => s.iP != null).sort((a, b) => a.iP - b.iP || a.f - b.f);
 
   const strati = map.strati_sfondo;
   const eraStrada = strati && map.hasLayer(strati.strada);
@@ -273,13 +324,36 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     else if (restante) { finoA = performance.now() + restante; restante = 0; }
   };
 
-  let iP = -1, frame = 0, fatti = 0, fermo = false, chiuso = false, prossimo = 0;
+  let iP = -1, frame = 0, fatti = 0, fermo = false, chiuso = false, prossimo = 0, prossimaFermata = 0;
   // Quanto resta da guardare prima di ripartire. Si misura in secondi veri e
   // non in fotogrammi: su uno schermo che ne disegna centoventi al secondo,
   // tre secondi contati a fotogrammi durerebbero un secondo e mezzo.
   let finoA = 0, restante = 0;
   const aspetta = ms => { finoA = ms ? performance.now() + ms : 0; };
   const totaleFrames = pezzi.reduce((a, p) => a + p.frames, 0);
+  let sostaAperta = null;
+  const chiudiSosta = () => { if (sostaAperta) { map.removeLayer(sostaAperta); sostaAperta = null; } };
+  // Passando davanti a una sosta si legge di che posto era, quanto ci si e'
+  // fermati e quanto e' costato. E che tempo faceva, se si riesce a saperlo:
+  // arriva dopo, e se nel frattempo la cartolina se n'e' andata, pazienza.
+  const mostraSosta = s => {
+    chiudiSosta();
+    const sotto = [tipoNome(s), tempoInSosta(s), costoSosta(s)].filter(Boolean).join(' \u00b7 ');
+    sostaAperta = L.marker([s.lat, s.lon], {
+      icon: L.divIcon({
+        className: 'sosta-icona',
+        html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}<i class="meteo"></i></div>`,
+        iconSize: [300, 100], iconAnchor: [150, 116],
+      }),
+      zIndexOffset: 1150, interactive: false,
+    }).addTo(map);
+    const mia = sostaAperta;
+    meteoDi(s.lat, s.lon, s.from_date ? iso(s.from_date) : null).then(m => {
+      const el = mia === sostaAperta ? sostaAperta?.getElement()?.querySelector('.meteo') : null;
+      if (el && rigaMeteo(m)) el.textContent = rigaMeteo(m);
+    });
+  };
+
   let fotoAperta = null, puntoFoto = null, luogoFoto = null;
   const chiudiFoto = () => {
     if (fotoAperta) { map.removeLayer(fotoAperta); fotoAperta = null; }
@@ -339,7 +413,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const fine = () => {
     if (chiuso) return;
     chiuso = true;
-    chiudiFoto(); chiudiGrande();
+    chiudiFoto(); chiudiGrande(); chiudiSosta();
     viaCartelli(); viaScheda();
     [velo, scia, segnale].forEach(l => map.removeLayer(l));
     barra.remove(); dataSopra.remove();
@@ -385,6 +459,11 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       ${p.chi ? `<div class="sotto">${esc(p.chi)}</div>` : ''}
       <div class="numeri">${p.numeri.map(([v, u]) => `<div><b>${v}</b><span>${esc(u)}</span></div>`).join('')}</div>`;
     map.getContainer().appendChild(scheda);
+    const mia = scheda;
+    if (p.meteo) meteoDi(p.meteo.lat, p.meteo.lon, p.meteo.giorno).then(m => {
+      if (mia !== scheda || !rigaMeteo(m)) return;
+      mia.insertAdjacentHTML('beforeend', `<div class="meteo">${rigaMeteo(m)}${m.nome ? ` \u00b7 ${esc(m.nome)}` : ''}</div>`);
+    });
     return 3000;
   };
   const cartello = (punto, testo, arrivo) => L.marker(punto, {
@@ -453,7 +532,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (finoA) {
       if (performance.now() < finoA) return;
       finoA = 0;
-      chiudiFoto();
+      chiudiFoto(); chiudiSosta();
       rinquadra();
       if (scheda?.classList.contains('annuncio')) viaScheda();
       return;
@@ -532,6 +611,14 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       // Una foto dura tre secondi; un video dura quanto dura, e alla fine
       // aspetta che tu decida se rivederlo o andare avanti
       if (!filmato) aspetta(3000);
+      return;
+    }
+    // La sosta: un cartellino veloce, che il camper non si ferma a leggerlo
+    const fm = fermate[prossimaFermata];
+    if (fm && (fm.iP < iP || (fm.iP === iP && fm.f <= f))) {
+      prossimaFermata++;
+      mostraSosta(fm);
+      aspetta(2600);
     }
   };
   apriPezzo(0);
@@ -1101,7 +1188,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v82';
+const VERSIONE = 'v83';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1307,6 +1394,7 @@ function mappaDelViaggio(el, d, opz = {}) {
   // quello su ogni singola uscita
   const pezzoAllenamento = w => ({
     punti: w.track.map(p => [p[0], p[1]]),
+    meteo: { lat: w.track[0][0], lon: w.track[0][1], giorno: iso(w.started_at) },
     faccia: sportIco(w.sport),
     da: w.luogo || null,
     titolo: `Allenamento ${w.athlete || ''}`.trim(),
@@ -1390,7 +1478,11 @@ function mappaDelViaggio(el, d, opz = {}) {
       : Math.min(96, 24 + pezzi.length * 9);
     // In camper le foto sono quelle delle soste: nel giro di tutto un viaggio
     // ogni scatto della vacanza fermerebbe la strada ogni tre secondi
-    riproduci(map, pezzi, fotoSullaMappa(soloCamper), { secondi, intera: soloCamper, ...(finale ? { finale } : {}) });
+    riproduci(map, pezzi, fotoSullaMappa(soloCamper), {
+      secondi, intera: soloCamper,
+      soste: soloCamper ? soste : [],
+      ...(finale ? { finale } : {}),
+    });
   });
 
   // Toccando una voce resta sulla mappa solo quella, e la mappa ci si stringe
