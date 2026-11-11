@@ -329,6 +329,11 @@ export async function migrate() {
   -- Il numero con cui park4night conosce quel posto: da li' si costruisce il
   -- collegamento che apre la scheda, invece della ricerca intorno alle coordinate
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS p4n_id TEXT;
+
+  -- Perche' ci si e' fermati: il pranzo, la visita, il rifornimento, il
+  -- riposo. Di una sosta in itinere e' la cosa che si dimentica per prima, e
+  -- rivedendo il viaggio e' quella che spiega la deviazione.
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS motivo TEXT;
   -- Come inquadrare la foto quando fa da copertina: il punto da tenere al centro
   -- e quanto ingrandire. Non si tocca il file, che resta intero: il ritaglio e'
   -- un modo di guardarla, e si puo' sempre rifare.

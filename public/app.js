@@ -167,8 +167,12 @@ const meteoDi = (lat, lon, giorno) => {
   }
   return METEO.get(chiave);
 };
-const rigaMeteo = m => !m ? '' : [m.faccia, m.tmax != null ? `${m.tmax}\u00b0` : '', m.tmin != null ? `/ ${m.tmin}\u00b0` : '']
-  .filter(Boolean).join(' ');
+// Il tempo di quel giorno, scritto perche' si legga: l'icona grande, e le due
+// temperature dette per quello che sono - massima e minima - che «22 / 16» da
+// solo non dice quale sia quale.
+const rigaMeteo = m => !m ? '' : `<em>${m.faccia}</em>`
+  + (m.tmax != null ? ` <b>${m.tmax}\u00b0</b><span>max</span>` : '')
+  + (m.tmin != null ? ` <b>${m.tmin}\u00b0</b><span>min</span>` : '');
 
 // Quanto si e' stati fermi in una sosta: giorni e ore, con gli orari quando ci
 // sono. Senza orari restano le notti, che e' come si contano le soste.
@@ -221,6 +225,16 @@ const tragittoDisegnato = l => {
 const DURATA_MEZZO = { traghetto: 'di traversata', aereo: 'di volo', treno: 'di treno', bus: 'di bus', camper: 'di guida' };
 const biglietto = l => !(+l.tariffa > 0) ? null
   : l.tariffa_currency && l.tariffa_currency !== 'EUR' ? `${num(l.tariffa, 2)} ${esc(l.tariffa_currency)}` : eur(l.tariffa);
+// Quando si e' partiti, quando si e' arrivati, e a che media: di una tappa
+// rifatta sulla mappa sono le tre cose che si cercano.
+const orariTappa = l => {
+  const ore = (l.duration_min || 0) / 60;
+  return [
+    l.start_time && l.end_time ? `${l.start_time} \u2192 ${l.end_time}` : (l.duration_min ? dur(l.duration_min * 60) : ''),
+    l.distance_km > 0 ? `${num(l.distance_km, 0)} km` : '',
+    ore > 0.15 && l.distance_km > 0 ? `${num(l.distance_km / ore, 0)} km/h di media` : '',
+  ].filter(Boolean).join(' \u00b7 ');
+};
 const compagniaDi = l => [MEZZI[mezzoDi(l)][1], [l.compagnia, l.codice].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 ');
 const numeriTappa = l => inCamper(l) ? null : [
   l.duration_min > 0 ? [dur(l.duration_min * 60), DURATA_MEZZO[mezzoDi(l)]] : null,
@@ -342,7 +356,8 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     sostaAperta = L.marker([s.lat, s.lon], {
       icon: L.divIcon({
         className: 'sosta-icona',
-        html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}<i class="meteo"></i></div>`,
+        html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}`
+          + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>` : ''}<i class="meteo"></i></div>`,
         iconSize: [360, 130], iconAnchor: [180, 146],
       }),
       zIndexOffset: 1150, interactive: false,
@@ -353,7 +368,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     const mia = sostaAperta;
     meteoDi(s.lat, s.lon, s.from_date ? iso(s.from_date) : null).then(m => {
       const el = mia === sostaAperta ? sostaAperta?.getElement()?.querySelector('.meteo') : null;
-      if (el && rigaMeteo(m)) el.textContent = rigaMeteo(m);
+      if (el && rigaMeteo(m)) el.innerHTML = rigaMeteo(m);
     });
   };
 
@@ -465,7 +480,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     const mia = scheda;
     if (p.meteo) meteoDi(p.meteo.lat, p.meteo.lon, p.meteo.giorno).then(m => {
       if (mia !== scheda || !rigaMeteo(m)) return;
-      mia.insertAdjacentHTML('beforeend', `<div class="meteo">${rigaMeteo(m)}${m.nome ? ` \u00b7 ${esc(m.nome)}` : ''}</div>`);
+      mia.insertAdjacentHTML('beforeend', `<div class="meteo">${rigaMeteo(m)}${m.nome ? ` <span>${esc(m.nome)}</span>` : ''}</div>`);
     });
     return 3000;
   };
@@ -479,9 +494,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     viaScheda();
     scheda = document.createElement('div');
     scheda.className = 'corsa-scheda annuncio';
-    scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>${p.nome ? `<div class="sotto">${esc([p.nome, p.quando].filter(Boolean).join(' \u00b7 '))}</div>` : ''}`;
+    // Il nome dei due capi non si ripete se e' gia' il titolo
+    const seconda = [p.nome === p.titolo ? '' : p.nome, p.quando].filter(Boolean).join(' \u00b7 ');
+    scheda.innerHTML = `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>`
+      + `${seconda ? `<div class="sotto">${esc(seconda)}</div>` : ''}`
+      + `${p.sotto ? `<div class="sotto">${esc(p.sotto)}</div>` : ''}`;
     map.getContainer().appendChild(scheda);
-    return 1800;
+    return 2600;
   };
 
   // Quanto bisogna stare bassi perche' si legga: su una statale basta meno
@@ -1192,7 +1211,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v86';
+const VERSIONE = 'v87';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1450,10 +1469,13 @@ function mappaDelViaggio(el, d, opz = {}) {
         punti: tragittoDisegnato(l),
         faccia: MEZZO_ICONA[mezzoDi(l)] || MEZZO_ICONA.camper,
         da: l.from_name.split(',')[0], a: l.to_name.split(',')[0],
-        // Il camper e' sottinteso: si annunciano il traghetto, il volo, il treno
-        titolo: inCamper(l) ? null : compagniaDi(l),
+        // Ogni tratta si presenta: in camper col nome dei due capi, con un
+        // altro mezzo anche con la compagnia. Sotto, gli orari e la media:
+        // sono i numeri che si cercano guardando una tratta rifatta.
+        titolo: inCamper(l) ? `${l.from_name.split(',')[0]} \u2192 ${l.to_name.split(',')[0]}` : compagniaDi(l),
         chi: inCamper(l) ? null : compagniaDi(l),
         nome: `${l.from_name.split(',')[0]} \u2192 ${l.to_name.split(',')[0]}`,
+        sotto: orariTappa(l),
         quando: l.date ? fdate(l.date) : '',
         numeri: numeriTappa(l),
         ordine: l.date ? new Date(l.date).getTime() : 0,
@@ -1929,6 +1951,7 @@ const sostaRiga = (s, foto = [], copertina = null) => {
     <div class="sport-ico">${tipoIco(s.kind)}</div>
     <div class="grow"><div class="title">${esc(s.name)}${s.stars ? ` <span class="stelle" title="${s.stars} su 5">${stelline(s.stars)}</span>` : ''}</div>
       <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.cost > 0 ? (s.in_spese ? ' \u00b7 <span class="badge ok" title="Il costo \u00e8 fra le spese del viaggio">nelle spese</span>' : ' \u00b7 <span class="badge warn" title="La spesa l\u2019hai tolta: il tasto \ud83d\udcb6 la rimette">fuori dalle spese</span>') : ''}</div>
+      ${s.motivo ? `<div class="meta"><b>\ud83d\udcac ${esc(s.motivo)}</b></div>` : ''}
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
   <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="${s.p4n_id ? `Posto ${esc(s.p4n_id)} su park4night` : 'Apri il collegamento'}">${s.p4n_id ? '\ud83c\udd7f\ufe0f' : '\ud83d\udd17'}</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
@@ -1970,6 +1993,8 @@ function sostaForm(trip, s = null, preimpostato = null) {
     <div><label class="f">Numero park4night</label><input name="p4n_id" inputmode="numeric" value="${esc(s?.p4n_id || '')}" placeholder="Es. 277443"></div>
     <div class="small muted" style="margin-top:-4px">È il numero della scheda del posto; va bene anche incollare l’indirizzo intero. Da quello il collegamento qui sotto si rifa’ da sé e apre il posto, non la ricerca intorno.</div>
     <div><label class="f">Collegamento</label><input name="link" value="${esc(s?.link || preimpostato?.park4night || '')}" placeholder="park4night, sito del campeggio, qualunque indirizzo"></div>
+    <div><label class="f">Perch\u00e9 ci si \u00e8 fermati</label><input name="motivo" maxlength="120" value="${esc(s?.motivo || '')}" placeholder="Es. pranzo, visita al castello, gasolio, riposo">
+      <div class="small muted" style="margin-top:4px">Di una sosta in itinere \u00e8 la cosa che si dimentica per prima, ed \u00e8 quella che fra un anno spiega la deviazione.</div></div>
     <div><label class="f">Commenti</label><textarea name="notes" rows="2" placeholder="Es. carico acqua, silenzioso, ombra la mattina">${esc(s?.notes || '')}</textarea></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${s ? 'Salva' : 'Aggiungi'}</button></div></form>`,
     (el, close) => {

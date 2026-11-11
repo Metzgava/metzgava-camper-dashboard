@@ -557,6 +557,7 @@ const datiSosta = b => ({
   cost: b?.cost === '' || b?.cost == null ? null : num(b.cost),
   currency: valutaValida(b?.currency),
   notes: b?.notes || null,
+  motivo: String(b?.motivo || '').trim().slice(0, 120) || null,
   p4n_id: numeroPark4night(b?.p4n_id),
   link: String(b?.link || '').trim().slice(0, 500) || null,
   source: b?.source === 'osm' ? 'osm' : 'manuale',
@@ -568,10 +569,10 @@ router.post('/trips/:id/soste', wrap(async (req, res) => {
   if (d.to_date && d.from_date && d.to_date < d.from_date) return res.status(400).json({ error: 'La data di fine viene prima di quella di inizio' });
   const link = linkSosta(d);
   const c = await cambioPerSpesa({ currency: d.currency, rate: req.body?.rate, date: d.from_date });
-  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,kind_label,from_date,to_date,arrival_time,departure_time,stars,cost,currency,rate,notes,link,source,p4n_id)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+  const r = (await q(`INSERT INTO stops(trip_id,leg_id,name,lat,lon,kind,kind_label,from_date,to_date,arrival_time,departure_time,stars,cost,currency,rate,notes,link,source,p4n_id,motivo)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
     [req.params.id, req.body?.leg_id || null, d.name, d.lat, d.lon, d.kind, d.kind_label, d.from_date, d.to_date,
-      d.arrival_time, d.departure_time, d.stars, d.cost, c.currency, c.rate ?? 1, d.notes, link, d.source, d.p4n_id])).rows[0];
+      d.arrival_time, d.departure_time, d.stars, d.cost, c.currency, c.rate ?? 1, d.notes, link, d.source, d.p4n_id, d.motivo])).rows[0];
   await syncSostaSpesa(r.id);
   res.json(r);
 }));
@@ -584,9 +585,9 @@ router.put('/soste/:id', wrap(async (req, res) => {
   const rifare = d.currency !== cur.currency || String(d.from_date || '') !== String(cur.from_date || '').slice(0, 10);
   const c = rifare ? await cambioPerSpesa({ currency: d.currency, rate: req.body?.rate, date: d.from_date }) : { currency: cur.currency, rate: cur.rate };
   const r = (await q(`UPDATE stops SET name=$2, lat=$3, lon=$4, kind=$5, kind_label=$6, from_date=$7, to_date=$8,
-      arrival_time=$9, departure_time=$10, stars=$11, cost=$12, currency=$13, rate=$14, notes=$15, link=$16, p4n_id=$17 WHERE id=$1 RETURNING *`,
+      arrival_time=$9, departure_time=$10, stars=$11, cost=$12, currency=$13, rate=$14, notes=$15, link=$16, p4n_id=$17, motivo=$18 WHERE id=$1 RETURNING *`,
     [cur.id, d.name, d.lat, d.lon, d.kind, d.kind_label, d.from_date, d.to_date, d.arrival_time, d.departure_time, d.stars, d.cost,
-      c.currency, c.rate ?? 1, d.notes, linkSosta(d), d.p4n_id])).rows[0];
+      c.currency, c.rate ?? 1, d.notes, linkSosta(d), d.p4n_id, d.motivo])).rows[0];
   await syncSostaSpesa(r.id);
   res.json(r);
 }));

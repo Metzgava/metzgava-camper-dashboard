@@ -165,13 +165,21 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
    sosta e' pieno, non velato, con il bordo del colore di casa e i caratteri di
    una misura che si legge mentre la mappa scorre. */
 .corsa-sosta { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); text-align: center;
-  min-width: 180px; max-width: min(340px, 86vw); padding: 11px 18px; border-radius: 14px;
+  min-width: 235px; max-width: min(370px, 88vw); padding: 11px 18px; border-radius: 14px;
   background: var(--surface); border: 2px solid var(--accent);
   box-shadow: 0 12px 34px rgba(0,0,0,.55); animation: entra-foto-sotto .2s ease; }
 .corsa-sosta b { display: block; font-size: 17px; line-height: 1.25; letter-spacing: -.01em; }
 .corsa-sosta span, .corsa-sosta .meteo { display: block; font-size: 14px; color: var(--text); margin-top: 4px; font-style: normal; }
 .corsa-sosta .meteo:empty { display: none; }
+.corsa-sosta .motivo { font-weight: 650; }
 .corsa-scheda .meteo { margin-top: 10px; font-size: 15px; color: var(--text); }
+/* Il tempo di quel giorno: l'icona grande come un numero, le due temperature
+   con sotto scritto quale e' quale */
+.corsa-sosta .meteo em, .corsa-scheda .meteo em { display: inline; font-style: normal; font-size: 26px; vertical-align: -4px; }
+.corsa-sosta .meteo b, .corsa-scheda .meteo b { display: inline; font-size: 17px; margin-left: 5px; }
+.corsa-sosta .meteo span, .corsa-scheda .meteo span { display: inline; font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; margin-left: 3px; white-space: nowrap; }
+.corsa-sosta .meteo, .corsa-scheda .meteo { white-space: nowrap; }
 
 /* Guardata grande: riempie la mappa, e un tocco qualsiasi fa ripartire il viaggio */
 .corsa-grande { position: absolute; inset: 0; z-index: 1300; display: grid; place-items: center; padding: 16px;
