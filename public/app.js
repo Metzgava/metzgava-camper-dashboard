@@ -1268,7 +1268,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v89';
+const VERSIONE = 'v90';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1564,7 +1564,7 @@ function mappaDelViaggio(el, d, opz = {}) {
     // guarda tutto insieme, senza inseguire nulla, e li' si puo' andare piu'
     // spediti: il passo di prima faceva aspettare davanti a una strada ferma.
     const secondi = soloCamper
-      ? Math.min(66, 15 + pezzi.length * 6)
+      ? Math.min(50, 11 + pezzi.length * 4.5)
       : Math.min(96, 24 + pezzi.length * 9);
     // In camper le foto sono quelle delle soste: nel giro di tutto un viaggio
     // ogni scatto della vacanza fermerebbe la strada ogni tre secondi
