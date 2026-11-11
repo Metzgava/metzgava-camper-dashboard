@@ -338,7 +338,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     else if (restante) { finoA = performance.now() + restante; restante = 0; }
   };
 
-  let iP = -1, frame = 0, fatti = 0, fermo = false, chiuso = false, prossimo = 0, prossimaFermata = 0;
+  let iP = -1, frame = 0, fatti = 0, fermo = false, chiuso = false, prossimo = 0, prossimaFermata = 0, ultimiFermi = false;
   // Quanto resta da guardare prima di ripartire. Si misura in secondi veri e
   // non in fotogrammi: su uno schermo che ne disegna centoventi al secondo,
   // tre secondi contati a fotogrammi durerebbero un secondo e mezzo.
@@ -489,6 +489,44 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     interactive: false, zIndexOffset: 900,
   }).addTo(map);
 
+  // Un giorno senza tappe non e' un giorno in meno: e' il giorno in cui si e'
+  // restati fermi da qualche parte, e nel racconto conta quanto gli altri -
+  // spesso di piu'. Il cartello dice dove, e perche' se lo si e' scritto.
+  const fermi = (opzioni.fermi || []).slice().sort((a, b) => (a.giorno || 0) - (b.giorno || 0));
+  let prossimoFermo = 0;
+  const mostraFermo = f => () => {
+    viaScheda();
+    scheda = document.createElement('div');
+    scheda.className = 'corsa-scheda annuncio';
+    scheda.innerHTML = `<div class="giorno-riga">\ud83d\udcc5 Giorno ${f.giorno}</div>`
+      + `<div class="titolo">\u23f8\ufe0f ${esc(f.nome)}</div>`
+      + `${f.quando ? `<div class="sotto">${esc(f.quando)}</div>` : ''}`
+      + `${f.sotto ? `<div class="sotto">${esc(f.sotto)}</div>` : ''}`
+      + `<div class="meteo"></div>`;
+    map.getContainer().appendChild(scheda);
+    if (f.lat != null) map.panTo([f.lat, f.lon], { animate: true, duration: .6 });
+    const mia = scheda;
+    meteoDi(f.lat, f.lon, f.data).then(m => {
+      const el = mia === scheda ? mia.querySelector('.meteo') : null;
+      if (el && rigaMeteo(m)) el.innerHTML = rigaMeteo(m);
+    });
+    return 4600;
+  };
+
+  // I cartelli si mettono in fila e si aprono uno alla volta: due insieme non
+  // si leggono, e saltarne uno vuol dire perdere un giorno di viaggio
+  let coda = [];
+  const prossimoCartello = () => {
+    while (coda.length) {
+      const quanto = coda.shift()();
+      if (quanto) { aspetta(quanto); return true; }
+    }
+    return false;
+  };
+  const accodaFermi = fino => {
+    while (prossimoFermo < fermi.length && (fermi[prossimoFermo].giorno || 0) < fino) coda.push(mostraFermo(fermi[prossimoFermo++]));
+  };
+
   const mostraTitolo = p => {
     if (!p.titolo) return 0;
     viaScheda();
@@ -528,8 +566,12 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     viaCartelli(); viaScheda();
     if (p.da) cartelli.push(cartello(p.punti[0], p.da, false));
     if (p.a) cartelli.push(cartello(p.punti[p.punti.length - 1], p.a, true));
-    // Chi sta camminando si dice prima di partire, non alla fine
-    aspetta(mostraTitolo(p));
+    // Chi sta camminando si dice prima di partire, non alla fine. E i giorni
+    // fermi prima di questo si raccontano adesso, che e' il loro turno.
+    coda = [];
+    accodaFermi(p.giorno ?? Infinity);
+    coda.push(() => mostraTitolo(p));
+    prossimoCartello();
     // La mappa si porta sul pezzo che comincia: un trasferimento di quattrocento
     // chilometri e una camminata di tre non si guardano dalla stessa altezza
     map.flyToBounds(L.latLngBounds(p.punti), { padding: [50, 50], duration: .8, maxZoom: 15 });
@@ -558,6 +600,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       if (performance.now() < finoA) return;
       finoA = 0;
       chiudiFoto(); chiudiSosta();
+      if (prossimoCartello()) return;          // c'e' un altro cartello in fila
       rinquadra();
       if (scheda?.classList.contains('annuncio')) viaScheda();
       return;
@@ -568,6 +611,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       // Arrivati: se c'e' il conto del viaggio resta li' finche' non si chiude,
       // altrimenti l'ultima immagine dura un momento e la mappa torna com'era
       if (iP + 1 >= pezzi.length) {
+        // Gli ultimi giorni fermi - quelli dopo l'ultimo spostamento - vanno
+        // raccontati prima di tirare le somme
+        if (!ultimiFermi) { ultimiFermi = true; accodaFermi(Infinity); if (prossimoCartello()) return; }
         avanzamento.style.width = '100%'; metti(true);
         if (!mostraFinale()) setTimeout(fine, scheda ? 5200 : 4200);
         return;
@@ -1271,7 +1317,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v93';
+const VERSIONE = 'v94';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1571,6 +1617,30 @@ function mappaDelViaggio(el, d, opz = {}) {
       categorie: conSpese ? totals.by_category.map(c => [catLabel(c.category), eur(c.total)]) : [],
       totale: conSpese ? eur(totals.total) : null,
     } : null;
+    // I giorni in cui il camper non si e' mosso: dove si era, e perche' ci si
+    // era fermati. Si guarda la sosta aperta quel giorno; se non c'e', il
+    // posto dove era arrivata l'ultima tappa.
+    const giorniFermi = () => {
+      if (!soloCamper || !trip.start_date) return [];
+      const date = legs.map(l => (l.date ? iso(l.date) : null)).filter(Boolean);
+      const ultimo = [trip.end_date ? iso(trip.end_date) : '', ...date].filter(Boolean).sort().pop();
+      const conTappa = new Set(date);
+      const out = [];
+      const giorno = new Date(iso(trip.start_date));
+      for (let i = 0; i < 400 && iso(giorno) <= ultimo; i++, giorno.setDate(giorno.getDate() + 1)) {
+        const g = iso(giorno);
+        if (conTappa.has(g)) continue;
+        const s = soste.find(x => x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
+        const arrivo = legs.filter(l => l.date && iso(l.date) <= g).pop();
+        const dove = s ? { nome: s.name, lat: s.lat, lon: s.lon, sotto: [tipoNome(s), s.motivo].filter(Boolean).join(' \u00b7 ') }
+          : arrivo && arrivo.to_lat != null ? { nome: arrivo.to_name.split(',')[0], lat: arrivo.to_lat, lon: arrivo.to_lon, sotto: 'Fermi qui' }
+          : null;
+        if (!dove || dove.lat == null) continue;
+        out.push({ giorno: giornoDi(g), data: g, quando: fdate(g), ...dove });
+      }
+      return out;
+    };
+
     // Il tempo cresce con quello che c'e' da guardare: dieci tappe in ventisei
     // secondi sono una corsa, e di un viaggio non resta niente. Ma il camper si
     // guarda tutto insieme, senza inseguire nulla, e li' si puo' andare piu'
@@ -1583,6 +1653,7 @@ function mappaDelViaggio(el, d, opz = {}) {
     riproduci(map, pezzi, fotoSullaMappa(soloCamper), {
       secondi, intera: soloCamper,
       soste: soloCamper ? soste : [],
+      fermi: giorniFermi(),
       ...(finale ? { finale } : {}),
     });
   });
