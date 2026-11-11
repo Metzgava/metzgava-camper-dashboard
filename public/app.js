@@ -357,11 +357,35 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       icon: L.divIcon({
         className: 'sosta-icona',
         html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}`
-          + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>` : ''}<i class="meteo"></i></div>`,
+          + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>`
+            : opzioni.scriviMotivo ? '<span class="motivo invito">\u270f\ufe0f Tocca per dire perch\u00e9</span>' : ''}<i class="meteo"></i></div>`,
         iconSize: [360, 130], iconAnchor: [180, 146],
       }),
-      zIndexOffset: 1150, interactive: false,
+      zIndexOffset: 1150, interactive: !!opzioni.scriviMotivo,
     }).addTo(map);
+    // Toccando il cartellino ci si ferma e si scrive perche' ci si era
+    // fermati: e' li' che uno se lo ricorda, non nel modulo della sosta
+    if (opzioni.scriviMotivo) {
+      const dentro = sostaAperta.getElement()?.querySelector('.corsa-sosta');
+      if (dentro) {
+        dentro.classList.add('si-scrive');
+        L.DomEvent.disableClickPropagation(dentro);
+        dentro.onclick = () => {
+          metti(true);
+          opzioni.scriviMotivo(s, nuova => {
+            if (nuova) {
+              s.motivo = nuova.motivo;
+              const riga = dentro.querySelector('.motivo');
+              if (riga) { riga.innerHTML = nuova.motivo ? `\ud83d\udcac ${esc(nuova.motivo)}` : ''; riga.hidden = !nuova.motivo; }
+              else if (nuova.motivo) dentro.querySelector('.meteo')
+                ?.insertAdjacentHTML('beforebegin', `<span class="motivo">\ud83d\udcac ${esc(nuova.motivo)}</span>`);
+            }
+            aspetta(6600);
+            metti(false);
+          });
+        };
+      }
+    }
     // Se la sosta e' fuori dall'inquadratura il cartellino non lo vede nessuno:
     // la mappa ci si porta sopra, e dopo torna a mostrare tutta la tratta
     if (!map.getBounds().pad(-0.15).contains([s.lat, s.lon])) map.panTo([s.lat, s.lon], { animate: true, duration: .6 });
@@ -1348,7 +1372,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v97';
+const VERSIONE = 'v98';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1687,6 +1711,7 @@ function mappaDelViaggio(el, d, opz = {}) {
       secondi, intera: soloCamper,
       soste: soloCamper ? soste : [],
       fermi: giorniFermi(),
+      scriviMotivo: window.OSPITE ? null : (sosta, fatto) => motivoSostaForm(sosta, fatto),
       diario: new Map((d.giornate || []).map(x => [x.data, x])),
       // Chi guarda da un link legge il diario, non lo scrive
       scriviGiornata: window.OSPITE ? null : (data, fatto) => giornataForm(trip.id, data,
@@ -2216,6 +2241,29 @@ function giornataForm(tripId, data, intestazione, corrente, dopo) {
       close();
       toast(r.note || r.stelle ? 'Giornata salvata' : 'Giornata svuotata');
       dopo?.(r, false);
+    });
+  });
+}
+
+// Il perche' di una sosta, scritto senza aprire tutto il modulo: serve mentre
+// si rivede il viaggio, quando il cartellino passa e ci si ricorda che quel
+// giorno ci si era fermati per il pranzo.
+function motivoSostaForm(sosta, dopo) {
+  modal(`<h2>${tipoIco(sosta.kind)} ${esc(sosta.name)}</h2>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Perch\u00e9 ci si \u00e8 fermati</label>
+        <input name="motivo" maxlength="120" value="${esc(sosta.motivo || '')}" placeholder="Es. pranzo, visita al castello, gasolio, riposo">
+        <div class="small muted" style="margin-top:4px">\u00c8 quello che fra un anno spiega la deviazione.</div></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = () => { close(); dopo?.(null); };
+    $('[name=motivo]', el).focus();
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const r = await api('/soste/' + sosta.id, { method: 'PUT', body: { motivo: $('[name=motivo]', el).value } });
+      close();
+      toast(r.motivo ? 'Motivo salvato' : 'Motivo tolto');
+      dopo?.(r);
     });
   });
 }

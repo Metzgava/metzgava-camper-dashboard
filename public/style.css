@@ -184,6 +184,10 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-sosta span, .corsa-sosta .meteo { display: block; font-size: 14px; color: var(--text); margin-top: 4px; font-style: normal; }
 .corsa-sosta .meteo:empty { display: none; }
 .corsa-sosta .motivo { font-weight: 650; }
+.corsa-sosta .motivo.invito { font-weight: 400; color: var(--muted); }
+.corsa-sosta.si-scrive { cursor: pointer; }
+.sosta-icona { pointer-events: none; }
+.sosta-icona .corsa-sosta.si-scrive { pointer-events: auto; }
 .corsa-scheda .meteo { margin-top: 10px; font-size: 15px; color: var(--text); }
 /* Il tempo di quel giorno: l'icona grande come un numero, le due temperature
    con sotto scritto quale e' quale */
