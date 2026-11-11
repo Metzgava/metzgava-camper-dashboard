@@ -387,6 +387,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     };
     prec.onclick = e => { e.stopPropagation(); if (i > 0) { i--; mostra(); } };
     succ.onclick = e => { e.stopPropagation(); if (i + 1 < lista.length) { i++; mostra(); } else riprendiDalCartello(); };
+    // Ogni foto ha la sua forma: quando arriva, il cartellino cresce o si
+    // accorcia, e la mappa si risistema perche' resti tutto dentro
+    img.onload = () => tieniDentro(card);
     mostra();
   };
   const tastoContinua = '<button type="button" class="btn sm primary continua">Continua \u25b6</button>';
@@ -394,6 +397,37 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   const collegaContinua = card => {
     const b = card?.querySelector('.continua');
     if (b) b.onclick = e => { e.stopPropagation(); riprendiDalCartello(); };
+  };
+
+  // Un cartellino mezzo fuori dallo schermo non lo legge nessuno - e su un
+  // telefono fuori ci finisce facile. Allora la mappa si sposta quel tanto che
+  // basta perche' ci stia tutto: i limiti non sono i bordi dello schermo ma
+  // quelli liberi, sotto la data e sopra la barra, che sul telefono tengono
+  // gia' conto della tacca e della striscia di casa.
+  const tieniDentro = el => {
+    if (!el || chiuso) return;
+    const c = map.getContainer().getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const d = dataSopra.getBoundingClientRect(), b = barra.getBoundingClientRect();
+    const su = Math.max(c.top + 8, d.height ? d.bottom + 8 : 0);
+    const giu = Math.min(c.bottom - 8, b.height ? b.top - 8 : Infinity);
+    const sx = c.left + 10, dx = c.right - 10;
+    // Si guarda prima il bordo che taglia la fine, poi quello che taglia
+    // l'inizio: se la scheda e' piu' grande dello schermo si vede da sopra e
+    // da sinistra, che e' da dove si legge.
+    let px = 0, py = 0;
+    if (r.right > dx) px = r.right - dx;
+    if (r.left - px < sx) px = r.left - sx;
+    if (r.bottom > giu) py = r.bottom - giu;
+    if (r.top - py < su) py = r.top - su;
+    if (Math.abs(px) < 2 && Math.abs(py) < 2) return;
+    // Si sposta ricentrando la mappa, non con un «panBy»: quello muove il
+    // riquadro ma poi Leaflet rimette i cartellini dove stavano, e il cartello
+    // tornava fuori dallo schermo mezzo secondo dopo. Il centro nuovo e' il
+    // vecchio spostato di quei pixel.
+    const z = map.getZoom();
+    map.setView(map.unproject(map.project(map.getCenter(), z).add([px, py]), z), z, { animate: false });
   };
 
   let sostaAperta = null;
@@ -454,12 +488,13 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     const inquadra = () => {
       if (sostaAperta !== mia) return;
       if (!map.getBounds().pad(-0.15).contains([s.lat, s.lon])) map.setView([s.lat, s.lon], map.getZoom(), { animate: false });
+      tieniDentro(sostaAperta.getElement()?.querySelector('.corsa-sosta'));
     };
     inquadra();
     setTimeout(inquadra, 400);
     meteoDi(s.lat, s.lon, s.from_date ? iso(s.from_date) : null).then(m => {
       const el = mia === sostaAperta ? sostaAperta?.getElement()?.querySelector('.meteo') : null;
-      if (el && rigaMeteo(m)) el.innerHTML = rigaMeteo(m);
+      if (el && rigaMeteo(m)) { el.innerHTML = rigaMeteo(m); inquadra(); }
     });
   };
 
@@ -832,9 +867,36 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
         ? L.point(schermo.x * .5, schermo.y * .24)
         : L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
       map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
-      // Una foto dura tre secondi; un video dura quanto dura, e alla fine
+      // La cartolina sta nascosta finche' la mappa non e' arrivata e la foto
+      // non e' caricata: prima la si vedeva comparire mezza fuori dallo
+      // schermo e poi scivolare dentro. Quando c'e' tutto, si misura - una
+      // foto in verticale e una panoramica non occupano lo stesso posto - la
+      // mappa si aggiusta e solo allora la cartolina compare.
+      const mia = fotoAperta, nata = performance.now();
+      const cartolina = fotoAperta.getElement()?.querySelector('.corsa-foto');
+      const mezzo = cartolina?.querySelector('img, video');
+      let apparsa = false;
+      const fallaVedere = () => {
+        if (apparsa || mia !== fotoAperta || chiuso) return;
+        apparsa = true;
+        tieniDentro(cartolina);
+        cartolina?.classList.add('pronta');
+        // Il tempo di guardarla parte da adesso, non da quando la mappa si e'
+        // mossa: altrimenti la foto durerebbe mezzo secondo di meno
+        if (!filmato && !fermo) aspetta(5000);
+      };
+      const pronta = mezzo && (mezzo.tagName === 'IMG' ? mezzo.complete && mezzo.naturalWidth : mezzo.readyState >= 1);
+      // Se la foto arriva tardi - una connessione lenta, un telefono in giro -
+      // la cartolina si fa vedere lo stesso dopo un secondo e mezzo, e quando
+      // poi la foto arriva ci si rimette dentro lo schermo con la misura vera
+      if (!pronta && mezzo) mezzo.addEventListener(mezzo.tagName === 'IMG' ? 'load' : 'loadedmetadata', () => {
+        if (apparsa) return tieniDentro(cartolina);
+        setTimeout(fallaVedere, Math.max(0, 620 - (performance.now() - nata)));
+      }, { once: true });
+      setTimeout(fallaVedere, pronta ? 620 : 1600);     // se la foto tarda, pazienza: si vede comunque
+      // Una foto dura cinque secondi; un video dura quanto dura, e alla fine
       // aspetta che tu decida se rivederlo o andare avanti
-      if (!filmato) aspetta(5000);
+      if (!filmato) aspetta(5700);
       return;
     }
     // La sosta: il cartellino resta il tempo di leggerlo tutto - nome, tipo,
@@ -1484,7 +1546,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v105';
+const VERSIONE = 'v106';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
