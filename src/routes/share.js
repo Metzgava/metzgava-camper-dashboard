@@ -58,6 +58,7 @@ function ripulisci(d, s) {
     trip: { id: d.trip.id, title: d.trip.title, start_date: d.trip.start_date, end_date: d.trip.end_date,
       status: d.trip.status, owner: d.trip.owner, cover_photo_id: s.foto ? d.trip.cover_photo_id : null },
     legs, soste, photos, workouts, totals,
+    giornate: d.giornate || [],
     expenses: s.spese ? d.expenses : [],
     materiali: [],                      // il materiale con cui si prepara un viaggio resta di casa
     permessi: permessi(s),

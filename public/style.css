@@ -119,6 +119,14 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-scheda.annuncio .titolo { margin: 0; font-size: 19px; }
 /* Il giorno del viaggio, sopra al nome della tappa: dice il capitolo senza
    rubare la riga al titolo */
+/* Il diario sul cartello del giorno: le stelle, due righe di appunto, e
+   l'invito a scriverlo quando non c'e' ancora niente */
+.corsa-scheda .diario:empty { display: none; }
+.corsa-scheda .diario .stelle { color: var(--warn); letter-spacing: 2px; margin-top: 8px; font-size: 16px; }
+.corsa-scheda .diario .nota { margin-top: 6px; font-size: 14px; line-height: 1.4; white-space: pre-wrap;
+  max-height: 7.2em; overflow: hidden; }
+.corsa-scheda .diario .invito { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.corsa-scheda.si-scrive { cursor: pointer; }
 .corsa-scheda .giorno-riga { font-size: 13px; font-weight: 700; letter-spacing: .06em;
   text-transform: uppercase; color: var(--accent); margin-bottom: 5px; }
 .corsa-scheda .sotto { margin-top: 4px; color: var(--muted); font-size: 13px; }
@@ -241,6 +249,12 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 
 /* Il materiale con cui si prepara un viaggio: l'appunto si legge nella riga,
    l'immagine si riconosce dalla miniatura */
+/* Il diario: il numero del giorno al posto dell'icona, e l'appunto a capo */
+.item.giornata { cursor: pointer; }
+.item.giornata .sport-ico { font-weight: 700; font-size: 15px; color: var(--accent); }
+.item.giornata .appunto { white-space: pre-wrap; color: var(--text); margin-top: 2px; }
+.item.giornata .stelle { color: var(--warn); letter-spacing: 1px; }
+
 .materiale .miniatura { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex: 0 0 auto; cursor: zoom-in; }
 .materiale .appunto { margin-top: 4px; white-space: pre-wrap; color: var(--text); font-size: 14px; line-height: 1.4; }
 

@@ -489,6 +489,34 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     interactive: false, zIndexOffset: 900,
   }).addTo(map);
 
+  // Quello che si e' scritto di quella giornata, e quanto e' valsa. Se non e'
+  // ancora scritto niente, il cartello invita a scriverlo: e' il momento buono,
+  // perche' si sta guardando proprio quel giorno.
+  const diario = opzioni.diario instanceof Map ? opzioni.diario : new Map();
+  const siScrive = typeof opzioni.scriviGiornata === 'function';
+  const rigaDiario = data => {
+    const g = data ? diario.get(data) : null;
+    if (!g || (!g.note && !g.stelle)) return siScrive && data ? '<div class="invito">\u270f\ufe0f Tocca per scrivere la giornata</div>' : '';
+    return `${g.stelle ? `<div class="stelle">${'\u2605'.repeat(g.stelle)}${'\u2606'.repeat(5 - g.stelle)}</div>` : ''}`
+      + `${g.note ? `<div class="nota">${esc(g.note)}</div>` : ''}`;
+  };
+  // Toccando il cartello si ferma tutto e si scrive: alla fine il cartello si
+  // riempie di quello che si e' scritto, e il viaggio riparte
+  const collegaScrittura = (card, data) => {
+    if (!siScrive || !data) return;
+    card.classList.add('si-scrive');
+    card.onclick = () => {
+      metti(true);
+      opzioni.scriviGiornata(data, nuovo => {
+        if (nuovo) diario.set(data, nuovo);
+        const dentro = card.querySelector('.diario');
+        if (dentro) dentro.innerHTML = rigaDiario(data);
+        aspetta(4600);
+        metti(false);
+      });
+    };
+  };
+
   // Un giorno senza tappe non e' un giorno in meno: e' il giorno in cui si e'
   // restati fermi da qualche parte, e nel racconto conta quanto gli altri -
   // spesso di piu'. Il cartello dice dove, e perche' se lo si e' scritto.
@@ -502,8 +530,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       + `<div class="titolo">\u23f8\ufe0f ${esc(f.nome)}</div>`
       + `${f.quando ? `<div class="sotto">${esc(f.quando)}</div>` : ''}`
       + `${f.sotto ? `<div class="sotto">${esc(f.sotto)}</div>` : ''}`
-      + `<div class="meteo"></div>`;
+      + `<div class="meteo"></div><div class="diario">${rigaDiario(f.data)}</div>`;
     map.getContainer().appendChild(scheda);
+    collegaScrittura(scheda, f.data);
     if (f.lat != null) map.panTo([f.lat, f.lon], { animate: true, duration: .6 });
     const mia = scheda;
     meteoDi(f.lat, f.lon, f.data).then(m => {
@@ -539,8 +568,10 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     scheda.innerHTML = `${p.giorno ? `<div class="giorno-riga">\ud83d\udcc5 Giorno ${p.giorno}</div>` : ''}`
       + `<div class="titolo">${p.faccia} ${esc(p.titolo)}</div>`
       + `${seconda ? `<div class="sotto">${esc(seconda)}</div>` : ''}`
-      + `${p.sotto ? `<div class="sotto">${esc(p.sotto)}</div>` : ''}`;
+      + `${p.sotto ? `<div class="sotto">${esc(p.sotto)}</div>` : ''}`
+      + `<div class="diario">${rigaDiario(p.data)}</div>`;
     map.getContainer().appendChild(scheda);
+    collegaScrittura(scheda, p.data);
     return 4600;
   };
 
@@ -1317,7 +1348,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v94';
+const VERSIONE = 'v96';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1532,6 +1563,7 @@ function mappaDelViaggio(el, d, opz = {}) {
   const pezzoAllenamento = w => ({
     punti: w.track.map(p => [p[0], p[1]]),
     giorno: giornoDi(w.started_at),
+    data: iso(w.started_at),
     meteo: { lat: w.track[0][0], lon: w.track[0][1], giorno: iso(w.started_at) },
     faccia: sportIco(w.sport),
     da: w.luogo || null,
@@ -1592,6 +1624,7 @@ function mappaDelViaggio(el, d, opz = {}) {
         sotto: orariTappa(l),
         quando: l.date ? fdate(l.date) : '',
         giorno: giornoDi(l.date),
+        data: l.date ? iso(l.date) : null,
         numeri: numeriTappa(l),
         ordine: l.date ? new Date(l.date).getTime() : 0,
       })),
@@ -1654,6 +1687,17 @@ function mappaDelViaggio(el, d, opz = {}) {
       secondi, intera: soloCamper,
       soste: soloCamper ? soste : [],
       fermi: giorniFermi(),
+      diario: new Map((d.giornate || []).map(x => [x.data, x])),
+      // Chi guarda da un link legge il diario, non lo scrive
+      scriviGiornata: window.OSPITE ? null : (data, fatto) => giornataForm(trip.id, data,
+        `\ud83d\udcd3 ${fdate(data)}`, (d.giornate || []).find(x => x.data === data),
+        (nuovo, annullato) => {
+          if (!annullato && nuovo) {
+            const altre = (d.giornate || []).filter(x => x.data !== data);
+            d.giornate = nuovo.note || nuovo.stelle ? [...altre, nuovo] : altre;
+          }
+          fatto(annullato ? null : nuovo);
+        }),
       ...(finale ? { finale } : {}),
     });
   });
@@ -1829,6 +1873,36 @@ async function viewTrip(id) {
             .map(x => `<a class="p4n-punto" href="${p4n(x.lat, x.lon)}" target="_blank" rel="noopener">\ud83c\udd7f\ufe0f ${esc(String(x.n).split(',')[0])}</a>`).join(' ')}</div></div>` : ''}
         <div class="list" id="soste">${soste.length ? soste.map(s => sostaRiga(s, fotoSosta.get(s.id), trip.cover_photo_id)).join('') : '<div class="empty">Nessuna sosta segnata. Cercale alle destinazioni, oppure aggiungile a mano: sosta, infratto, area sosta, camping, appartamento o quello che \u00e8, con i giorni, il costo e un giudizio a stelle.</div>'}</div></div>
 
+      ${(() => {
+        // Il diario: una riga per giornata, dall'inizio alla fine del viaggio.
+        // Dove si era lo sa gia' l'app - la tappa o la sosta di quel giorno -
+        // e quello che resta da scrivere e' solo cosa si e' fatto.
+        const g1 = trip.start_date ? iso(trip.start_date) : null;
+        if (!g1) return '';
+        const ultime = legs.map(l => (l.date ? iso(l.date) : null)).filter(Boolean);
+        const gN = [trip.end_date ? iso(trip.end_date) : '', ...ultime].filter(Boolean).sort().pop() || g1;
+        const scritte = new Map((d.giornate || []).map(x => [x.data, x]));
+        const righe = [];
+        const corsa = new Date(g1);
+        for (let i = 0; i < 400 && iso(corsa) <= gN; i++, corsa.setDate(corsa.getDate() + 1)) {
+          const g = iso(corsa);
+          const suoi = legs.filter(l => l.date && iso(l.date) === g);
+          const sosta = soste.find(x => x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
+          const dove = suoi.length
+            ? suoi.map(l => `${esc(l.from_name.split(',')[0])} \u2192 ${esc(l.to_name.split(',')[0])}`).join(' \u00b7 ')
+            : sosta ? `\u23f8\ufe0f ${esc(sosta.name)}` : '\u23f8\ufe0f fermi';
+          const scritta = scritte.get(g);
+          righe.push(`<div class="item giornata" data-giornata="${g}"><div class="item-main">
+            <div class="sport-ico">${i + 1}</div>
+            <div class="grow"><div class="title">${fdate(g)} \u00b7 <span class="muted">${dove}</span>${scritta?.stelle ? ` <span class="stelle">${stelline(scritta.stelle)}</span>` : ''}</div>
+              ${scritta?.note ? `<div class="meta appunto">${esc(scritta.note)}</div>` : '<div class="meta muted"><i>Scrivi cosa avete fatto</i></div>'}</div></div>
+            <div class="item-actions"><button class="btn ghost icon" data-scrivi-giornata="${g}" title="Scrivi la giornata">\u270f\ufe0f</button></div></div>`);
+        }
+        const conNota = [...scritte.values()].filter(x => x.note || x.stelle).length;
+        return `<div class="card pad-0" style="grid-column:1/-1"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83d\udcd3 Diario di bordo</h2>
+          <div class="small muted">${conNota} giornat${conNota === 1 ? 'a scritta' : 'e scritte'} su ${righe.length}</div></div>
+          <div class="list">${righe.join('')}</div></div>`;
+      })()}
       <div class="card pad-0" style="grid-column:1/-1" id="materiali"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83d\udcce Info e dati utili</h2>
         <div class="row"><button class="btn sm" id="m-nota">\uff0b Nota</button><button class="btn sm" id="m-link">\uff0b Link</button><button class="btn sm primary" id="m-file">\uff0b File</button>
           <input type="file" id="m-input" multiple hidden></div></div>
@@ -1877,6 +1951,19 @@ async function viewTrip(id) {
   $('#reopen')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/close`, { method: 'POST', body: { reopen: true } }); render(); }));
   $('#parti')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/stato`, { method: 'POST', body: { stato: 'open' } }); toast('Buon viaggio'); render(); }));
   $('#incostruzione')?.addEventListener('click', safe(async () => { await api(`/trips/${id}/stato`, { method: 'POST', body: { stato: 'bozza' } }); toast('Torna fra i viaggi in costruzione'); render(); }));
+
+  // ---- il diario ----
+  const apriGiornata = (g, intestazione) => giornataForm(id, g, intestazione, (d.giornate || []).find(x => x.data === g), (nuovo, annullato) => {
+    if (!annullato) restaQui();
+  });
+  $$('[data-scrivi-giornata]').forEach(b => b.onclick = () => {
+    const g = b.dataset.scriviGiornata;
+    apriGiornata(g, `\ud83d\udcd3 ${fdate(g)}`);
+  });
+  $$('.item.giornata').forEach(r => r.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    apriGiornata(r.dataset.giornata, `\ud83d\udcd3 ${fdate(r.dataset.giornata)}`);
+  }));
 
   // ---- info e dati utili ----
   $('#m-file')?.addEventListener('click', () => $('#m-input').click());
@@ -2104,6 +2191,35 @@ const sostaRiga = (s, foto = [], copertina = null) => {
 
 // Scheda di una sosta: il posto si cerca come ogni altro luogo, il tipo dice se
 // e' un passaggio o una notte, e le date sono i giorni in cui ci si ferma
+// Una giornata di viaggio: cosa si e' fatto, e quanto e' valsa. Si apre dal
+// diario del viaggio e dal cartello che compare mentre lo si rivede - li' e'
+// il momento in cui uno se la ricorda.
+function giornataForm(tripId, data, intestazione, corrente, dopo) {
+  let stelle = corrente?.stelle || 0;
+  const stella = n => `<button type="button" class="stella ${n <= stelle ? 'accesa' : ''}" data-stella="${n}" title="${n} su 5">\u2605</button>`;
+  modal(`<h2>${esc(intestazione || fdate(data))}</h2>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Com\u2019\u00e8 andata</label>
+        <div class="stelle-scelta" id="stelle">${[1, 2, 3, 4, 5].map(stella).join('')}
+          <button type="button" class="btn ghost sm" data-stella="0" title="Togli il giudizio" style="margin-left:8px">\u2715</button></div></div>
+      <div><label class="f">Cosa abbiamo fatto</label>
+        <textarea name="note" rows="5" maxlength="4000" placeholder="La giornata in due righe: dove si \u00e8 andati, cosa si \u00e8 visto, com\u2019\u00e8 andata a finire">${esc(corrente?.note || '')}</textarea></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = () => { close(); dopo?.(corrente, true); };
+    const disegna = () => $$('[data-stella]', el).forEach(b => b.classList.toggle('accesa', +b.dataset.stella && +b.dataset.stella <= stelle));
+    $$('[data-stella]', el).forEach(b => b.onclick = () => { stelle = +b.dataset.stella; disegna(); });
+    $('[name=note]', el).focus();
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const r = await api(`/trips/${tripId}/giornate/${data}`, { method: 'PUT', body: { note: $('[name=note]', el).value, stelle } });
+      close();
+      toast(r.note || r.stelle ? 'Giornata salvata' : 'Giornata svuotata');
+      dopo?.(r, false);
+    });
+  });
+}
+
 function sostaForm(trip, s = null, preimpostato = null) {
   let luogo = s?.lat != null ? { name: s.name, lat: s.lat, lon: s.lon } : preimpostato;
   let stelle = s?.stars || 0;

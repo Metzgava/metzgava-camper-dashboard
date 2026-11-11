@@ -469,6 +469,19 @@ export async function migrate() {
   ALTER TABLE shares ADD COLUMN IF NOT EXISTS contatto_id INT REFERENCES rubrica(id) ON DELETE SET NULL;
   ALTER TABLE shares ADD COLUMN IF NOT EXISTS inviato_at TIMESTAMPTZ;
 
+  -- Il diario di bordo: una riga per giornata di viaggio, con quello che si e'
+  -- fatto e quanto e' valsa. Non tutte le giornate ce l'hanno - si scrive
+  -- quella che vale la pena - percio' sta per conto suo e non dentro le tappe.
+  CREATE TABLE IF NOT EXISTS giornate (
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    data DATE NOT NULL,
+    note TEXT,
+    stelle SMALLINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (trip_id, data)
+  );
+
   -- Il tempo che faceva: una riga per posto e per giorno, presa una volta sola
   -- da Open-Meteo e poi tenuta qui. Rivedere dieci volte lo stesso viaggio non
   -- deve diventare diecimila richieste a un servizio che non ci chiede niente.

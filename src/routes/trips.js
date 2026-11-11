@@ -442,8 +442,29 @@ export async function datiViaggio(id) {
   // che distingue «costa dieci euro» da «dieci euro nel totale del viaggio»
   const soste = (await q(`SELECT s.*, EXISTS (SELECT 1 FROM expenses e WHERE e.stop_id = s.id) AS in_spese
     FROM stops s WHERE s.trip_id=$1 ORDER BY s.from_date NULLS LAST, s.id`, [trip.id])).rows;
-  return { trip, legs, expenses, photos, workouts, soste, materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) };
+  const giornate = (await q(`SELECT to_char(data,'YYYY-MM-DD') AS data, note, stelle FROM giornate
+    WHERE trip_id=$1 ORDER BY data`, [trip.id])).rows;
+  return { trip, legs, expenses, photos, workouts, soste, giornate,
+    materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) };
 }
+
+// Una giornata di viaggio: cosa si e' fatto e quanto e' valsa. Vuota di tutte
+// e due le cose, la riga se ne va: un diario non tiene le pagine bianche.
+router.put('/trips/:id/giornate/:data', wrap(async (req, res) => {
+  const data = String(req.params.data).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ error: 'Data non valida' });
+  const note = String(req.body?.note || '').trim().slice(0, 4000) || null;
+  const grezze = req.body?.stelle;
+  const stelle = grezze == null || grezze === '' ? null : Math.min(5, Math.max(0, Math.round(num(grezze)))) || null;
+  if (!note && !stelle) {
+    await q('DELETE FROM giornate WHERE trip_id=$1 AND data=$2', [req.params.id, data]);
+    return res.json({ data, note: null, stelle: null });
+  }
+  const r = (await q(`INSERT INTO giornate(trip_id, data, note, stelle) VALUES($1,$2,$3,$4)
+    ON CONFLICT (trip_id, data) DO UPDATE SET note=EXCLUDED.note, stelle=EXCLUDED.stelle, updated_at=now()
+    RETURNING to_char(data,'YYYY-MM-DD') AS data, note, stelle`, [req.params.id, data, note, stelle])).rows[0];
+  res.json(r);
+}));
 router.put('/trips/:id', wrap(async (req, res) => {
   const b = req.body || {};
   const row = (await q(`UPDATE trips SET title=coalesce($2,title), start_date=$3, end_date=$4, fuel_price=$5, km_per_liter=coalesce($6,km_per_liter), notes=$7 WHERE id=$1 RETURNING *`,
