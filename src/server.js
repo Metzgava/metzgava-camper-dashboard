@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate, sistemaDurateCarlock, q } from './lib/db.js';
 import { SECRET, wrap } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
-import { router as trips, agganciaAllenamenti } from './routes/trips.js';
+import { router as trips, agganciaAllenamenti, completaCoordinateSoste } from './routes/trips.js';
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti, sistemaDislivelliAssurdi } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR, completaExifMancanti, completaLuoghiFoto } from './routes/photos.js';
 import { router as materiali } from './routes/materiali.js';
@@ -103,6 +103,7 @@ async function manutenzioni() {
   // Recupera gli allenamenti gia' in archivio rimasti senza viaggio, per esempio
   // perche' il viaggio e' stato creato dopo averli importati
   await agganciaAllenamenti().catch(e => console.warn('aggancio allenamenti fallito:', e.message));
+  await completaCoordinateSoste().catch(e => console.warn('soste senza posizione:', e.message));
   await normalizzaNomiEsistenti().catch(e => console.warn('uniformazione nomi fallita:', e.message));
   await completaExifMancanti().catch(e => console.warn('lettura exif fallita:', e.message));
   await sistemaDurateCarlock().catch(e => console.warn('durate CarLock non ricontate:', e.message));

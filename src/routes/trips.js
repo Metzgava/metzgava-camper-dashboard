@@ -306,6 +306,42 @@ const NEL_PERIODO = `t.start_date IS NOT NULL
 // Aggancia al viaggio gli allenamenti ancora liberi che cadono nel suo periodo.
 // Restano esclusi quelli con un viaggio gia' assegnato e quelli che l'utente ha
 // deciso a mano, compreso chi ha scelto di lasciarli senza viaggio.
+// Una sosta scritta a mano, senza sceglierla dall'elenco, resta senza
+// coordinate: non si disegna sulla mappa, e le foto che le appartengono non
+// sanno dove mettersi - finiscono dove si era quel giorno, che a volte e' il
+// paese sbagliato. Il nome pero' c'e': si prova a cercarlo, poche per volta.
+const PAROLE_DI_SERVIZIO = /\b(are[ae]|sost[ae]|camper|service|camping|campeggi\w*|parcheggi\w*|parking|infratto|piazzale|p\.?zza)\b/gi;
+const candidatiSosta = nome => {
+  const pulito = String(nome || '').replace(/\s+/g, ' ').trim();
+  const spoglio = pulito.replace(PAROLE_DI_SERVIZIO, ' ').replace(/\s{2,}/g, ' ').trim();
+  return [...new Set([pulito, spoglio])].filter(x => x.length > 2);
+};
+
+export async function completaCoordinateSoste(quante = 20) {
+  const senza = (await q(`SELECT id, name FROM stops WHERE (lat IS NULL OR lon IS NULL)
+    AND coalesce(name,'') <> '' ORDER BY id DESC LIMIT $1`, [quante])).rows;
+  if (!senza.length) return 0;
+  let trovate = 0;
+  for (const s of senza) {
+    let r = [];
+    // «area sosta venaria reale» non lo trova nessun geocoder: le parole che
+    // dicono che posto e' - area, sosta, camping, parcheggio - non sono un
+    // indirizzo. Si prova com'e' scritto, e poi con quello che resta togliendole.
+    for (const tentativo of candidatiSosta(s.name)) {
+      try { r = await geocode(tentativo); } catch { /* il geocoder non risponde: si riprova al prossimo avvio */ }
+      if (r?.length) break;
+      await new Promise(x => setTimeout(x, 800));
+    }
+    if (r?.length) {
+      await q('UPDATE stops SET lat=$2, lon=$3 WHERE id=$1', [s.id, r[0].lat, r[0].lon]);
+      trovate++;
+    }
+    await new Promise(x => setTimeout(x, 1200));
+  }
+  console.log(`soste senza posizione: ${trovate} ritrovate su ${senza.length}`);
+  return trovate;
+}
+
 export async function agganciaAllenamenti() {
   const r = await q(`UPDATE workouts w SET trip_id = (
       SELECT t.id FROM trips t WHERE ${NEL_PERIODO}

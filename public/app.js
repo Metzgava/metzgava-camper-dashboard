@@ -1189,7 +1189,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v84';
+const VERSIONE = 'v85';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1331,9 +1331,10 @@ function mappaDelViaggio(el, d, opz = {}) {
   // \u2014 non ha coordinate proprie. Il posto dove e' successo pero' si sa: e' dove
   // si era quel giorno, la sosta in cui si dormiva o l'ultima meta raggiunta.
   // E' una posizione dedotta, non misurata, e si vede che lo e'.
-  const dovEravamo = w => {
+  const dovEravamo = (w, opz = {}) => {
     const g = iso(new Date(w.started_at));
-    const s = soste.find(x => x.lat != null && x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
+    const s = opz.soloTappe ? null
+      : soste.find(x => x.lat != null && x.from_date && g >= iso(x.from_date) && g <= iso(x.to_date || x.from_date));
     if (s) return { lat: s.lat, lon: s.lon, dove: s.name };
     const arrivo = legs.filter(l => l.date && l.to_lat != null && iso(l.date) <= g).pop();
     return arrivo ? { lat: arrivo.to_lat, lon: arrivo.to_lon, dove: arrivo.to_name.split(',')[0] } : null;
@@ -1411,10 +1412,16 @@ function mappaDelViaggio(el, d, opz = {}) {
   // e'. Il nome del posto, quando si sa, compare sotto la foto.
   const fotoSullaMappa = (soloSoste = false) => photos.filter(p => !soloSoste || p.stop_id != null).map(p => {
     if (p.lat != null && p.lon != null) return { ...p, dove: p.luogo || nomeSostaDi(p) || null };
-    const sua = p.stop_id ? soste.find(x => x.id === p.stop_id && x.lat != null) : null;
-    if (sua) return { ...p, lat: sua.lat, lon: sua.lon, circa: true, dove: sua.name };
-    const li = p.taken_at ? dovEravamo({ started_at: p.taken_at }) : null;
-    if (li) return { ...p, lat: li.lat, lon: li.lon, circa: true, dove: li.dove };
+    const sua = p.stop_id ? soste.find(x => x.id === p.stop_id) : null;
+    if (sua?.lat != null) return { ...p, lat: sua.lat, lon: sua.lon, circa: true, dove: sua.name };
+    // Se la sosta a cui appartiene non ha le coordinate - capita quando il
+    // posto e' stato scritto a mano senza sceglierlo dall'elenco - la foto si
+    // mette dove si e' arrivati quel giorno, e non in un'altra sosta: un'altra
+    // sosta e' un altro paese, e la foto di Venaria comparirebbe alla Chiusa
+    // di San Michele. Il nome resta quello della sua sosta, che quello si sa.
+    const quando = p.taken_at || sua?.from_date || null;
+    const li = quando ? dovEravamo({ started_at: quando }, { soloTappe: !!sua }) : null;
+    if (li) return { ...p, lat: li.lat, lon: li.lon, circa: true, dove: sua?.name || li.dove };
     // Senza data e senza posto resta l'arrivo: meglio in fondo al viaggio che fuori
     const ultima = legs[legs.length - 1];
     return ultima?.to_lat != null
