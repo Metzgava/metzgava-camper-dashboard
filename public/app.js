@@ -357,6 +357,38 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   // stati, quanto e' costato, perche' e che tempo faceva sono troppe cose per
   // sei secondi. Riparte col tasto, quando chi guarda ha finito di leggere.
   const ATTESA_LUNGA = 3600000;
+  // Le foto di quella giornata: quelle scattate quel giorno e quelle della
+  // sosta. Si sfogliano dentro al cartellino con avanti e indietro, e quando
+  // finiscono il viaggio riprende - che e' il gesto che viene da se'.
+  const fotoDelGiorno = (data, sosta) => (opzioni.fotoTutte || [])
+    .filter(f => !eVideo(f) && ((data && f.taken_at && iso(f.taken_at) === data) || (sosta && f.stop_id === sosta.id)))
+    .filter((f, i, tutte) => tutte.findIndex(x => x.id === f.id) === i)
+    .sort((a, b) => (a.taken_at && b.taken_at ? new Date(a.taken_at) - new Date(b.taken_at) : (a.iP - b.iP) || (a.f - b.f)));
+  const bloccoFoto = lista => !lista.length ? '' : `<div class="foto-giorno">
+    <img alt="" loading="lazy"><div class="dida small"></div>
+    <div class="comandi"><button type="button" class="btn sm prec" title="Indietro">\u25c0</button>
+      <span class="conta small"></span>
+      <button type="button" class="btn sm succ" title="Avanti">\u25b6</button></div></div>`;
+  const collegaFoto = (card, lista) => {
+    const cornice = card?.querySelector('.foto-giorno');
+    if (!cornice || !lista.length) return;
+    L.DomEvent?.disableClickPropagation?.(cornice);
+    const img = cornice.querySelector('img'), conta = cornice.querySelector('.conta'), dida = cornice.querySelector('.dida');
+    const prec = cornice.querySelector('.prec'), succ = cornice.querySelector('.succ');
+    let i = 0;
+    const mostra = () => {
+      const f = lista[i];
+      img.src = `/uploads/${f.filename}`;
+      conta.textContent = `${i + 1} di ${lista.length}`;
+      dida.textContent = [f.dove, f.caption].filter(Boolean).join(' \u00b7 ');
+      prec.disabled = i === 0;
+      // All'ultima, il tasto avanti fa ripartire il viaggio invece di girare a vuoto
+      succ.title = i + 1 < lista.length ? 'Avanti' : 'Finite le foto: riparti';
+    };
+    prec.onclick = e => { e.stopPropagation(); if (i > 0) { i--; mostra(); } };
+    succ.onclick = e => { e.stopPropagation(); if (i + 1 < lista.length) { i++; mostra(); } else riprendiDalCartello(); };
+    mostra();
+  };
   const tastoContinua = '<button type="button" class="btn sm primary continua">Continua \u25b6</button>';
   const riprendiDalCartello = () => { restante = 0; metti(false); aspetta(1); };
   const collegaContinua = card => {
@@ -380,13 +412,17 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
           + `${orari ? `<span class="orari">${orari}${s.orari_dedotti ? ' <i>dalle tappe</i>' : ''}</span>` : ''}`
           + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>`
             : opzioni.scriviMotivo ? '<span class="motivo invito">\u270f\ufe0f Tocca per dire perch\u00e9</span>' : ''}`
-          + `<i class="meteo"></i>${tastoContinua}</div>`,
+          + `<i class="meteo"></i>${bloccoFoto(fotoDelGiorno(s.from_date ? iso(s.from_date) : null, s))}${tastoContinua}</div>`,
         iconSize: [360, 130], iconAnchor: [180, 146],
       }),
       zIndexOffset: 1150, interactive: true,
     }).addTo(map);
     const cartellino = sostaAperta.getElement()?.querySelector('.corsa-sosta');
-    if (cartellino) { L.DomEvent.disableClickPropagation(cartellino); collegaContinua(cartellino); }
+    if (cartellino) {
+      L.DomEvent.disableClickPropagation(cartellino);
+      collegaContinua(cartellino);
+      collegaFoto(cartellino, fotoDelGiorno(s.from_date ? iso(s.from_date) : null, s));
+    }
     metti(true);
     // Toccando il cartellino ci si ferma e si scrive perche' ci si era
     // fermati: e' li' che uno se lo ricorda, non nel modulo della sosta
@@ -586,10 +622,12 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       + `<div class="titolo">\u23f8\ufe0f ${esc(f.nome)}</div>`
       + `${f.quando ? `<div class="sotto">${esc(f.quando)}</div>` : ''}`
       + `${f.sotto ? `<div class="sotto">${esc(f.sotto)}</div>` : ''}`
-      + `<div class="meteo"></div><div class="diario">${rigaDiario(f.data)}</div>${tastoContinua}`;
+      + `<div class="meteo"></div><div class="diario">${rigaDiario(f.data)}</div>`
+      + `${bloccoFoto(fotoDelGiorno(f.data, null))}${tastoContinua}`;
     map.getContainer().appendChild(scheda);
     collegaScrittura(scheda, f.data);
     collegaContinua(scheda);
+    collegaFoto(scheda, fotoDelGiorno(f.data, null));
     metti(true);
     if (f.lat != null) map.panTo([f.lat, f.lon], { animate: true, duration: .6 });
     const mia = scheda;
@@ -1406,7 +1444,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v101';
+const VERSIONE = 'v102';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1765,6 +1803,9 @@ function mappaDelViaggio(el, d, opz = {}) {
     riproduci(map, pezzi, fotoSullaMappa(soloCamper), {
       secondi, intera: soloCamper,
       soste: soloCamper ? soste.map(sostaConOrari) : [],
+      // Lungo la strada compaiono le foto delle soste; dentro ai cartellini
+      // ci sono tutte quelle di quel giorno, che e' li' che si guardano
+      fotoTutte: fotoSullaMappa(),
       fermi: giorniFermi(),
       scriviMotivo: window.OSPITE ? null : (sosta, fatto) => motivoSostaForm(sosta, fatto),
       diario: new Map((d.giornate || []).map(x => [x.data, x])),

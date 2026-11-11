@@ -189,6 +189,16 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-sosta.si-scrive { cursor: pointer; }
 .sosta-icona { pointer-events: none; }
 .sosta-icona .corsa-sosta { pointer-events: auto; }
+/* Le foto della giornata dentro al cartellino: una alla volta, con avanti e
+   indietro sotto. Si sfogliano stando fermi, che e' il momento buono. */
+.foto-giorno { margin-top: 10px; }
+.foto-giorno img { display: block; width: 100%; max-height: min(230px, 30vh); object-fit: cover;
+  border-radius: 10px; background: var(--surface-2); }
+.foto-giorno .dida { margin-top: 4px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foto-giorno .comandi { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 6px; }
+.foto-giorno .comandi .btn { padding: 4px 12px; }
+.foto-giorno .conta { color: var(--muted); min-width: 56px; text-align: center; }
+
 /* Il tasto che fa ripartire il filmato quando si e' finito di leggere */
 .corsa-sosta .continua, .corsa-scheda .continua { display: block; width: 100%; margin-top: 10px; }
 .corsa-scheda .meteo { margin-top: 10px; font-size: 15px; color: var(--text); }
