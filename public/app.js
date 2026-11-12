@@ -466,6 +466,15 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     if (sostaAperta) { map.removeLayer(sostaAperta); sostaAperta = null; }
     if (puntoSosta) { map.removeLayer(puntoSosta); puntoSosta = null; }
   };
+  // Quello che si e' scritto di questa sosta: perche' ci si e' fermati, e cosa
+  // si e' fatto. Sono della sosta, non della giornata - in un giorno ci si
+  // ferma due volte, e sono due cose diverse - cosi' alla sosta dopo il
+  // cartellino e' pulito e il campo da riempire e' vuoto.
+  const righeSosta = x => `${x.motivo ? `<span class="motivo">\ud83d\udcac ${esc(x.motivo)}</span>` : ''}`
+    + `${x.fatto ? `<span class="fatto">\ud83d\udcd3 ${esc(x.fatto)}</span>` : ''}`
+    + `${!x.motivo && !x.fatto && opzioni.scriviMotivo
+      ? '<span class="motivo invito">\u270f\ufe0f Tocca per scrivere cosa avete fatto</span>' : ''}`;
+
   // Passando davanti a una sosta si legge di che posto era, quanto ci si e'
   // fermati e quanto e' costato. E che tempo faceva, se si riesce a saperlo:
   // arriva dopo, e se nel frattempo la cartolina se n'e' andata, pazienza.
@@ -478,8 +487,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
         className: 'sosta-icona',
         html: `<div class="corsa-sosta"><b>${tipoIco(s.kind)} ${esc(s.name)}</b>${sotto ? `<span>${sotto}</span>` : ''}`
           + `${orari ? `<span class="orari">${orari}${s.orari_dedotti ? ' <i>dalle tappe</i>' : ''}</span>` : ''}`
-          + `${s.motivo ? `<span class="motivo">\ud83d\udcac ${esc(s.motivo)}</span>`
-            : opzioni.scriviMotivo ? '<span class="motivo invito">\u270f\ufe0f Tocca per dire perch\u00e9</span>' : ''}`
+          + `<div class="scritte">${righeSosta(s)}</div>`
           + `<i class="meteo"></i>${bloccoFoto(fotoDelGiorno(s.from_date ? iso(s.from_date) : null, s))}${tastoContinua}</div>`
           + '<i class="punta"></i>',
         // La punta in fondo cade sul fondo del riquadro, e il fondo del
@@ -512,11 +520,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
           tieniDentro(dentro, true);
           opzioni.scriviMotivo(s, nuova => {
             if (nuova) {
-              s.motivo = nuova.motivo;
-              const riga = dentro.querySelector('.motivo');
-              if (riga) { riga.innerHTML = nuova.motivo ? `\ud83d\udcac ${esc(nuova.motivo)}` : ''; riga.hidden = !nuova.motivo; }
-              else if (nuova.motivo) dentro.querySelector('.meteo')
-                ?.insertAdjacentHTML('beforebegin', `<span class="motivo">\ud83d\udcac ${esc(nuova.motivo)}</span>`);
+              s.motivo = nuova.motivo; s.fatto = nuova.fatto;
+              const box = dentro.querySelector('.scritte');
+              if (box) box.innerHTML = righeSosta(s);
             }
             tieniDentro(dentro, true);
             aspetta(ATTESA_LUNGA);
@@ -1676,7 +1682,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v112';
+const VERSIONE = 'v113';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2697,16 +2703,20 @@ function notaTappaForm(legId, titolo, nota, dopo) {
 function motivoSostaForm(sosta, dopo) {
   modal(`<h2>${tipoIco(sosta.kind)} ${esc(sosta.name)}</h2>
     <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Cosa abbiamo fatto</label>
+        <textarea name="fatto" rows="4" maxlength="2000" placeholder="Qui: cosa avete visto, chi avete incontrato, com\u2019era">${esc(sosta.fatto || '')}</textarea>
+        <div class="small muted" style="margin-top:4px">\u00c8 di questa sosta e solo di questa: alla prossima il campo riparte vuoto.</div></div>
       <div><label class="f">Perch\u00e9 ci si \u00e8 fermati</label>
         <input name="motivo" maxlength="120" value="${esc(sosta.motivo || '')}" placeholder="Es. pranzo, visita al castello, gasolio, riposo">
         <div class="small muted" style="margin-top:4px">\u00c8 quello che fra un anno spiega la deviazione.</div></div>
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div>
     </form>`, (el, close) => {
     $('[data-x]', el).onclick = () => { close(); dopo?.(null); };
-    $('[name=motivo]', el).focus();
+    $('[name=fatto]', el).focus();
     $('#f', el).onsubmit = safe(async e => {
       e.preventDefault();
-      const r = await api('/soste/' + sosta.id, { method: 'PUT', body: { motivo: $('[name=motivo]', el).value } });
+      const r = await api('/soste/' + sosta.id, { method: 'PUT',
+        body: { motivo: $('[name=motivo]', el).value, fatto: $('[name=fatto]', el).value } });
       close();
       toast(r.motivo ? 'Motivo salvato' : 'Motivo tolto');
       dopo?.(r);
@@ -2745,7 +2755,10 @@ function sostaForm(trip, s = null, preimpostato = null) {
     <div><label class="f">Collegamento</label><input name="link" value="${esc(s?.link || preimpostato?.park4night || '')}" placeholder="park4night, sito del campeggio, qualunque indirizzo"></div>
     <div><label class="f">Perch\u00e9 ci si \u00e8 fermati</label><input name="motivo" maxlength="120" value="${esc(s?.motivo || '')}" placeholder="Es. pranzo, visita al castello, gasolio, riposo">
       <div class="small muted" style="margin-top:4px">Di una sosta in itinere \u00e8 la cosa che si dimentica per prima, ed \u00e8 quella che fra un anno spiega la deviazione.</div></div>
-    <div><label class="f">Commenti</label><textarea name="notes" rows="2" placeholder="Es. carico acqua, silenzioso, ombra la mattina">${esc(s?.notes || '')}</textarea></div>
+    <div><label class="f">Cosa abbiamo fatto</label><textarea name="fatto" rows="3" maxlength="2000" placeholder="Cosa avete visto, chi avete incontrato, com\u2019era">${esc(s?.fatto || '')}</textarea>
+      <div class="small muted" style="margin-top:4px">\u00c8 di questa sosta: compare sul cartellino mentre si rivede il viaggio.</div></div>
+    <div><label class="f">Commenti</label><textarea name="notes" rows="2" placeholder="Es. carico acqua, silenzioso, ombra la mattina">${esc(s?.notes || '')}</textarea>
+      <div class="small muted" style="margin-top:4px">Del posto, non della volta: acqua, ombra, rumore.</div></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${s ? 'Salva' : 'Aggiungi'}</button></div></form>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;

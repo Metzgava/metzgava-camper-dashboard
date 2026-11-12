@@ -217,6 +217,9 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .corsa-sosta .motivo { font-weight: 650; }
 .corsa-sosta .orari i { font-style: normal; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .corsa-sosta .motivo.invito { font-weight: 400; color: var(--muted); }
+/* Cosa si e' fatto in questa sosta: va a capo da se', che una giornata non
+   sta in una riga */
+.corsa-sosta .fatto { display: block; margin-top: 4px; white-space: pre-wrap; text-align: left; }
 .corsa-sosta.si-scrive { cursor: pointer; }
 .sosta-icona { pointer-events: none; }
 .sosta-icona .corsa-sosta { pointer-events: auto; }

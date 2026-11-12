@@ -334,6 +334,9 @@ export async function migrate() {
   -- riposo. Di una sosta in itinere e' la cosa che si dimentica per prima, e
   -- rivedendo il viaggio e' quella che spiega la deviazione.
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS motivo TEXT;
+  -- Cosa si e' fatto in quella sosta. E' della sosta e non della giornata: in
+  -- un giorno ci si ferma due volte, e sono due cose diverse.
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS fatto TEXT;
   -- Come inquadrare la foto quando fa da copertina: il punto da tenere al centro
   -- e quanto ingrandire. Non si tocca il file, che resta intero: il ritaglio e'
   -- un modo di guardarla, e si puo' sempre rifare.
