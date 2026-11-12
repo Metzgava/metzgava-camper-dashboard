@@ -1682,7 +1682,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v113';
+const VERSIONE = 'v114';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2070,9 +2070,12 @@ function mappaDelViaggio(el, d, opz = {}) {
     riproduci(map, pezzi, fotoSullaMappa(soloCamper), {
       secondi, intera: soloCamper,
       soste: soloCamper ? soste.map(sostaConOrari) : [],
-      // Lungo la strada compaiono le foto delle soste; dentro ai cartellini
-      // ci sono tutte quelle di quel giorno, che e' li' che si guardano
-      fotoTutte: fotoSullaMappa(),
+      // Nel giro in camper si vedono le foto caricate sulle soste, e solo
+      // quelle: lungo la strada e dentro ai cartellini. Le altre - quelle di
+      // una gita, di un allenamento, di un giorno qualunque - hanno la loro
+      // raccolta e il loro carosello, e qui farebbero rumore. Rivedendo un
+      // allenamento invece ci sono tutte.
+      fotoTutte: fotoSullaMappa(soloCamper),
       fermi: giorniFermi(),
       scriviMotivo: window.OSPITE ? null : (sosta, fatto) => motivoSostaForm(sosta, fatto),
       scriviNota: window.OSPITE ? null : (legId, titolo, nota, fatto) => notaTappaForm(legId, titolo, nota, fatto),
