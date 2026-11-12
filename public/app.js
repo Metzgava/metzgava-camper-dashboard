@@ -1555,30 +1555,43 @@ function apriLente(foto, i = 0, opz = {}) {
     testo.classList.toggle('vuota', senza);
     const conta = $('.conta', el);
     if (conta) conta.textContent = `${i + 1} di ${foto.length}`;
+    // Fermi sull'ultima, il tasto non riprende: ricomincia. Che lo dica.
+    const gioca = $('.gioca', el);
+    if (gioca && gioca.textContent === '\u25b6') gioca.title = i + 1 >= foto.length ? 'Rivedile da capo' : 'Riparti';
     penna.hidden = !scrivibile();
     penna.title = foto[i].caption ? 'Cambia la didascalia' : 'Scrivi la didascalia';
   };
   // Il carosello: le foto scorrono da sole, qualche secondo l'una. Si ferma al
   // primo gesto - chi prende in mano la pila di fotografie decide lui quanto
-  // guardarle - e col tasto riparte da dov'era. Arrivato in fondo si ferma, e
-  // «da capo» ricomincia dalla prima.
+  // guardarle - e col tasto riparte da dov'era. Arrivato in fondo si ferma: da
+  // li' il tasto ricomincia dalla prima, che e' quello che uno vuole quando
+  // preme «riparti» su una pila finita.
   const passoGiostra = Math.max(1200, Math.round((opz.secondi || 2.8) * 1000));
   let giostra = null;
   const segnaGiostra = () => {
     el.classList.toggle('in-giostra', !!giostra);
     const t = $('.gioca', el);
-    if (t) { t.textContent = giostra ? '\u23f8' : '\u25b6'; t.title = giostra ? 'Pausa' : 'Riparti'; }
+    if (!t) return;
+    const finita = !giostra && i + 1 >= foto.length;
+    t.textContent = giostra ? '\u23f8' : '\u25b6';
+    t.title = giostra ? 'Pausa' : finita ? 'Rivedile da capo' : 'Riparti';
   };
   const fermaGiostra = () => { if (giostra) { clearInterval(giostra); giostra = null; } segnaGiostra(); };
   const viaGiostra = daCapo => {
     if (giostra) clearInterval(giostra);
-    if (daCapo || i + 1 >= foto.length) mostra(daCapo ? 0 : i);
+    // In fondo alla pila non c'e' niente da riprendere: si ricomincia
+    if (daCapo || i + 1 >= foto.length) mostra(0);
     giostra = setInterval(() => { if (i + 1 >= foto.length) return fermaGiostra(); mostra(i + 1); }, passoGiostra);
     segnaGiostra();
   };
   if (opz.carosello && foto.length > 1) viaGiostra(false);
 
   const tasti = e => {
+    // La barra spaziatrice ferma e fa ripartire, come in qualunque lettore
+    if (e.key === ' ' && opz.carosello && foto.length > 1) {
+      e.preventDefault();
+      return giostra ? fermaGiostra() : viaGiostra(false);
+    }
     if (e.key === 'Escape') chiudi();
     else if (e.key === 'ArrowLeft') { fermaGiostra(); mostra(i - 1); }
     else if (e.key === 'ArrowRight') { fermaGiostra(); mostra(i + 1); }
@@ -1648,7 +1661,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v110';
+const VERSIONE = 'v111';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se

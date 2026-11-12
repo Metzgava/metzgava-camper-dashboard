@@ -338,13 +338,30 @@ label.f { display: block; font-size: 12px; font-weight: 600; color: var(--muted)
 .lente.in-giostra img { animation: fade .5s; }
 /* La barra del carosello: ferma, riparte, ricomincia da capo, e allarga la
    foto fino a riempire lo schermo. Sta in fondo, dove arriva il pollice. */
+/* «max-content»: dentro una griglia centrata un riquadro che galleggia non
+   sa quanto deve essere largo e si schiacciava sui tasti, che finivano uno
+   sopra l'altro. Cosi' e' largo quanto quello che ci sta dentro. */
 .lente .giostra-barra { position: absolute; left: 50%; transform: translateX(-50%); z-index: 2;
   bottom: calc(12px + env(safe-area-inset-bottom)); display: flex; gap: 8px; align-items: center;
+  width: max-content; max-width: calc(100vw - 20px); flex-wrap: nowrap;
   padding: 6px 10px; border-radius: 999px; background: rgba(10,14,22,.62);
   -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
-.lente .giostra-barra .btn { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.34);
-  color: #fff; padding: 6px 12px; font-size: 15px; }
+/* Dentro la lente ogni tasto e' tondo e galleggia per conto suo - servira'
+   alla crocetta e alle frecce. Quelli della barra no: stanno in fila, uno
+   accanto all'altro, se no si accavallano tutti nello stesso punto. */
+.lente .giostra-barra .btn { position: static; width: auto; height: auto;
+  background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.34);
+  color: #fff; padding: 8px 14px; font-size: 16px; border-radius: 999px; line-height: 1.1; }
 .lente .giostra-barra .conta { color: #fff; opacity: .85; min-width: 64px; text-align: center; }
+/* Sul telefono si preme col pollice: i tasti devono essere larghi abbastanza
+   da prenderli senza mirare */
+@media (max-width: 560px) {
+  .lente .giostra-barra { gap: 6px; padding: 7px 10px; }
+  .lente .giostra-barra .btn { padding: 10px 16px; font-size: 17px; min-width: 46px; }
+  .lente .giostra-barra .conta { min-width: 56px; font-size: 13px; }
+  .lente.con-barra figure { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .lente.con-barra img, .lente.con-barra video { max-height: calc(100vh - 230px); max-height: calc(100dvh - 230px); }
+}
 /* Con la barra sotto, la foto si tiene piu' corta: se no ci finisce dietro */
 .lente.con-barra figure { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
 .lente.con-barra img, .lente.con-barra video { max-height: calc(100vh - 215px); max-height: calc(100dvh - 215px); }
