@@ -271,7 +271,10 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   // tre chilometri non deve essere un lampo
   const FOTOGRAMMI = Math.max(600, (opzioni.secondi || 26) * 60);
   const somma = pezzi.reduce((a, p) => a + Math.sqrt(p.lung), 0) || 1;
-  pezzi.forEach(p => { p.frames = Math.max(45, Math.round(FOTOGRAMMI * Math.sqrt(p.lung) / somma)); });
+  // Nessun pezzo dura meno di due secondi e mezzo. Un allenamento di tre
+  // chilometri, in mezzo a quattrocento di trasferimento, si prendeva mezzo
+  // secondo: un lampo giallo e via, senza il tempo di vedere dov'era.
+  pezzi.forEach(p => { p.frames = Math.max(150, Math.round(FOTOGRAMMI * Math.sqrt(p.lung) / somma)); });
 
   const doveA = (p, f) => {
     const d = p.lung * Math.min(1, Math.max(0, f));
@@ -282,16 +285,33 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   };
 
-  // Ogni foto si aggancia al punto del percorso che le sta piu' vicino: e' li'
-  // che comparira', mentre l'icona le passa davanti. Quelle lontane dalla
-  // strada - scattate in gita, in un altro giorno - restano fuori.
-  const agganciaAlPercorso = (lat, lon) => {
-    let miglior = null;
-    pezzi.forEach((p, iP) => p.punti.forEach((pt, i) => {
+  // Ogni foto e ogni sosta si agganciano al punto del percorso che sta loro
+  // piu' vicino: e' li' che compariranno, mentre l'icona ci passa davanti.
+  const vicinoA = (lat, lon, p) => {
+    let b = null;
+    p.punti.forEach((pt, i) => {
       const d = metriFra([lat, lon], pt);
-      if (!miglior || d < miglior.d) miglior = { d, iP, f: p.acc[i] / p.lung };
-    }));
-    return miglior;
+      if (!b || d < b.d) b = { d, f: p.acc[i] / p.lung, s: p.acc[i] };
+    });
+    return b;
+  };
+  // Dove una tratta finisce, quella dopo comincia: lo stesso piazzale sta nel
+  // filmato due volte, a pochi metri di distanza, e scegliere il punto piu'
+  // vicino era come tirare a sorte. Meta' delle volte il cartellino della
+  // sosta - e le foto scattate li' - uscivano quando il camper ripartiva, il
+  // mattino dopo, invece che quando era arrivato. Fra i due capi vince
+  // l'arrivo: e' quello il momento in cui ci si e' fermati.
+  const DAL_CAPO = 500;    // metri dal capo di una tratta: siamo nel piazzale
+  const PARI = 250;        // metri: due agganci cosi' vicini sono lo stesso posto
+  const agganciaAlPercorso = (lat, lon) => {
+    const vicini = pezzi.map(p => vicinoA(lat, lon, p));
+    let k = -1;
+    vicini.forEach((v, i) => { if (v && (k < 0 || v.d < vicini[k].d)) k = i; });
+    if (k < 0) return null;
+    const m = vicini[k], prima = k > 0 ? vicini[k - 1] : null;
+    if (prima && m.s < DAL_CAPO && pezzi[k - 1].lung - prima.s < DAL_CAPO && prima.d < m.d + PARI)
+      return { d: prima.d, iP: k - 1, f: 1 };
+    return { d: m.d, iP: k, f: m.f };
   };
   const scatti = (foto || []).map(f => ({ ...f, ...agganciaAlPercorso(f.lat, f.lon) }))
     .filter(f => f.iP != null).sort((a, b) => a.iP - b.iP || a.f - b.f);
@@ -805,9 +825,111 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     map.flyToBounds(L.latLngBounds(pezzi[iP].punti), { padding: [50, 50], duration: .6, maxZoom: 15 });
   };
 
-  const passo = () => {
+  // La foto compare quando l’icona le arriva accanto, e si aspetta un momento
+  const mostraScatto = (iQui, f) => {
+    const sc = scatti[prossimo];
+    if (!sc || !(sc.iP < iQui || (sc.iP === iQui && sc.f <= f))) return false;
+    prossimo++;
+    chiudiFoto();
+    // La cartolina si stringe addosso alla foto - niente ritagli, niente
+    // bianco intorno - e si mette di fianco al posto, non sopra: quello che
+    // si vuole vedere e' anche dove e' stata scattata. Sta dalla parte dove
+    // c'e' piu' spazio, e il posto resta segnato da un punto.
+    const schermo = map.getSize();
+    const dove = map.latLngToContainerPoint([sc.lat, sc.lon]);
+    // Di fianco quando c'e' spazio di fianco. Su un telefono in verticale non
+    // ce n'e': li' la cartolina va sotto il posto, che e' sempre meglio che
+    // sopra - il punto resta scoperto - e si vede grande quanto lo schermo.
+    const stretto = schermo.x < 560;
+    const aDestra = dove.x <= schermo.x / 2;
+    const filmato = eVideo(sc);
+    const dentro = filmato
+      ? `<video src="/uploads/${sc.filename}" playsinline preload="auto" controls></video>`
+      : `<img src="/uploads/${sc.filename}" alt="">`;
+    fotoAperta = L.marker([sc.lat, sc.lon], {
+      icon: L.divIcon({
+        className: 'foto-icona',
+        html: `<div class="corsa-foto ${stretto ? 'sotto' : aDestra ? 'a-destra' : 'a-sinistra'}${filmato ? ' filmato' : ''}">${dentro}${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
+        iconSize: [420, 320],
+        iconAnchor: stretto ? [210, -22] : aDestra ? [-18, 160] : [438, 160],
+      }),
+      zIndexOffset: 1200,
+    }).addTo(map);
+    puntoFoto = L.circleMarker([sc.lat, sc.lon], { radius: 6, weight: 3, color: '#fff', fillColor: '#fbbf24', fillOpacity: 1 }).addTo(map);
+    // Il nome del posto compare sulla mappa, sul punto dello scatto, e se ne
+    // va insieme alla foto: e' li' che si guarda, non sotto la cartolina
+    if (nomeDelPosto(sc)) luogoFoto = cartello([sc.lat, sc.lon], nomeDelPosto(sc), false);
+    if (filmato) partiFilmato(sc); else fotoAperta.on('click', () => ingrandisci(sc));
+    // La mappa si sposta quel tanto che basta perche' ci stiano tutti e due:
+    // il posto da una parte e la cartolina dall'altra
+    const bersaglio = stretto
+      ? L.point(schermo.x * .5, schermo.y * .24)
+      : L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
+    map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
+    // La cartolina sta nascosta finche' la mappa non e' arrivata e la foto
+    // non e' caricata: prima la si vedeva comparire mezza fuori dallo
+    // schermo e poi scivolare dentro. Quando c'e' tutto, si misura - una
+    // foto in verticale e una panoramica non occupano lo stesso posto - la
+    // mappa si aggiusta e solo allora la cartolina compare.
+    const mia = fotoAperta, nata = performance.now();
+    const cartolina = fotoAperta.getElement()?.querySelector('.corsa-foto');
+    const mezzo = cartolina?.querySelector('img, video');
+    let apparsa = false;
+    // La cartolina si mette in mezzo allo schermo: e' quella che si sta
+    // guardando, e di fianco - su un telefono - restava schiacciata contro un
+    // bordo. Il posto non resta scoperto: il punto le sta appoggiato di
+    // fianco, o sopra quando lo schermo e' stretto, e si vede lo stesso.
+    const fallaVedere = () => {
+      if (apparsa || mia !== fotoAperta || chiuso) return;
+      apparsa = true;
+      tieniDentro(cartolina, true);
+      cartolina?.classList.add('pronta');
+      // La mappa stava ancora scivolando verso il posto: si ricontrolla un
+      // attimo dopo, che l'ultimo pezzo di scivolata non la porti fuori squadra
+      setTimeout(() => { if (mia === fotoAperta && !chiuso) tieniDentro(cartolina, true); }, 200);
+      // Il tempo di guardarla parte da adesso, non da quando la mappa si e'
+      // mossa: altrimenti la foto durerebbe mezzo secondo di meno
+      if (!filmato && !fermo) aspetta(5000);
+    };
+    const pronta = mezzo && (mezzo.tagName === 'IMG' ? mezzo.complete && mezzo.naturalWidth : mezzo.readyState >= 1);
+    // Se la foto arriva tardi - una connessione lenta, un telefono in giro -
+    // la cartolina si fa vedere lo stesso dopo un secondo e mezzo, e quando
+    // poi la foto arriva ci si rimette dentro lo schermo con la misura vera
+    if (!pronta && mezzo) mezzo.addEventListener(mezzo.tagName === 'IMG' ? 'load' : 'loadedmetadata', () => {
+      if (apparsa) return tieniDentro(cartolina, true);
+      setTimeout(fallaVedere, Math.max(0, 620 - (performance.now() - nata)));
+    }, { once: true });
+    setTimeout(fallaVedere, pronta ? 620 : 1600);     // se la foto tarda, pazienza: si vede comunque
+    // Una foto dura cinque secondi; un video dura quanto dura, e alla fine
+    // aspetta che tu decida se rivederlo o andare avanti
+    if (!filmato) aspetta(5700);
+    return true;
+  };
+  // La sosta: il cartellino resta il tempo di leggerlo tutto - nome, tipo,
+  // giorni e costo sono quattro cose, e due secondi e mezzo non bastavano
+  const mostraFermata = (iQui, f) => {
+    const fm = fermate[prossimaFermata];
+    if (!fm || !(fm.iP < iQui || (fm.iP === iQui && fm.f <= f))) return false;
+    prossimaFermata++;
+    mostraSosta(fm);
+    aspetta(ATTESA_LUNGA);                 // riparte col tasto «Continua»
+    return true;
+  };
+
+  // Il tempo passa in millisecondi, non in fotogrammi. Gli schermi di adesso -
+  // gli iPhone e gli iPad con ProMotion - ne disegnano centoventi al secondo
+  // invece di sessanta, e la traccia correva al doppio della velocita': il
+  // filmato di ventisei secondi ne durava tredici. Qui si guarda quanto tempo
+  // e' passato davvero da un giro all'altro e si avanza di quello, cosi' il
+  // viaggio dura uguale sul telefono, sul computer e sul televisore. Il salto
+  // si tiene corto: tornando su una pagina lasciata indietro, il tempo passato
+  // altrove non deve far volare la traccia dall'altra parte dell'Italia.
+  let ultimoGiro = 0, ultimoInseguimento = 0;
+  const passo = ora => {
     if (chiuso) return;
     requestAnimationFrame(passo);
+    const trascorso = ultimoGiro ? Math.min(100, ora - ultimoGiro) : 0;
+    ultimoGiro = ora;
     if (fermo) return;
     if (finoA) {
       if (performance.now() < finoA) return;
@@ -818,6 +940,12 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       if (scheda?.classList.contains('annuncio')) viaScheda();
       return;
     }
+    // Alla fine di una tratta puo' esserci ancora qualcosa da raccontare: la
+    // sosta dove ci si e' fermati, le foto scattate all'arrivo. Vanno dette
+    // adesso, prima di passare alla tratta dopo: se no la fine del pezzo gli
+    // passava davanti e il cartellino sbucava all'inizio di quella successiva,
+    // cioe' il mattino dopo, col camper gia' ripartito.
+    if (iP >= 0 && frame >= pezzi[iP].frames && (mostraScatto(iP, 1) || mostraFermata(iP, 1))) return;
     if (iP < 0 || frame >= pezzi[iP].frames) {
       // Finito un allenamento, i suoi numeri restano un momento sullo schermo
       if (iP >= 0 && pezzi[iP].numeri?.length && !scheda) { aspetta(mostraScheda(pezzi[iP])); if (finoA) return; }
@@ -834,7 +962,9 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
       return apriPezzo(iP + 1);
     }
     const p = pezzi[iP];
-    frame++; fatti++;
+    // I «fotogrammi» restano la misura di prima - sessanta per ogni secondo -
+    // ma adesso li conta l'orologio, non lo schermo
+    frame += trascorso * .06; fatti += trascorso * .06;
     const f = frame / p.frames;
     const pt = doveA(p, f);
     scia.addLatLng(pt);
@@ -845,93 +975,16 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     // il punto in cui si e' arrivati e' sempre in mezzo allo schermo. Non a
     // ogni fotogramma - vorrebbe dire ridisegnare le tessere sessanta volte al
     // secondo - ma abbastanza spesso da non vedersi.
-    if (!intera && !fotoAperta && performance.now() > seguiDa && frame % 6 === 0) {
+    if (!intera && !fotoAperta && performance.now() > seguiDa && ora - ultimoInseguimento > 100) {
+      ultimoInseguimento = ora;
       // Si punta dove l'icona sara' fra un quarto di secondo, non dove e'
       // adesso: la mappa ci mette quel tempo ad arrivarci, e inseguendo il
       // punto di adesso resterebbe sempre indietro di altrettanto - l'icona
       // scivolerebbe verso il bordo invece di stare in mezzo.
       map.panTo(doveA(p, Math.min(1, (frame + 15) / p.frames)), { animate: true, duration: .25, easeLinearity: 1 });
     }
-    // La foto compare quando l'icona le arriva accanto, e si aspetta un momento
-    const sc = scatti[prossimo];
-    if (sc && (sc.iP < iP || (sc.iP === iP && sc.f <= f))) {
-      prossimo++;
-      chiudiFoto();
-      // La cartolina si stringe addosso alla foto - niente ritagli, niente
-      // bianco intorno - e si mette di fianco al posto, non sopra: quello che
-      // si vuole vedere e' anche dove e' stata scattata. Sta dalla parte dove
-      // c'e' piu' spazio, e il posto resta segnato da un punto.
-      const schermo = map.getSize();
-      const dove = map.latLngToContainerPoint([sc.lat, sc.lon]);
-      // Di fianco quando c'e' spazio di fianco. Su un telefono in verticale non
-      // ce n'e': li' la cartolina va sotto il posto, che e' sempre meglio che
-      // sopra - il punto resta scoperto - e si vede grande quanto lo schermo.
-      const stretto = schermo.x < 560;
-      const aDestra = dove.x <= schermo.x / 2;
-      const filmato = eVideo(sc);
-      const dentro = filmato
-        ? `<video src="/uploads/${sc.filename}" playsinline preload="auto" controls></video>`
-        : `<img src="/uploads/${sc.filename}" alt="">`;
-      fotoAperta = L.marker([sc.lat, sc.lon], {
-        icon: L.divIcon({
-          className: 'foto-icona',
-          html: `<div class="corsa-foto ${stretto ? 'sotto' : aDestra ? 'a-destra' : 'a-sinistra'}${filmato ? ' filmato' : ''}">${dentro}${sottoLaFoto(sc) ? `<span>${sottoLaFoto(sc)}</span>` : ''}</div>`,
-          iconSize: [420, 320],
-          iconAnchor: stretto ? [210, -22] : aDestra ? [-18, 160] : [438, 160],
-        }),
-        zIndexOffset: 1200,
-      }).addTo(map);
-      puntoFoto = L.circleMarker([sc.lat, sc.lon], { radius: 6, weight: 3, color: '#fff', fillColor: '#fbbf24', fillOpacity: 1 }).addTo(map);
-      // Il nome del posto compare sulla mappa, sul punto dello scatto, e se ne
-      // va insieme alla foto: e' li' che si guarda, non sotto la cartolina
-      if (nomeDelPosto(sc)) luogoFoto = cartello([sc.lat, sc.lon], nomeDelPosto(sc), false);
-      if (filmato) partiFilmato(sc); else fotoAperta.on('click', () => ingrandisci(sc));
-      // La mappa si sposta quel tanto che basta perche' ci stiano tutti e due:
-      // il posto da una parte e la cartolina dall'altra
-      const bersaglio = stretto
-        ? L.point(schermo.x * .5, schermo.y * .24)
-        : L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
-      map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
-      // La cartolina sta nascosta finche' la mappa non e' arrivata e la foto
-      // non e' caricata: prima la si vedeva comparire mezza fuori dallo
-      // schermo e poi scivolare dentro. Quando c'e' tutto, si misura - una
-      // foto in verticale e una panoramica non occupano lo stesso posto - la
-      // mappa si aggiusta e solo allora la cartolina compare.
-      const mia = fotoAperta, nata = performance.now();
-      const cartolina = fotoAperta.getElement()?.querySelector('.corsa-foto');
-      const mezzo = cartolina?.querySelector('img, video');
-      let apparsa = false;
-      const fallaVedere = () => {
-        if (apparsa || mia !== fotoAperta || chiuso) return;
-        apparsa = true;
-        tieniDentro(cartolina);
-        cartolina?.classList.add('pronta');
-        // Il tempo di guardarla parte da adesso, non da quando la mappa si e'
-        // mossa: altrimenti la foto durerebbe mezzo secondo di meno
-        if (!filmato && !fermo) aspetta(5000);
-      };
-      const pronta = mezzo && (mezzo.tagName === 'IMG' ? mezzo.complete && mezzo.naturalWidth : mezzo.readyState >= 1);
-      // Se la foto arriva tardi - una connessione lenta, un telefono in giro -
-      // la cartolina si fa vedere lo stesso dopo un secondo e mezzo, e quando
-      // poi la foto arriva ci si rimette dentro lo schermo con la misura vera
-      if (!pronta && mezzo) mezzo.addEventListener(mezzo.tagName === 'IMG' ? 'load' : 'loadedmetadata', () => {
-        if (apparsa) return tieniDentro(cartolina);
-        setTimeout(fallaVedere, Math.max(0, 620 - (performance.now() - nata)));
-      }, { once: true });
-      setTimeout(fallaVedere, pronta ? 620 : 1600);     // se la foto tarda, pazienza: si vede comunque
-      // Una foto dura cinque secondi; un video dura quanto dura, e alla fine
-      // aspetta che tu decida se rivederlo o andare avanti
-      if (!filmato) aspetta(5700);
-      return;
-    }
-    // La sosta: il cartellino resta il tempo di leggerlo tutto - nome, tipo,
-    // giorni e costo sono quattro cose, e due secondi e mezzo non bastavano
-    const fm = fermate[prossimaFermata];
-    if (fm && (fm.iP < iP || (fm.iP === iP && fm.f <= f))) {
-      prossimaFermata++;
-      mostraSosta(fm);
-      aspetta(ATTESA_LUNGA);                 // riparte col tasto «Continua»
-    }
+    if (mostraScatto(iP, f)) return;
+    mostraFermata(iP, f);
   };
   apriPezzo(0);
   requestAnimationFrame(passo);
@@ -1428,7 +1481,13 @@ function apriLente(foto, i = 0, opz = {}) {
   el.innerHTML = `<button class="chiudi" title="Chiudi (Esc)">\u2715</button>
     ${foto.length > 1 ? '<button class="passo prima" title="Precedente">\u2039</button><button class="passo dopo" title="Successiva">\u203a</button>' : ''}
     <figure><img alt=""><video controls playsinline hidden></video>
-      <figcaption><span class="testo"></span><button class="btn sm ghost scrivi" hidden>\u270f\ufe0f</button></figcaption></figure>`;
+      <figcaption><span class="testo"></span><button class="btn sm ghost scrivi" hidden>\u270f\ufe0f</button></figcaption></figure>
+    ${opz.carosello && foto.length > 1 ? `<div class="giostra-barra">
+      <button class="btn sm gioca" type="button" title="Pausa">\u23f8</button>
+      <button class="btn sm dacapo" type="button" title="Da capo">\u21ba</button>
+      <span class="conta small"></span>
+      <button class="btn sm pienone" type="button" title="Riempi lo schermo">\u2922</button></div>` : ''}`;
+  if (opz.carosello && foto.length > 1) el.classList.add('con-barra');
   document.body.appendChild(el);
   const scorrimento = document.body.style.overflow;
   document.body.style.overflow = 'hidden';
@@ -1494,21 +1553,30 @@ function apriLente(foto, i = 0, opz = {}) {
     testo.textContent = [foto[i].caption || (senza ? 'Scrivi una didascalia' : ''), foto.length > 1 ? `${i + 1} di ${foto.length}` : '']
       .filter(Boolean).join(' \u00b7 ');
     testo.classList.toggle('vuota', senza);
+    const conta = $('.conta', el);
+    if (conta) conta.textContent = `${i + 1} di ${foto.length}`;
     penna.hidden = !scrivibile();
     penna.title = foto[i].caption ? 'Cambia la didascalia' : 'Scrivi la didascalia';
   };
-  // Il carosello: le foto scorrono da sole finche' non si tocca qualcosa. Al
-  // primo gesto si ferma - chi prende in mano la pila di fotografie decide lui
-  // quanto guardarle.
+  // Il carosello: le foto scorrono da sole, qualche secondo l'una. Si ferma al
+  // primo gesto - chi prende in mano la pila di fotografie decide lui quanto
+  // guardarle - e col tasto riparte da dov'era. Arrivato in fondo si ferma, e
+  // «da capo» ricomincia dalla prima.
+  const passoGiostra = Math.max(1200, Math.round((opz.secondi || 2.8) * 1000));
   let giostra = null;
-  const fermaGiostra = () => { if (giostra) { clearInterval(giostra); giostra = null; el.classList.remove('in-giostra'); } };
-  if (opz.carosello && foto.length > 1) {
-    el.classList.add('in-giostra');
-    giostra = setInterval(() => {
-      if (i + 1 >= foto.length) { fermaGiostra(); return; }
-      mostra(i + 1);
-    }, 2800);
-  }
+  const segnaGiostra = () => {
+    el.classList.toggle('in-giostra', !!giostra);
+    const t = $('.gioca', el);
+    if (t) { t.textContent = giostra ? '\u23f8' : '\u25b6'; t.title = giostra ? 'Pausa' : 'Riparti'; }
+  };
+  const fermaGiostra = () => { if (giostra) { clearInterval(giostra); giostra = null; } segnaGiostra(); };
+  const viaGiostra = daCapo => {
+    if (giostra) clearInterval(giostra);
+    if (daCapo || i + 1 >= foto.length) mostra(daCapo ? 0 : i);
+    giostra = setInterval(() => { if (i + 1 >= foto.length) return fermaGiostra(); mostra(i + 1); }, passoGiostra);
+    segnaGiostra();
+  };
+  if (opz.carosello && foto.length > 1) viaGiostra(false);
 
   const tasti = e => {
     if (e.key === 'Escape') chiudi();
@@ -1527,9 +1595,18 @@ function apriLente(foto, i = 0, opz = {}) {
   // Un tocco fuori dalla foto chiude: e' il gesto che viene da se'
   el.addEventListener('click', e => {
     if (e.target.closest('.chiudi')) return chiudi();
+    if (e.target.closest('.gioca')) return giostra ? fermaGiostra() : viaGiostra(false);
+    if (e.target.closest('.dacapo')) return viaGiostra(true);
+    // A schermo pieno la foto prende tutto, bordi compresi: e' il modo di
+    // guardarsela davvero, e si torna indietro con lo stesso tasto
+    if (e.target.closest('.pienone')) { el.classList.toggle('pieno'); return; }
+    if (e.target.closest('.giostra-barra')) return;
     if (e.target.closest('.prima')) { fermaGiostra(); return mostra(i - 1); }
     if (e.target.closest('.dopo')) { fermaGiostra(); return mostra(i + 1); }
     if (e.target.closest('figcaption')) return;
+    // Mentre scorre il carosello, un tocco sulla foto lo ferma: e' il gesto
+    // che viene da se' quando una foto merita di restare un momento in piu'
+    if (opz.carosello && e.target.closest('img, video')) return giostra ? fermaGiostra() : viaGiostra(false);
     if (!e.target.closest('img, video')) chiudi();
   });
   // Col dito si scorre, come in qualunque raccolta di foto
@@ -1571,7 +1648,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v109';
+const VERSIONE = 'v110';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2201,7 +2278,7 @@ async function viewTrip(id) {
         <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${fotoViaggio.length ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}${SU_MAC ? '<a class="btn sm" id="apri-foto" href="photos://" title="Apre l\u2019app Foto: da l\u00ec trascina gli scatti qui dentro">\ud83c\udf3a App Foto</a>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
+      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${photos.filter(x => !eVideo(x)).length > 1 ? '<button class="btn sm primary" id="guarda-tutte" title="Le foto del viaggio una dopo l\u2019altra, da sole">\u25b6 Guarda tutte</button>' : ''}${fotoViaggio.length ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}${SU_MAC ? '<a class="btn sm" id="apri-foto" href="photos://" title="Apre l\u2019app Foto: da l\u00ec trascina gli scatti qui dentro">\ud83c\udf3a App Foto</a>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
         <div class="card barra-selezione" id="barra-foto" hidden style="margin-top:10px;padding:10px 12px">
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
@@ -2430,6 +2507,22 @@ async function viewTrip(id) {
     $$('#photos figure').forEach(f => f.classList.toggle('scelta', scelteFoto.has(+f.dataset.foto)));
   };
   let inSelezione = false;
+  // Tutte le foto del viaggio una dopo l'altra: quelle delle soste, quelle
+  // delle giornate, quelle degli allenamenti - tutte, in ordine di quando sono
+  // state scattate. E' il modo di rivedersi la vacanza senza cercare niente.
+  $('#guarda-tutte')?.addEventListener('click', () => {
+    const tutte = photos.filter(x => !eVideo(x))
+      .slice()
+      .sort((a, b) => (a.taken_at && b.taken_at ? new Date(a.taken_at) - new Date(b.taken_at)
+        : a.taken_at ? -1 : b.taken_at ? 1 : a.id - b.id))
+      .map(x => ({ src: `/uploads/${x.filename}`, id: x.id, caption: x.caption || '',
+        dove: [x.luogo || (x.stop_id ? soste.find(y => y.id === x.stop_id)?.name : null),
+          x.taken_at ? fdate(x.taken_at) : null].filter(Boolean).join(' \u00b7 ') }));
+    if (!tutte.length) return toast('Non c\u2019e\u2019 ancora nessuna foto', true);
+    apriLente(tutte.map(x => ({ ...x, caption: [x.dove, x.caption].filter(Boolean).join(' \u2014 ') })), 0,
+      { carosello: true, secondi: 4 });
+  });
+
   $('#selfoto')?.addEventListener('click', () => {
     inSelezione = !inSelezione;
     $('#selfoto').textContent = inSelezione ? '\u2716\ufe0f Esci dalla selezione' : '\u2611\ufe0f Seleziona';
@@ -2456,8 +2549,19 @@ async function viewTrip(id) {
     const b = e.target.closest('[data-del-ph]');
     if (b && await confirmDlg('Eliminare la foto?')) { await api('/photos/' + b.dataset.delPh, { method: 'DELETE' }); restaQui(); }
   });
-  // aggiorna quando i POI arrivano in background
-  if (legs.some(l => !l.pois)) setTimeout(() => { if (location.hash === '#/trip/' + id) render(); }, 12000);
+  // I punti d'interesse arrivano dopo, in sottofondo: quando ci sono, la pagina
+  // si rifa' da sola. Ma non mentre scorre un filmato - rifare la pagina vuol
+  // dire rifare la mappa, e la mappa e' quella su cui il viaggio sta
+  // scorrendo: spariva tutto dopo dodici secondi, sempre, e il filmato non
+  // arrivava mai in fondo. Si riprova quando il filmato e' finito.
+  if (legs.some(l => !l.pois)) {
+    const fraPoco = () => setTimeout(() => {
+      if (location.hash !== '#/trip/' + id) return;
+      if (document.body.classList.contains('corsa-in-corso')) return fraPoco();
+      render();
+    }, 12000);
+    fraPoco();
+  }
 }
 
 // Una sosta segnata: che tipo e', quando ci si sta, e la porta verso park4night
@@ -4521,6 +4625,11 @@ async function segnaStato() {
 }
 async function guardaSeCambiato() {
   if (!user || document.hidden) return;
+  // Mentre scorre un filmato la pagina non si rifa' da sola. Rifarla vuol dire
+  // rifare la mappa, e la mappa e' quella su cui il viaggio sta scorrendo: il
+  // filmato sparirebbe a meta' strada. Se intanto arriva un allenamento nuovo
+  // lo si trovera' alla fine, che e' un attimo dopo.
+  if (document.body.classList.contains('corsa-in-corso')) return;
   if ($('.modal-bg')) return;                                   // c'e' una finestra aperta
   if ($('.barra-selezione:not([hidden])')) return;              // sta scegliendo delle voci
   const a = document.activeElement;
