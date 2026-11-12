@@ -78,8 +78,13 @@ app.get('/v/:token', wrap(async (req, res) => {
 // ogni visita, altrimenti dopo un aggiornamento il browser continua a mostrare la
 // versione vecchia fino allo scadere della cache. Le librerie in vendor/ e le
 // immagini non cambiano mai, e restano memorizzate.
+// Le icone fanno eccezione: cambiano di rado, ma quando cambiano devono
+// arrivare subito. Chi aggiunge il collegamento alla schermata di casa si
+// porta via l'icona di quel momento e se la tiene per sempre: se il browser
+// gliene passa una vecchia tenuta in cache, se la tiene vecchia.
 const indice = path.join(__dirname, '..', 'public', 'index.html');
-const daRiconvalidare = f => /\.(html|js|css|json)$/.test(f) && !f.includes(`${path.sep}vendor${path.sep}`);
+const daRiconvalidare = f => !f.includes(`${path.sep}vendor${path.sep}`)
+  && (/\.(html|js|css|json)$/.test(f) || /^icon[-.]/.test(path.basename(f)));
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: '1h',
   setHeaders: (res, f) => { if (daRiconvalidare(f)) res.setHeader('Cache-Control', 'no-cache'); },

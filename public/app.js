@@ -989,7 +989,7 @@ function layout(content) {
   const h = location.hash || '#/';
   const active = x => (x === '#/' ? (h === '#/' || h.startsWith('#/trip')) : h.startsWith(x)) ? 'active' : '';
   const links = nav().map(([href, ico, l]) => `<a href="${href}" class="${active(href)}"><span class="ico">${ico}</span>${l}</a>`).join('');
-  return `<aside class="sidebar"><div class="brand"><img src="icon.svg" alt="">Camper</div><nav class="nav">${links}</nav><div class="user">${esc(user.name)}<br><a href="#" data-logout>Esci</a></div></aside>
+  return `<aside class="sidebar"><div class="brand"><img src="icon.svg?v=2" alt="">Camper</div><nav class="nav">${links}</nav><div class="user">${esc(user.name)}<br><a href="#" data-logout>Esci</a></div></aside>
   <main>${content}</main><nav class="tabbar">${links}</nav>`;
 }
 
@@ -998,7 +998,7 @@ function viewAuth(setup) {
   const app = $('#app');
   let mode = setup ? 'register' : 'login';
   const draw = () => {
-    app.innerHTML = `<div class="auth stack"><div class="brand" style="justify-content:center;font-size:22px"><img src="icon.svg" alt="" style="width:44px;height:44px">Camper · Viaggi</div>
+    app.innerHTML = `<div class="auth stack"><div class="brand" style="justify-content:center;font-size:22px"><img src="icon.svg?v=2" alt="" style="width:44px;height:44px">Camper · Viaggi</div>
     <div class="card stack">
       <h2>${mode === 'login' ? 'Accedi' : setup ? 'Crea l\'amministratore' : 'Registrati con invito'}</h2>
       ${setup ? '<p class="muted small">Primo avvio: questo account sarà l\'amministratore che autorizza gli altri.</p>' : ''}
@@ -1571,7 +1571,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v108';
+const VERSIONE = 'v109';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
