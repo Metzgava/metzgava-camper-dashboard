@@ -1581,7 +1581,12 @@ function apriLente(foto, i = 0, opz = {}) {
     if (giostra) clearInterval(giostra);
     // In fondo alla pila non c'e' niente da riprendere: si ricomincia
     if (daCapo || i + 1 >= foto.length) mostra(0);
-    giostra = setInterval(() => { if (i + 1 >= foto.length) return fermaGiostra(); mostra(i + 1); }, passoGiostra);
+    giostra = setInterval(() => {
+      // Un filmato dura quanto dura: finche' parla, il carosello lo aspetta
+      if (foto[i].video && !filmato.paused && !filmato.ended) return;
+      if (i + 1 >= foto.length) return fermaGiostra();
+      mostra(i + 1);
+    }, passoGiostra);
     segnaGiostra();
   };
   if (opz.carosello && foto.length > 1) viaGiostra(false);
@@ -1753,6 +1758,10 @@ function legendaViaggio(d, opz = {}) {
                 <div class="intestazione">\ud83d\ude90 Tracciato in camper</div>
                 <div class="small muted">Tutto il viaggio, giorno per giorno: le tratte, le soste, le foto e i conti</div>
                 <button class="btn sm primary" data-rivedi="camper">\u25b6 Rivedi il tracciato</button></div>` : ''}
+              ${(d.photos || []).length > 1 ? `<div class="sezione-rivedi">
+                <div class="intestazione">\ud83d\udcf7 Tutte le foto</div>
+                <div class="small muted">Una dopo l\u2019altra, in ordine di quando sono state scattate</div>
+                <button class="btn sm" data-guarda-tutte>\u25b6 Guarda tutte</button></div>` : ''}
               ${conTraccia.length ? `<div class="sezione-rivedi">
                 <div class="intestazione">\ud83d\udc5f Tracciato allenamenti</div>
                 <div class="small muted">Le uscite dentro le date del viaggio, una per una</div>
@@ -2291,7 +2300,7 @@ async function viewTrip(id) {
         <div class="table-wrap"><table class="ex-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="num">Importo</th><th></th></tr></thead><tbody>${expenses.length ? expenses.map(exRow).join('') : '<tr><td colspan="5" class="empty">Nessuna spesa</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="grid cols-2" style="margin-top:14px">
-      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${photos.filter(x => !eVideo(x)).length > 1 ? '<button class="btn sm primary" id="guarda-tutte" title="Le foto del viaggio una dopo l\u2019altra, da sole">\u25b6 Guarda tutte</button>' : ''}${fotoViaggio.length ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}${SU_MAC ? '<a class="btn sm" id="apri-foto" href="photos://" title="Apre l\u2019app Foto: da l\u00ec trascina gli scatti qui dentro">\ud83c\udf3a App Foto</a>' : ''}<label class="btn sm">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*" multiple hidden></label></div></div>
+      <div class="card"><div class="row between"><h2>Foto</h2><div class="row">${photos.length > 1 ? '<button class="btn sm primary" data-guarda-tutte title="Le foto del viaggio una dopo l\u2019altra, da sole">\u25b6 Guarda tutte</button>' : ''}${fotoViaggio.length ? '<button class="btn sm" id="selfoto">\u2611\ufe0f Seleziona</button>' : ''}${SU_MAC ? '<a class="btn sm" id="apri-foto" href="photos://" title="Apre l\u2019app Foto: da l\u00ec trascina gli scatti qui dentro">\ud83c\udf3a App Foto</a>' : ''}<label class="btn sm" title="Foto e filmati">\ud83d\udcf7 Carica<input type="file" id="ph" accept="image/*,video/*" multiple hidden></label></div></div>
         <div class="card barra-selezione" id="barra-foto" hidden style="margin-top:10px;padding:10px 12px">
           <div class="row between"><div><b id="quante-foto">0</b> selezionate</div>
           <div class="row"><button class="btn danger sm" id="elimina-foto">\ud83d\uddd1 Elimina</button><button class="btn sm" id="annulla-foto">Annulla</button></div></div></div>
@@ -2523,12 +2532,12 @@ async function viewTrip(id) {
   // Tutte le foto del viaggio una dopo l'altra: quelle delle soste, quelle
   // delle giornate, quelle degli allenamenti - tutte, in ordine di quando sono
   // state scattate. E' il modo di rivedersi la vacanza senza cercare niente.
-  $('#guarda-tutte')?.addEventListener('click', () => {
-    const tutte = photos.filter(x => !eVideo(x))
+  $$('[data-guarda-tutte]').forEach(b => b.onclick = () => {
+    const tutte = photos
       .slice()
       .sort((a, b) => (a.taken_at && b.taken_at ? new Date(a.taken_at) - new Date(b.taken_at)
         : a.taken_at ? -1 : b.taken_at ? 1 : a.id - b.id))
-      .map(x => ({ src: `/uploads/${x.filename}`, id: x.id, caption: x.caption || '',
+      .map(x => ({ src: `/uploads/${x.filename}`, id: x.id, video: eVideo(x), caption: x.caption || '',
         dove: [x.luogo || (x.stop_id ? soste.find(y => y.id === x.stop_id)?.name : null),
           x.taken_at ? fdate(x.taken_at) : null].filter(Boolean).join(' \u00b7 ') }));
     if (!tutte.length) return toast('Non c\u2019e\u2019 ancora nessuna foto', true);
@@ -2616,7 +2625,7 @@ const sostaRiga = (s, foto = [], copertina = null) => {
   <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}" class="${eVideo(p) ? 'e-video' : ''}"><a href="/uploads/${p.filename}" ${datiLente(p)} title="${esc(p.caption || (eVideo(p) ? 'Tocca per guardarlo' : 'Tocca per ingrandire'))}">${facciaMedia(p)}</a>${stellaCopertina(p, copertina)}<button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
     <label class="aggiungi" title="${foto.length ? 'Aggiungi foto a questa sosta' : 'Metti le foto di questa sosta'}">
       <span class="ico">\ud83d\udcf7</span><span>${foto.length ? 'Aggiungi' : 'Foto'}</span>
-      <input type="file" data-fotososta="${s.id}" accept="image/*" multiple hidden></label></div></div>`;
+      <input type="file" data-fotososta="${s.id}" accept="image/*,video/*" multiple hidden></label></div></div>`;
 };
 
 // Scheda di una sosta: il posto si cerca come ogni altro luogo, il tipo dice se
