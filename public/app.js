@@ -789,6 +789,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
 
   const apriPezzo = n => {
     iP = n; frame = 0;
+    ultimoScatto = null;               // tratta nuova, inquadratura nuova
     seguiDa = performance.now() + 2800;
     const p = pezzi[n];
     scia.setLatLngs([]);
@@ -826,10 +827,19 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
   };
 
   // La foto compare quando l’icona le arriva accanto, e si aspetta un momento
+  // Due foto scattate nello stesso posto - entro cinque chilometri - restano
+  // ferme in mezzo allo schermo e si danno il cambio: una scorre sull'altra,
+  // senza che la mappa si sposti per andarle incontro ogni volta. Era quella
+  // rincorsa a farle ballare. Piu' lontano di cosi' e' un altro posto, e li'
+  // la mappa ci si porta sopra come prima.
+  const VICINE = 5000;
+  let ultimoScatto = null;
   const mostraScatto = (iQui, f) => {
     const sc = scatti[prossimo];
     if (!sc || !(sc.iP < iQui || (sc.iP === iQui && sc.f <= f))) return false;
     prossimo++;
+    const stessoPosto = !!ultimoScatto && metriFra([sc.lat, sc.lon], ultimoScatto) <= VICINE;
+    ultimoScatto = [sc.lat, sc.lon];
     chiudiFoto();
     // La cartolina si stringe addosso alla foto - niente ritagli, niente
     // bianco intorno - e si mette di fianco al posto, non sopra: quello che
@@ -865,7 +875,7 @@ function riproduci(map, segmenti, foto, opzioni = {}) {
     const bersaglio = stretto
       ? L.point(schermo.x * .5, schermo.y * .24)
       : L.point(schermo.x * (aDestra ? .26 : .74), schermo.y * .52);
-    map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
+    if (!stessoPosto) map.panBy([dove.x - bersaglio.x, dove.y - bersaglio.y], { animate: true, duration: .6 });
     // La cartolina sta nascosta finche' la mappa non e' arrivata e la foto
     // non e' caricata: prima la si vedeva comparire mezza fuori dallo
     // schermo e poi scivolare dentro. Quando c'e' tutto, si misura - una
@@ -1666,7 +1676,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v111';
+const VERSIONE = 'v112';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
