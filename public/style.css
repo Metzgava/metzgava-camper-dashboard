@@ -826,3 +826,16 @@ input[type=checkbox], input[type=radio] { width: auto; }
 
 /* I due tasti per farsi portare in un posto, sotto alla scheda */
 .proposta .portami { display: flex; gap: 6px; margin-top: 8px; }
+
+/* ---------- lo spazio della pianificazione ---------- */
+.filtri-pianifica { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 2px 0 10px;
+  -webkit-overflow-scrolling: touch; }
+.filtri-pianifica .btn { flex: 0 0 auto; }
+.filtri-pianifica .filtro.acceso { background: var(--accent); border-color: var(--accent); color: #fff; }
+.filtri-pianifica .stacco { flex: 0 0 auto; width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
+/* Un riquadro senza il suo dato è spento: dice cosa manca, non zero */
+.tile.muto .value { color: var(--muted); }
+.tile .badge.warn { font-size: 10px; vertical-align: middle; }
+.item.fatta .title { text-decoration: line-through; opacity: .6; }
+.item .spunta { font-size: 17px; margin-right: 2px; }
+.item-actions .btn.acceso { background: var(--accent-soft); border-color: var(--accent); }
