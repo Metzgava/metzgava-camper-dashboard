@@ -8,13 +8,11 @@ import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
 import { requireAuth } from './auth.js';
 import { leggiPosto, tipoSostaDa } from '../lib/park4night.js';
-import { linkPark4nightPosto, numeroPark4night } from '../lib/geo.js';
+import { linkPark4nightPosto } from '../lib/geo.js';
+import { TIPI, STATI, datiProposta } from '../lib/proposte.js';
 
 export const router = Router();
 router.use(requireAuth);
-
-const TIPI = ['pernotto', 'sosta', 'visita'];
-const STATI = ['proposto', 'guardare', 'scelto', 'scartato'];
 
 // Una proposta si legge sempre con chi l'ha messa e cosa ne pensano gli altri:
 // senza quelli e' un elenco di posti, non una discussione. La query sta qui e
@@ -29,28 +27,6 @@ export const proposteDi = async tripId => (await q(
 
 const unaProposta = async id => (await q(
   `SELECT ${CAMPI} FROM proposte p LEFT JOIN users u ON u.id = p.user_id WHERE p.id=$1`, [id])).rows[0];
-
-// Quello che si puo' scrivere su una proposta, ripulito. Il prezzo e' a notte e
-// resta qui: non diventa mai il costo di una sosta, perche' una sosta che costa
-// diventa da sola una spesa vera del viaggio - e qui non si e' ancora speso
-// niente.
-const datiProposta = (b, vecchia = {}) => {
-  const p4n = numeroPark4night(b?.p4n_id ?? vecchia.p4n_id);
-  const quanto = b?.prezzo ?? vecchia.prezzo;
-  return {
-    nome: String(b?.nome ?? vecchia.nome ?? '').trim().slice(0, 200),
-    tipo: TIPI.includes(b?.tipo) ? b.tipo : (TIPI.includes(vecchia.tipo) ? vecchia.tipo : 'pernotto'),
-    lat: b?.lat === '' || b?.lat == null ? (b && 'lat' in b ? null : vecchia.lat ?? null) : num(b.lat),
-    lon: b?.lon === '' || b?.lon == null ? (b && 'lon' in b ? null : vecchia.lon ?? null) : num(b.lon),
-    p4n_id: p4n,
-    link: linkPark4nightPosto(p4n) || String(b?.link ?? vecchia.link ?? '').trim().slice(0, 500) || null,
-    tipo_p4n: String(b?.tipo_p4n ?? vecchia.tipo_p4n ?? '').trim().slice(0, 80) || null,
-    prezzo: quanto === '' || quanto == null ? null : num(quanto),
-    currency: String(b?.currency ?? vecchia.currency ?? '').trim().slice(0, 3).toUpperCase() || null,
-    perche: String(b?.perche ?? vecchia.perche ?? '').trim().slice(0, 2000) || null,
-    perche_no: String(b?.perche_no ?? vecchia.perche_no ?? '').trim().slice(0, 500) || null,
-  };
-};
 
 // Dal codice di park4night al posto. Chi incolla un codice si aspetta che il
 // nome e il puntino si riempiano da soli: è il motivo per cui il codice vale
@@ -137,6 +113,10 @@ router.post('/proposte/:id/sosta', wrap(async (req, res) => {
 
   const nuova = (await q(`INSERT INTO stops (trip_id, name, lat, lon, kind, p4n_id, link, motivo, source)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'manuale') RETURNING id`,
-    [p.trip_id, p.nome, p.lat, p.lon, tipoSostaDa(p.tipo, p.tipo_p4n), p.p4n_id, p.link, p.perche])).rows[0];
+    // Il «perche'» di una sosta sta in centoventi caratteri: tagliarlo qui,
+    // dove si vede, e' meglio che farlo tagliare in silenzio alla prima
+    // modifica della sosta. Sulla lavagna resta per intero.
+    [p.trip_id, p.nome, p.lat, p.lon, tipoSostaDa(p.tipo, p.tipo_p4n), p.p4n_id, p.link,
+      (p.perche || '').slice(0, 120) || null])).rows[0];
   return collega(nuova.id, false);
 }));

@@ -319,8 +319,14 @@ const candidatiSosta = nome => {
 };
 
 export async function completaCoordinateSoste(quante = 20) {
-  const senza = (await q(`SELECT id, name FROM stops WHERE (lat IS NULL OR lon IS NULL)
-    AND coalesce(name,'') <> '' ORDER BY id DESC LIMIT $1`, [quante])).rows;
+  // Una sosta nata dalla lavagna resta dov'e': se chi l'ha proposta non sapeva
+  // ancora dove fosse - «quel posto di cui parlava Anna» - indovinarlo vuol
+  // dire piantare un puntino in un posto verosimile e sbagliato, e quel
+  // puntino poi fa da tappa al giro. Meglio senza che finto.
+  const senza = (await q(`SELECT id, name FROM stops s WHERE (s.lat IS NULL OR s.lon IS NULL)
+    AND coalesce(s.name,'') <> ''
+    AND NOT EXISTS (SELECT 1 FROM proposte p WHERE p.stop_id = s.id)
+    ORDER BY s.id DESC LIMIT $1`, [quante])).rows;
   if (!senza.length) return 0;
   let trovate = 0;
   for (const s of senza) {

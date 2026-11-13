@@ -20,3 +20,19 @@ test('la sosta breve è una sosta, e anche la visita', () => {
   assert.equal(tipoSostaDa('sosta', 'Campeggio'), 'sosta');
   assert.equal(tipoSostaDa('visita', 'Campeggio'), 'sosta');
 });
+
+// Un codice di park4night sbagliato si deve poter togliere: prima il campo
+// svuotato ricadeva su quello vecchio, e il posto restava quello sbagliato.
+import { datiProposta } from '../src/lib/proposte.js';
+
+test('svuotando il codice park4night, il codice se ne va', () => {
+  const vecchia = { nome: 'Un posto', p4n_id: '277443', link: 'https://park4night.com/it/place/277443' };
+  const d = datiProposta({ p4n_id: null }, vecchia);
+  assert.equal(d.p4n_id, null);
+  assert.equal(d.link, null);
+});
+
+test('un campo che non arriva tiene quello che c’era', () => {
+  const vecchia = { nome: 'Un posto', p4n_id: '277443' };
+  assert.equal(datiProposta({ nome: 'Un posto' }, vecchia).p4n_id, '277443');
+});

@@ -1050,7 +1050,9 @@ const STATI_PROPOSTA = { proposto: ['💡', 'proposto'], guardare: ['👀', 'da 
 // e quello che è già deciso bene sta davanti
 const ORDINE_PROPOSTA = { scelto: 0, proposto: 1, guardare: 1, scartato: 2 };
 
-const prezzoProposta = p => (p.prezzo == null ? '' : `${eur(p.prezzo)}${p.currency && p.currency !== 'EUR' ? ` ${esc(p.currency)}` : ''} a notte`);
+// Alle Lofoten si paga in corone: un prezzo scritto in euro perche' nessuno
+// gli ha chiesto la valuta e' un numero sbagliato con l'aria di essere giusto
+const prezzoProposta = p => (p.prezzo == null ? '' : `${importoConValuta(p.prezzo, p.currency)} a notte`);
 
 const vocePropostaHTML = (p, soste, siScrive, io) => {
   // Diventata sosta, comanda la sosta: lo stesso posto non può avere due verità
@@ -1070,7 +1072,11 @@ const vocePropostaHTML = (p, soste, siScrive, io) => {
     ${p.perche ? `<div class="perche">${esc(p.perche)}</div>` : ''}
     ${p.perche_no ? `<div class="small muted">🚫 ${esc(p.perche_no)}</div>` : ''}
     ${voti ? `<div class="voti">${voti}</div>` : ''}
-    ${sosta ? `<div class="small diventata">⛺ è la sosta <a href="#" data-apri-sosta="${sosta.id}">${esc(sosta.name)}</a></div>` : ''}
+    ${sosta ? `<div class="small diventata">⛺ è la sosta ${siScrive
+      ? `<a href="#" data-apri-sosta="${sosta.id}">${esc(sosta.name)}</a>`
+      // In sola lettura non c'e' niente da aprire, e un «#» qui riporterebbe
+      // all'elenco dei viaggi portandosi via la finestra
+      : `<b>${esc(sosta.name)}</b>`}</div>` : ''}
     ${tastiPortami(sosta?.lat ?? p.lat, sosta?.lon ?? p.lon, nome) ? `<div class="portami">${tastiPortami(sosta?.lat ?? p.lat, sosta?.lon ?? p.lon, nome, 'btn sm ghost')}</div>` : ''}
     ${siScrive ? `<div class="azioni">
       <button type="button" class="btn sm ghost${mio && mio.voto > 0 ? ' acceso' : ''}" data-voto="1" title="Mi piace">👍</button>
@@ -1123,7 +1129,10 @@ function propostaForm(tripId, p, dopo) {
       <div><label class="f">Cos’è</label><select name="tipo">${tipi.map(([k, t]) => `<option value="${k}" ${k === (p?.tipo || 'pernotto') ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div><label class="f">Codice park4night</label><input name="p4n_id" id="p4n-p" value="${esc(p?.p4n_id || '')}" placeholder="Es. 277443, o l’indirizzo incollato">
         <div class="small muted" id="p4n-esito" style="margin-top:4px">Col codice il posto si mette da sé sulla mappa, e sull’iPhone il collegamento apre l’app di park4night. Senza, apre il sito.</div></div>
-      <div><label class="f">Quanto costa a notte</label><input name="prezzo" inputmode="decimal" value="${p?.prezzo ?? ''}" placeholder="Se si sa"></div>
+      <div><label class="f">Quanto costa a notte</label>
+        <div class="row" style="gap:8px">
+          <input name="prezzo" inputmode="decimal" value="${p?.prezzo ?? ''}" placeholder="Se si sa" style="flex:1">
+          ${scegliValuta('currency', p?.currency)}</div></div>
       <div><label class="f">Perché</label><textarea name="perche" rows="3" maxlength="2000" placeholder="Due righe: fra tre mesi è l’unica cosa che spiega la proposta">${esc(p?.perche || '')}</textarea></div>
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">${p ? 'Salva' : 'Mettilo in lavagna'}</button></div>
     </form>`, (el, close) => {
@@ -1157,6 +1166,7 @@ function propostaForm(tripId, p, dopo) {
         p4n_id: codice.value.trim() || null,
         tipo_p4n: el.dataset.tipoP4n || p?.tipo_p4n || null,
         prezzo: $('[name=prezzo]', el).value,
+        currency: $('[name=currency]', el).value,
         perche: $('[name=perche]', el).value,
       };
       const r = p ? await api('/proposte/' + p.id, { method: 'PUT', body: corpo })
@@ -1835,7 +1845,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v116';
+const VERSIONE = 'v117';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2063,7 +2073,9 @@ function mappaDelViaggio(el, d, opz = {}) {
       .addTo(strato('proposte'))
       .bindPopup(`<b>${esc(x.nome)}</b><br>${(STATI_PROPOSTA[x.stato] || []).join(' ')}${x.perche ? `<br>${esc(x.perche)}` : ''}`
         + `<br>${tastiPortami(x.lat, x.lon, x.nome, 'btn sm')}`);
-    bounds.push([x.lat, x.lon]);
+    // Un posto scartato non deve allargare l'inquadratura: uno scarto a
+    // quattrocento chilometri dal giro farebbe vedere mezza Europa
+    if (x.stato !== 'scartato') bounds.push([x.lat, x.lon]);
     segna('proposte', [[x.lat, x.lon]]);
   });
   if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
@@ -2887,7 +2899,7 @@ const sostaRiga = (s, foto = [], copertina = null) => {
       <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.cost > 0 ? (s.in_spese ? ' \u00b7 <span class="badge ok" title="Il costo \u00e8 fra le spese del viaggio">nelle spese</span>' : ' \u00b7 <span class="badge warn" title="La spesa l\u2019hai tolta: il tasto \ud83d\udcb6 la rimette">fuori dalle spese</span>') : ''}</div>
       ${s.motivo ? `<div class="meta"><b>\ud83d\udcac ${esc(s.motivo)}</b></div>` : ''}
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
-  <div class="item-actions">${s.lat == null && s.p4n_id ? `<button class="btn ghost icon" data-coordinate="${s.id}" title="Prendi il posto da park4night: ha il codice ma non sta sulla mappa">\ud83d\udccd</button>` : ''}${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="${s.p4n_id ? `Posto ${esc(s.p4n_id)} su park4night` : 'Apri il collegamento'}">${s.p4n_id ? '\ud83c\udd7f\ufe0f' : '\ud83d\udd17'}</a>` : ''}
+  <div class="item-actions">${tastiPortami(s.lat, s.lon, s.name, 'btn ghost icon soloico')}${s.lat == null && s.p4n_id ? `<button class="btn ghost icon" data-coordinate="${s.id}" title="Prendi il posto da park4night: ha il codice ma non sta sulla mappa">\ud83d\udccd</button>` : ''}${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="${s.p4n_id ? `Posto ${esc(s.p4n_id)} su park4night` : 'Apri il collegamento'}">${s.p4n_id ? '\ud83c\udd7f\ufe0f' : '\ud83d\udd17'}</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
   <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}" class="${eVideo(p) ? 'e-video' : ''}"><a href="/uploads/${p.filename}" ${datiLente(p)} title="${esc(p.caption || (eVideo(p) ? 'Tocca per guardarlo' : 'Tocca per ingrandire'))}">${facciaMedia(p)}</a>${stellaCopertina(p, copertina)}<button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
@@ -3515,9 +3527,13 @@ const linkMappeApple = (lat, lon, nome = '') => `https://maps.apple.com/?daddr=$
 
 // La riga per farsi portare in un posto: Google Maps e Mappe. Senza coordinate
 // non si disegna - un tasto che non sa dove mandarti e' peggio di nessun tasto.
-const tastiPortami = (lat, lon, nome = '', classe = 'btn sm') => (lat == null || lon == null ? '' :
-  `<a class="${classe}" href="${mapsIndicazioni({ lat, lon }, { lat, lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps">🗺️ Maps</a>`
-  + `<a class="${classe}" href="${linkMappeApple(lat, lon, nome)}" target="_blank" rel="noopener" title="Apri in Mappe">🧭 Mappe</a>`);
+const tastiPortami = (lat, lon, nome = '', classe = 'btn sm') => {
+  if (lat == null || lon == null) return '';
+  // Dove la riga e' gia' piena - l'elenco delle soste - restano le sole icone
+  const solo = /soloico/.test(classe);
+  return `<a class="${classe}" href="${mapsIndicazioni({ lat, lon }, { lat, lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps">🗺️${solo ? '' : ' Maps'}</a>`
+    + `<a class="${classe}" href="${linkMappeApple(lat, lon, nome)}" target="_blank" rel="noopener" title="Apri in Mappe">🧭${solo ? '' : ' Mappe'}</a>`;
+};
 
 function mapsIndicazioni(da, a, intermedie = [], evita = '') {
   const punto = p => `${(+p.lat).toFixed(5)},${(+p.lon).toFixed(5)}`;
