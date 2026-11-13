@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num, haversineKm } from '../lib/util.js';
+import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
@@ -447,11 +448,7 @@ export async function datiViaggio(id) {
   // La lavagna arriva insieme a tutto il resto, cosi' la pagina si disegna in
   // una volta sola. Di ogni proposta serve sapere chi l'ha messa e cosa ne
   // pensano gli altri: senza quello e' un elenco di posti, non una discussione.
-  const proposte = (await q(`SELECT p.*, u.name AS chi, coalesce((
-      SELECT json_agg(json_build_object('user_id', v.user_id, 'nome', w.name, 'voto', v.voto, 'commento', v.commento) ORDER BY w.name)
-      FROM proposte_voti v JOIN users w ON w.id = v.user_id WHERE v.proposta_id = p.id), '[]'::json) AS voti
-    FROM proposte p LEFT JOIN users u ON u.id = p.user_id
-    WHERE p.trip_id=$1 ORDER BY p.posizione, p.id`, [trip.id])).rows;
+  const proposte = await proposteDi(trip.id);
   return { trip, legs, expenses, photos, workouts, soste, giornate, proposte,
     materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) };
 }
