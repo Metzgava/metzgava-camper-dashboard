@@ -794,3 +794,32 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .scelta { display: flex; gap: 9px; align-items: flex-start; padding: 5px 0; cursor: pointer; }
 .scelta input { margin-top: 3px; flex: none; }
 .lista-scelte { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin-top: 4px; }
+
+/* ---------- la lavagna dei posti ---------- */
+/* Un posto proposto si legge tutto senza aprirlo: il perché è la cosa che
+   conta, e deve stare in chiaro sotto al nome. */
+.filtri-lavagna { display: flex; gap: 6px; padding: 0 16px 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.filtri-lavagna .filtro { flex: 0 0 auto; }
+.filtri-lavagna .filtro.acceso { background: var(--accent); border-color: var(--accent); color: #fff; }
+.proposte { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; }
+.proposta { border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; background: var(--surface); }
+.proposta .capo { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.proposta .capo b { font-size: 16px; }
+.proposta .stato { flex: 0 0 auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.proposta .perche { margin-top: 6px; white-space: pre-wrap; }
+.proposta .voti { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.proposta .voti i { color: var(--muted); }
+.proposta .diventata { margin-top: 7px; }
+.proposta .azioni { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.proposta .azioni .grow { flex: 1 1 auto; }
+.proposta .azioni .acceso { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Scelto in evidenza, scartato spento: la lavagna si guarda per decidere */
+.proposta.scelto { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.proposta.scartato { opacity: .55; }
+.proposte.sola-lettura .proposta { background: transparent; }
+
+@media (max-width: 560px) {
+  .proposte { padding: 0 12px 12px; }
+  .proposta .capo { flex-direction: column; gap: 2px; }
+  .proposta .azioni .btn { padding: 7px 10px; }
+}
