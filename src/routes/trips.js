@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num, haversineKm } from '../lib/util.js';
+import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
@@ -318,8 +319,14 @@ const candidatiSosta = nome => {
 };
 
 export async function completaCoordinateSoste(quante = 20) {
-  const senza = (await q(`SELECT id, name FROM stops WHERE (lat IS NULL OR lon IS NULL)
-    AND coalesce(name,'') <> '' ORDER BY id DESC LIMIT $1`, [quante])).rows;
+  // Una sosta nata dalla lavagna resta dov'e': se chi l'ha proposta non sapeva
+  // ancora dove fosse - «quel posto di cui parlava Anna» - indovinarlo vuol
+  // dire piantare un puntino in un posto verosimile e sbagliato, e quel
+  // puntino poi fa da tappa al giro. Meglio senza che finto.
+  const senza = (await q(`SELECT id, name FROM stops s WHERE (s.lat IS NULL OR s.lon IS NULL)
+    AND coalesce(s.name,'') <> ''
+    AND NOT EXISTS (SELECT 1 FROM proposte p WHERE p.stop_id = s.id)
+    ORDER BY s.id DESC LIMIT $1`, [quante])).rows;
   if (!senza.length) return 0;
   let trovate = 0;
   for (const s of senza) {
@@ -444,7 +451,11 @@ export async function datiViaggio(id) {
     FROM stops s WHERE s.trip_id=$1 ORDER BY s.from_date NULLS LAST, s.id`, [trip.id])).rows;
   const giornate = (await q(`SELECT to_char(data,'YYYY-MM-DD') AS data, note, stelle FROM giornate
     WHERE trip_id=$1 ORDER BY data`, [trip.id])).rows;
-  return { trip, legs, expenses, photos, workouts, soste, giornate,
+  // La lavagna arriva insieme a tutto il resto, cosi' la pagina si disegna in
+  // una volta sola. Di ogni proposta serve sapere chi l'ha messa e cosa ne
+  // pensano gli altri: senza quello e' un elenco di posti, non una discussione.
+  const proposte = await proposteDi(trip.id);
+  return { trip, legs, expenses, photos, workouts, soste, giornate, proposte,
     materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) };
 }
 

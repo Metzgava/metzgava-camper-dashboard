@@ -9,6 +9,7 @@ import { router as trips, agganciaAllenamenti, completaCoordinateSoste } from '.
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti, sistemaDislivelliAssurdi } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR, completaExifMancanti, completaLuoghiFoto } from './routes/photos.js';
 import { router as materiali } from './routes/materiali.js';
+import { router as proposte } from './routes/proposte.js';
 import { router as share, linkValido, viaggiVisibili, segnaVisita } from './routes/share.js';
 import { sannoEvitareIPedaggi } from './lib/geo.js';
 
@@ -49,6 +50,7 @@ app.use('/api', trips);
 app.use('/api', workouts);
 app.use('/api', photos);
 app.use('/api', materiali);
+app.use('/api', proposte);
 
 // I file: a chi e' di casa si aprono tutti. A un ospite si apre una foto solo
 // se e' di un viaggio che il suo link comprende e se le foto gliele hai date -

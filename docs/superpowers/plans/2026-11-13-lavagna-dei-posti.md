@@ -24,7 +24,7 @@
 
 Il progetto non ha prove automatiche. Non se ne inventa un impianto: si mettono dove pagano davvero.
 
-- **Quello che è logica pura** — leggere la pagina di park4night, tradurre i tipi, riconoscere un doppione — si prova con `node --test`, che non vuole niente di installato. Si aggiunge `"test": "node --test test/"` agli script di `package.json` (Task 1).
+- **Quello che è logica pura** — leggere la pagina di park4night, tradurre i tipi, riconoscere un doppione — si prova con **`node --test`** lanciato dalla radice del progetto, senza argomenti: trova da sé i file in `test/`. (`node --test test/` *non* funziona su Node 24, tratta la cartella come uno script.) Niente da installare e niente da aggiungere a `package.json`, che ha già modifiche di qualcun altro non committate.
 - **Le rotte** si provano col server locale e `curl`, con il comando e la risposta attesa scritti nel passo.
 - **Quello che si vede** si prova nel browser, con le misure prese dalla pagina.
 
