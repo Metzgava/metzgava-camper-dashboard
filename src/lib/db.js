@@ -355,6 +355,44 @@ export async function migrate() {
   -- parte: un appunto, l'indirizzo di un sito, il pdf del traghetto, la pagina
   -- di una rivista fotografata. Non sono le foto del viaggio - quelle vengono
   -- dopo - e non sono spese: sono il materiale con cui lo si pensa.
+  -- La lavagna di un viaggio che si sta preparando: i posti che qualcuno ha
+  -- visto e vorrebbe, prima che diventino tappe. Una proposta non e' ancora
+  -- niente - niente date, niente giro, niente spesa - ma ha un nome, un
+  -- puntino, chi l'ha proposta e due righe di perche'. E' il posto dove
+  -- finiscono le cose che prima si dicevano a voce e si perdevano.
+  CREATE TABLE IF NOT EXISTS proposte (
+    id SERIAL PRIMARY KEY,
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,   -- chi l'ha proposta
+    tipo TEXT NOT NULL DEFAULT 'pernotto',                 -- pernotto | sosta | visita
+    nome TEXT NOT NULL,
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
+    p4n_id TEXT,
+    link TEXT,
+    tipo_p4n TEXT,                                         -- com'e' classificato su park4night
+    prezzo NUMERIC(8,2),                                   -- a notte
+    currency TEXT,
+    perche TEXT,                                           -- perche' la propongo
+    stato TEXT NOT NULL DEFAULT 'proposto',                -- proposto | guardare | scelto | scartato
+    perche_no TEXT,                                        -- perche' e' stata scartata
+    stop_id INT REFERENCES stops(id) ON DELETE SET NULL,   -- la sosta che e' diventata
+    posizione INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  -- Cosa ne penso e perche' stanno nella stessa riga, perche' sono la stessa
+  -- cosa. Sono in due: una tabella di commenti a parte sarebbe una struttura
+  -- per un problema che non hanno.
+  CREATE TABLE IF NOT EXISTS proposte_voti (
+    proposta_id INT NOT NULL REFERENCES proposte(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    voto SMALLINT NOT NULL,                                -- 1 mi piace · -1 non mi convince
+    commento TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (proposta_id, user_id)
+  );
+
   CREATE TABLE IF NOT EXISTS materiali (
     id SERIAL PRIMARY KEY,
     trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
