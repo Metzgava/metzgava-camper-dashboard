@@ -337,6 +337,47 @@ export async function migrate() {
   -- Cosa si e' fatto in quella sosta. E' della sosta e non della giornata: in
   -- un giorno ci si ferma due volte, e sono due cose diverse.
   ALTER TABLE stops ADD COLUMN IF NOT EXISTS fatto TEXT;
+
+  -- Quando si va, finche' non si decide: scritto in parole - «fine giugno,
+  -- diciotto giorni» - perche' una data falsa in un campo data diventa vera
+  -- appena qualcuno la legge.
+  ALTER TABLE trips ADD COLUMN IF NOT EXISTS quando_circa TEXT;
+  ALTER TABLE trips ADD COLUMN IF NOT EXISTS notti_previste INT;
+  -- Il traghetto e' prenotato? Il campeggio ha risposto? Finche' no, la riga
+  -- porta il suo bollino: e' la roba che fa saltare un viaggio.
+  ALTER TABLE legs  ADD COLUMN IF NOT EXISTS da_confermare BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS da_confermare BOOLEAN NOT NULL DEFAULT false;
+
+  -- Quanto si pensa che costera'. Non sono spese: una spesa e' una cosa gia'
+  -- successa, questa e' un'ipotesi, e le due non vanno mai sommate.
+  CREATE TABLE IF NOT EXISTS budget (
+    id SERIAL PRIMARY KEY,
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    categoria TEXT NOT NULL,
+    importo NUMERIC(10,2),
+    currency TEXT,
+    nota TEXT,                                     -- come l'hai contato
+    posizione INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  -- Le cose da fare prima di partire: da fare, da comprare, da portare. Si
+  -- vede chi ha spuntato cosa, che in due e' meta' del motivo per scriverle.
+  CREATE TABLE IF NOT EXISTS liste (
+    id SERIAL PRIMARY KEY,
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    lista TEXT NOT NULL DEFAULT 'fare',            -- fare | comprare | portare
+    testo TEXT NOT NULL,
+    fatta BOOLEAN NOT NULL DEFAULT false,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,   -- chi l'ha scritta
+    chi INT REFERENCES users(id) ON DELETE SET NULL,       -- chi l'ha spuntata
+    quando TIMESTAMPTZ,
+    posizione INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_budget_trip ON budget(trip_id);
+  CREATE INDEX IF NOT EXISTS idx_liste_trip ON liste(trip_id);
+  CREATE INDEX IF NOT EXISTS idx_proposte_trip ON proposte(trip_id);
   -- Come inquadrare la foto quando fa da copertina: il punto da tenere al centro
   -- e quanto ingrandire. Non si tocca il file, che resta intero: il ritaglio e'
   -- un modo di guardarla, e si puo' sempre rifare.
