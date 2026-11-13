@@ -202,6 +202,22 @@ leggerla, metti tu il posto sulla mappa», e si va avanti come prima. La
 stessa cosa serve alle soste che hanno già il codice ma non le
 coordinate: un tasto per andarsele a prendere.
 
+## Il collegamento apre l'app di park4night
+
+park4night dichiara i **collegamenti diretti all'app** per gli indirizzi
+`*/place/*` e `*/lieu/*` (verificato il 13 novembre 2026 sul suo
+`apple-app-site-association`). Quindi l'indirizzo che l'app già
+costruisce dal codice — `park4night.com/it/place/277443`, cioè
+`linkPark4nightPosto` — su un iPhone che ha park4night installato
+**apre l'app sulla scheda del posto**, con le foto e le recensioni; su
+tutto il resto apre il sito. Non c'è niente da costruire: va solo usato
+quel formato.
+
+Dove il codice non c'è, il collegamento resta quello della ricerca per
+coordinate (`/it/search?lat=…`), che **non** è fra quelli dichiarati e
+quindi apre il browser. È una ragione in più perché il codice valga la
+pena di metterlo, e va detto in chiaro accanto al campo.
+
 ## Portami lì
 
 Con le coordinate in mano, ogni proposta ha due tasti:
