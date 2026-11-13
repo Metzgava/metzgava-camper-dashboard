@@ -7,7 +7,7 @@ import { Router } from 'express';
 import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
 import { requireAuth } from './auth.js';
-import { leggiPosto } from '../lib/park4night.js';
+import { leggiPosto, tipoSostaDa } from '../lib/park4night.js';
 import { linkPark4nightPosto, numeroPark4night } from '../lib/geo.js';
 
 export const router = Router();
@@ -105,4 +105,38 @@ router.post('/proposte/:id/voto', wrap(async (req, res) => {
     ON CONFLICT (proposta_id, user_id) DO UPDATE SET voto=EXCLUDED.voto, commento=EXCLUDED.commento, updated_at=now()`,
     [req.params.id, req.user.id, voto, commento]);
   res.json(await unaProposta(req.params.id));
+}));
+
+// Da proposta a sosta: e' l'unica cosa che «scelto» fa succedere davvero.
+// Quello che la proposta sa gia' passa alla sosta, il prezzo no - una sosta che
+// costa diventa da sola una spesa vera, datata oggi e cambiata al cambio di
+// oggi, e un campeggio scelto a novembre finirebbe nei conti di un viaggio di
+// giugno. Niente date: quelle arrivano quando il viaggio si conferma.
+router.post('/proposte/:id/sosta', wrap(async (req, res) => {
+  const p = (await q('SELECT * FROM proposte WHERE id=$1', [req.params.id])).rows[0];
+  if (!p) return res.status(404).json({ error: 'Proposta non trovata' });
+
+  const collega = async (stopId, gia) => {
+    await q(`UPDATE proposte SET stato='scelto', stop_id=$2 WHERE id=$1`, [p.id, stopId]);
+    const sosta = (await q('SELECT * FROM stops WHERE id=$1', [stopId])).rows[0];
+    res.json({ proposta: await unaProposta(p.id), sosta, ...(gia ? { gia_cera: true } : {}) });
+  };
+
+  // Gia' fatta: si apre quella, non se ne fa una seconda
+  if (p.stop_id != null) {
+    const sua = (await q('SELECT id FROM stops WHERE id=$1', [p.stop_id])).rows[0];
+    if (sua) return collega(sua.id, true);
+  }
+  // Lo stesso posto, arrivato per un'altra strada: capita, perche' una sosta si
+  // puo' ancora aggiungere a mano. Due righe per lo stesso piazzale prima o poi
+  // divergono, quindi si collega quella che c'e'.
+  if (p.p4n_id) {
+    const gemella = (await q('SELECT id FROM stops WHERE trip_id=$1 AND p4n_id=$2 LIMIT 1', [p.trip_id, p.p4n_id])).rows[0];
+    if (gemella) return collega(gemella.id, true);
+  }
+
+  const nuova = (await q(`INSERT INTO stops (trip_id, name, lat, lon, kind, p4n_id, link, motivo, source)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'manuale') RETURNING id`,
+    [p.trip_id, p.nome, p.lat, p.lon, tipoSostaDa(p.tipo, p.tipo_p4n), p.p4n_id, p.link, p.perche])).rows[0];
+  return collega(nuova.id, false);
 }));

@@ -42,6 +42,17 @@ export const estraiDaPagina = html => {
   } catch { return null; }
 };
 
+// Un posto della lavagna che diventa una sosta: che tipo di sosta e'. Chi
+// propone dice cosa ci va a fare - dormire, fermarsi un momento, vedere
+// qualcosa - e park4night dice com'e' fatto il posto. Il campeggio si distingue
+// perche' e' l'unico che finisce in una categoria di spesa tutta sua.
+// Anche una visita diventa una sosta: e' una fermata come le altre, e cosi'
+// entra nel viaggio e nel filmato invece di restare una buona intenzione.
+export const tipoSostaDa = (tipo, tipoP4n) =>
+  tipo !== 'pernotto' ? 'sosta'
+    : /campeggio|camping/i.test(tipoP4n || '') ? 'camping'
+      : 'area_sosta';
+
 // Torna il posto, oppure null. Non lancia mai: per chi sta incollando un
 // codice, «non l'ho trovato» e «non sono riuscito a leggerla» sono la stessa
 // cosa - rimbocca le maniche e lo mette lui sulla mappa.
