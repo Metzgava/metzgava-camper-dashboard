@@ -823,3 +823,6 @@ input[type=checkbox], input[type=radio] { width: auto; }
   .proposta .capo { flex-direction: column; gap: 2px; }
   .proposta .azioni .btn { padding: 7px 10px; }
 }
+
+/* I due tasti per farsi portare in un posto, sotto alla scheda */
+.proposta .portami { display: flex; gap: 6px; margin-top: 8px; }

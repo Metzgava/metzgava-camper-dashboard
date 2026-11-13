@@ -1071,6 +1071,7 @@ const vocePropostaHTML = (p, soste, siScrive, io) => {
     ${p.perche_no ? `<div class="small muted">🚫 ${esc(p.perche_no)}</div>` : ''}
     ${voti ? `<div class="voti">${voti}</div>` : ''}
     ${sosta ? `<div class="small diventata">⛺ è la sosta <a href="#" data-apri-sosta="${sosta.id}">${esc(sosta.name)}</a></div>` : ''}
+    ${tastiPortami(sosta?.lat ?? p.lat, sosta?.lon ?? p.lon, nome) ? `<div class="portami">${tastiPortami(sosta?.lat ?? p.lat, sosta?.lon ?? p.lon, nome, 'btn sm ghost')}</div>` : ''}
     ${siScrive ? `<div class="azioni">
       <button type="button" class="btn sm ghost${mio && mio.voto > 0 ? ' acceso' : ''}" data-voto="1" title="Mi piace">👍</button>
       <button type="button" class="btn sm ghost${mio && mio.voto < 0 ? ' acceso' : ''}" data-voto="-1" title="Non mi convince">🤔</button>
@@ -1834,7 +1835,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v115';
+const VERSIONE = 'v116';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -1913,7 +1914,10 @@ function legendaViaggio(d, opz = {}) {
   const conTracciati = opz.tracciati !== false;
         const discipline = [...new Set(workouts.filter(w => w.has_track || w.track).map(w => w.sport).filter(Boolean))].sort();
         const conPosto = photos.filter(p => p.lat != null).length;
-        if (!legs.length && !discipline.length && !conPosto && !workouts.length) return '';
+        // Un viaggio che si sta preparando non ha ancora tappe: ha la lavagna, e
+        // i suoi puntini vanno poter spenti e accesi come tutto il resto
+        const daLavagna = (d.proposte || []).filter(x => x.lat != null).length;
+        if (!legs.length && !discipline.length && !conPosto && !workouts.length && !daLavagna) return '';
         return `<div class="legenda-mappa">
           ${!conTracciati ? '' : (() => {
             // Due cose diverse, due riquadri: la strada del camper e le uscite
@@ -1942,6 +1946,7 @@ function legendaViaggio(d, opz = {}) {
           ${discipline.map(d => `<span class="voce" data-strato="sport:${esc(d)}"><i class="tratteggio" style="border-top-color:${coloreSport(d)}"></i>${sportIco(d)} ${esc(d)}</span>`).join('')}
           ${atletiDelViaggio.length > 1 ? '<span class="stacco"></span>' + atletiDelViaggio.map(nome => `<span class="voce" data-strato="atleta:${esc(nome)}"><i class="tratteggio" style="border-top-color:var(--muted);border-top-style:${trattoDi(nome)[1]}"></i>${esc(nome)}</span>`).join('') : ''}
           ${conPosto ? `<span class="voce" data-strato="foto">\ud83d\udcf7 ${conPosto} fot${conPosto === 1 ? 'o' : 'o'} nel punto dello scatto</span>` : ''}
+          ${daLavagna ? `<span class="voce" data-strato="proposte">\ud83d\uddd2\ufe0f ${daLavagna} dalla lavagna</span>` : ''}
         </div>`;
 }
 
@@ -2048,6 +2053,18 @@ function mappaDelViaggio(el, d, opz = {}) {
         ${p.caption ? `<b>${esc(p.caption)}</b><br>` : ''}${p.taken_at ? fdt(p.taken_at) : ''}${dove ? `<br>\ud83c\udd7f\ufe0f ${esc(dove)}` : ''}`);
     bounds.push([p.lat, p.lon]);
     segna('foto', [[p.lat, p.lon]]);
+  });
+  // I posti ancora da decidere: si vedono insieme a tutto il resto, che e' il
+  // momento in cui si capisce se il giro sta in piedi o se si zigzaga. Scelto
+  // col verde di casa, da decidere in giallo, scartato spento.
+  (d.proposte || []).filter(x => x.lat != null && x.lon != null).forEach(x => {
+    const colore = x.stato === 'scelto' ? COLORE_CAMPER : x.stato === 'scartato' ? '#94a3b8' : '#f59e0b';
+    L.marker([x.lat, x.lon], { icon: dotIcon(colore, ICO_PROPOSTA[x.tipo] || '📍'), opacity: x.stato === 'scartato' ? .55 : 1 })
+      .addTo(strato('proposte'))
+      .bindPopup(`<b>${esc(x.nome)}</b><br>${(STATI_PROPOSTA[x.stato] || []).join(' ')}${x.perche ? `<br>${esc(x.perche)}` : ''}`
+        + `<br>${tastiPortami(x.lat, x.lon, x.nome, 'btn sm')}`);
+    bounds.push([x.lat, x.lon]);
+    segna('proposte', [[x.lat, x.lon]]);
   });
   if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
 
@@ -2626,8 +2643,22 @@ async function viewTrip(id) {
                 <div class="sport-ico">${p.kind === 'campeggio' ? '\u26fa' : p.kind === 'camper_service' ? '\ud83d\udeb0' : '\ud83c\udd7f\ufe0f'}</div>
                 <div class="grow"><div class="title">${esc(p.name)}</div><div class="meta">${p.kind === 'campeggio' ? 'campeggio' : p.kind === 'camper_service' ? 'camper service' : 'area sosta'}</div></div></div>
                 <div class="item-actions"><a class="btn ghost icon" href="${esc(p.park4night)}" target="_blank" rel="noopener" title="Apri su park4night">\ud83c\udd7f\ufe0f</a>
+                  ${trip.status === 'bozza' ? `<button class="btn sm ghost" data-in-lavagna="${i}" title="Mettilo fra i posti da decidere">\ud83d\uddd2\ufe0f</button>` : ''}
                   <button class="btn sm" data-aggiungi="${i}">Aggiungi</button></div></div>`).join('')}</div>`;
           $$('[data-aggiungi]', el).forEach(b => b.onclick = () => { const p = r.luoghi[+b.dataset.aggiungi]; close(); sostaForm(trip, null, p); });
+          // Nome, posto e collegamento ci sono gia': e' la via piu' veloce per
+          // riempire la lavagna, e non costa niente perche' quei dati sono li'
+          $$('[data-in-lavagna]', el).forEach(b => b.onclick = safe(async () => {
+            const p = r.luoghi[+b.dataset.inLavagna];
+            await api(`/trips/${trip.id}/proposte`, { method: 'POST', body: {
+              nome: p.name, lat: p.lat, lon: p.lon,
+              tipo: p.kind === 'camper_service' ? 'sosta' : 'pernotto',
+              tipo_p4n: p.kind === 'campeggio' ? 'Campeggio' : null,
+            } });
+            close();
+            toast(`${p.name} e\u2019 sulla lavagna`);
+            restaQui();
+          }));
         });
         $('#raggio', el).onchange = cerca;
         cerca();
@@ -2643,7 +2674,7 @@ async function viewTrip(id) {
       // Si cerca se non si e' mai cercato davvero. Un elenco vuoto dopo una
       // ricerca riuscita e' una risposta: qui intorno non c'e' niente.
       if (!l.pois?.cercato_il) { toast('Cerco aree sosta\u2026'); l.pois = await api(`/legs/${l.id}/pois`, { method: 'POST' }); }
-      poiModal(l);
+      poiModal(l, trip);
     }
     if (b.dataset.su || b.dataset.giu) {
       const r = await api(`/legs/${b.dataset.su || b.dataset.giu}/sposta`, { method: 'POST', body: { verso: b.dataset.su ? 'su' : 'giu' } });
@@ -2708,6 +2739,16 @@ async function viewTrip(id) {
   // server e poi la pagina si rifà dov'era: sono in due, e chi guarda vuole
   // vedere subito quello che ha appena fatto l'altro.
   $('#piu-proposta')?.addEventListener('click', () => propostaForm(id, null, () => restaQui()));
+  // Una sosta che ha il codice ma non sta sulla mappa: il posto si va a
+  // prendere, una alla volta e quando lo si tocca. In blocco sarebbe una
+  // raffica di richieste al sito di qualcun altro.
+  $$('[data-coordinate]').forEach(b2 => b2.onclick = safe(async () => {
+    const sua = soste.find(x => x.id === +b2.dataset.coordinate);
+    const r = await api('/park4night/' + encodeURIComponent(sua.p4n_id));
+    await api('/soste/' + sua.id, { method: 'PUT', body: { lat: r.lat, lon: r.lon } });
+    toast(`${sua.name} e\u2019 sulla mappa`);
+    restaQui();
+  }));
   $('#lavagna')?.addEventListener('click', safe(async e => {
     const f = e.target.closest('[data-filtro]');
     if (f) {
@@ -2846,7 +2887,7 @@ const sostaRiga = (s, foto = [], copertina = null) => {
       <div class="meta"><span class="badge ${s.kind === 'sosta' ? '' : 'ok'}">${esc(tipoNome(s))}</span> \u00b7 ${quando}${s.cost != null ? ` \u00b7 <b>${importoConValuta(s.cost, s.currency, s.rate)}</b>` : ''}${s.cost > 0 ? (s.in_spese ? ' \u00b7 <span class="badge ok" title="Il costo \u00e8 fra le spese del viaggio">nelle spese</span>' : ' \u00b7 <span class="badge warn" title="La spesa l\u2019hai tolta: il tasto \ud83d\udcb6 la rimette">fuori dalle spese</span>') : ''}</div>
       ${s.motivo ? `<div class="meta"><b>\ud83d\udcac ${esc(s.motivo)}</b></div>` : ''}
       ${s.notes ? `<div class="meta">${esc(s.notes)}</div>` : ''}</div></div>
-  <div class="item-actions">${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="${s.p4n_id ? `Posto ${esc(s.p4n_id)} su park4night` : 'Apri il collegamento'}">${s.p4n_id ? '\ud83c\udd7f\ufe0f' : '\ud83d\udd17'}</a>` : ''}
+  <div class="item-actions">${s.lat == null && s.p4n_id ? `<button class="btn ghost icon" data-coordinate="${s.id}" title="Prendi il posto da park4night: ha il codice ma non sta sulla mappa">\ud83d\udccd</button>` : ''}${s.cost > 0 && !s.in_spese ? `<button class="btn ghost icon" data-sostaspesa="${s.id}" title="Rimetti il costo fra le spese del viaggio">\ud83d\udcb6</button>` : ''}${s.link ? `<a class="btn ghost icon" href="${esc(s.link)}" target="_blank" rel="noopener" title="${s.p4n_id ? `Posto ${esc(s.p4n_id)} su park4night` : 'Apri il collegamento'}">${s.p4n_id ? '\ud83c\udd7f\ufe0f' : '\ud83d\udd17'}</a>` : ''}
     <button class="btn ghost icon" data-sosta="${s.id}" title="Modifica">\u270f\ufe0f</button>
     <button class="btn ghost danger icon" data-delsosta="${s.id}" title="Elimina">\ud83d\uddd1</button></div>
   <div class="foto-sosta">${foto.map(p => `<figure data-foto="${p.id}" class="${eVideo(p) ? 'e-video' : ''}"><a href="/uploads/${p.filename}" ${datiLente(p)} title="${esc(p.caption || (eVideo(p) ? 'Tocca per guardarlo' : 'Tocca per ingrandire'))}">${facciaMedia(p)}</a>${stellaCopertina(p, copertina)}<button class="del" data-del-ph="${p.id}" title="Elimina">\u2715</button></figure>`).join('')}
@@ -3468,6 +3509,16 @@ function expenseForm(trip, legs, ex = null, soste = []) {
 // creato la tappa. Sul telefono si apre l'app, se c'e'.
 // Il formato e' quello documentato da Google (Maps URLs, api=1) e non vuole chiavi.
 const MAX_TAPPE_MAPS = 9;                       // il limite di Google per i punti intermedi
+// Sull'iPhone questo indirizzo apre l'app Mappe, non il browser: e' quella che
+// si usa in viaggio, e finora non c'era da nessuna parte.
+const linkMappeApple = (lat, lon, nome = '') => `https://maps.apple.com/?daddr=${(+lat).toFixed(6)},${(+lon).toFixed(6)}${nome ? `&q=${encodeURIComponent(nome)}` : ''}&dirflg=d`;
+
+// La riga per farsi portare in un posto: Google Maps e Mappe. Senza coordinate
+// non si disegna - un tasto che non sa dove mandarti e' peggio di nessun tasto.
+const tastiPortami = (lat, lon, nome = '', classe = 'btn sm') => (lat == null || lon == null ? '' :
+  `<a class="${classe}" href="${mapsIndicazioni({ lat, lon }, { lat, lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps">🗺️ Maps</a>`
+  + `<a class="${classe}" href="${linkMappeApple(lat, lon, nome)}" target="_blank" rel="noopener" title="Apri in Mappe">🧭 Mappe</a>`);
+
 function mapsIndicazioni(da, a, intermedie = [], evita = '') {
   const punto = p => `${(+p.lat).toFixed(5)},${(+p.lon).toFixed(5)}`;
   // Partenza e arrivo coincidono quando si vuole solo «portami qui»: allora
@@ -3513,8 +3564,11 @@ const p4n = (lat, lon, zoom = 14) => `https://park4night.com/it/search?lat=${(+l
 // OpenStreetMap scrive «yes» e «no»: qui dentro si legge in italiano
 const tariffaPoi = f => !f ? null : f === 'yes' ? 'a pagamento' : f === 'no' ? 'gratis' : f;
 
-function poiModal(l) {
+function poiModal(l, trip) {
   const p = l.pois || {};
+  // Finche' il viaggio si prepara, da qui si va dritti in lavagna: nome, posto
+  // e collegamento ci sono gia', ed e' la via piu' veloce per riempirla
+  const inCostruzione = trip?.status === 'bozza';
   modal(`<h2>All\u2019arrivo a ${esc(l.to_name.split(',')[0])}</h2><div class="muted small">Cercati intorno alla destinazione${p.warning ? ' · ⚠️ ' + p.warning : ''}</div>
     <h3 style="margin:14px 0 4px">🅿️ Aree sosta e campeggi (${(p.stops || []).length})</h3>
     ${(p.stops || []).map(s => `<div class="poi"><div class="k">${s.kind === 'area_sosta' ? '\ud83c\udd7f\ufe0f' : s.kind === 'campeggio' ? '\u26fa' : '\ud83d\udeb0'}</div>
@@ -3523,6 +3577,8 @@ function poiModal(l) {
       <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
         <a class="btn sm" href="${p4n(s.lat, s.lon)}" target="_blank" rel="noopener" title="Foto, prezzi e commenti su park4night">\ud83c\udd7f\ufe0f park4night</a>
         <a class="btn sm" href="${mapsIndicazioni({ lat: s.lat, lon: s.lon }, { lat: s.lat, lon: s.lon })}" target="_blank" rel="noopener" title="Portami qui">\ud83d\uddfa\ufe0f Naviga</a>
+        <a class="btn sm" href="${linkMappeApple(s.lat, s.lon, s.name)}" target="_blank" rel="noopener" title="Apri in Mappe">\ud83e\udded Mappe</a>
+        ${inCostruzione ? `<button type="button" class="btn sm ghost" data-in-lavagna="${esc(JSON.stringify({ nome: s.name, lat: s.lat, lon: s.lon, kind: s.kind }))}">\ud83d\uddd2\ufe0f In lavagna</button>` : ''}
         ${s.website ? `<a class="btn sm ghost" href="${esc(s.website)}" target="_blank" rel="noopener">\ud83c\udf10 Sito</a>` : ''}
       </div></div></div>`).join('') || `<div class="muted small">Nessuna area censita su OpenStreetMap entro ${(p.raggio || 5000) / 1000} km. Prova ad allargare il raggio, oppure guarda su park4night: loro ne conoscono di piu\u2019.</div>`}
     <div class="row between" style="margin-top:14px"><div class="row" style="gap:8px;align-items:center">
@@ -3531,10 +3587,21 @@ function poiModal(l) {
       <div class="row"><button class="btn" data-x>Chiudi</button><button class="btn ghost" data-r>Cerca di nuovo</button></div></div>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;
+      $$('[data-in-lavagna]', el).forEach(b2 => b2.onclick = safe(async () => {
+        const x = JSON.parse(b2.dataset.inLavagna);
+        await api(`/trips/${trip.id}/proposte`, { method: 'POST', body: {
+          nome: x.nome, lat: x.lat, lon: x.lon,
+          tipo: x.kind === 'camper_service' ? 'sosta' : 'pernotto',
+          tipo_p4n: x.kind === 'campeggio' ? 'Campeggio' : null,
+        } });
+        close();
+        toast(`${x.nome} e\u2019 sulla lavagna`);
+        restaQui();
+      }));
       const rifai = safe(async () => {
         toast('Cerco\u2026');
         l.pois = await api(`/legs/${l.id}/pois?raggio=${$('#poi-raggio', el).value}`, { method: 'POST' });
-        close(); poiModal(l);
+        close(); poiModal(l, trip);
       });
       $('[data-r]', el).onclick = rifai;
       $('#poi-raggio', el).onchange = rifai;
