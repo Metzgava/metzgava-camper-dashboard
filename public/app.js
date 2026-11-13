@@ -1097,23 +1097,29 @@ const elencoProposte = (proposte, soste, siScrive, io) => (proposte || []).slice
   .sort((a, b) => (ORDINE_PROPOSTA[a.stato] ?? 1) - (ORDINE_PROPOSTA[b.stato] ?? 1) || a.id - b.id)
   .map(p => vocePropostaHTML(p, soste, siScrive, io)).join('');
 
-const schedaLavagna = d => {
-  if (d.trip.status !== 'bozza') return '';
-  const proposte = d.proposte || [];
+// La stessa lavagna la disegnano in due: la pagina del viaggio e lo spazio
+// della pianificazione. Una funzione sola, non una copia: due copie dello
+// stesso riquadro divergono alla prima correzione.
+// Nello spazio della pianificazione i filtri sono quelli grandi, in cima:
+// due file di tasti che fanno la stessa cosa sarebbero una in troppo.
+const schedaLavagnaDentro = (trip, viste, soste) => lavagnaDi(trip, viste, soste, { senzaFiltri: true });
+
+const lavagnaDi = (trip, elenco, soste, opz = {}) => {
+  const proposte = elenco || [];
   const quante = st => proposte.filter(p => p.stato === st).length;
   const filtro = (chiave, testo, n) => `<button type="button" class="btn sm filtro${chiave === 'tutti' ? ' acceso' : ''}" data-filtro="${chiave}">${testo}${n == null ? '' : ` ${n}`}</button>`;
   return `<div class="card pad-0" id="lavagna" style="margin-bottom:14px">
     <div class="row between" style="padding:14px 16px 6px"><h2>🗒️ Lavagna</h2>
       <button class="btn sm primary" id="piu-proposta">＋ Aggiungi un posto</button></div>
     <div class="small muted" style="padding:0 16px 8px">I posti dove potremmo fermarci, finché non si decide. Scegliendone uno diventa una sosta del viaggio.</div>
-    ${proposte.length ? `<div class="filtri-lavagna">${[
+    ${opz.senzaFiltri || !proposte.length ? '' : `<div class="filtri-lavagna">${[
       filtro('tutti', 'tutti', proposte.length),
       filtro('proposto', '💡', quante('proposto')),
       filtro('guardare', '👀', quante('guardare')),
       filtro('scelto', '✅', quante('scelto')),
       filtro('scartato', '🚫', quante('scartato')),
-    ].join('')}</div>
-    <div class="proposte">${elencoProposte(proposte, d.soste, true, user?.id)}</div>`
+    ].join('')}</div>`}
+    ${proposte.length ? `<div class="proposte">${elencoProposte(proposte, soste, true, user?.id)}</div>`
     : '<div class="empty">Niente sulla lavagna. Il primo posto che vi viene in mente mettetelo qui invece che dirlo a voce: fra due settimane nessuno dei due se lo ricorda.</div>'}
   </div>`;
 };
@@ -1175,6 +1181,284 @@ function propostaForm(tripId, p, dopo) {
       dopo?.(r);
     });
   });
+}
+
+// ---------- lo spazio della pianificazione ----------
+// Preparare un viaggio e guardarne uno fatto sono due mestieri diversi: nel
+// primo si decide, nel secondo si ricorda. Questa pagina serve al primo. Non ha
+// dati suoi: le proposte, le tappe e le soste sono quelle del viaggio, e qui si
+// vedono dal verso di chi deve ancora scegliere.
+//
+// I filtri restano fra un ridisegno e l'altro: dopo ogni spunta la pagina si
+// rifà, e ritrovarsi daccapo a ogni tocco è il modo migliore per non usarli.
+let filtriPianifica = { chi: null, cosa: null, stato: null, voce: null };
+
+const CHE_COSA = { pernotto: '🛏️ dormire', sosta: '⏸️ sosta', visita: '👀 da vedere' };
+
+const filtroAcceso = () => Object.values(filtriPianifica).some(Boolean);
+
+const propostaPassa = p => (!filtriPianifica.chi || p.user_id === filtriPianifica.chi)
+  && (!filtriPianifica.cosa || p.tipo === filtriPianifica.cosa)
+  && (!filtriPianifica.stato || p.stato === filtriPianifica.stato);
+const vocePassa = v => !filtriPianifica.voce || v.categoria === filtriPianifica.voce;
+const listaPassa = l => !filtriPianifica.chi || l.user_id === filtriPianifica.chi;
+
+// Un riquadro che non ha il suo dato dice cosa manca, non zero: zero vuol dire
+// «nessuno», e non è quello che sta succedendo.
+const riquadro = (etichetta, valore, sotto, manca) => `<div class="tile${manca ? ' muto' : ''}">
+  <div class="label">${esc(etichetta)}</div>
+  <div class="value">${manca ? '—' : valore}</div>
+  <div class="sub">${manca ? esc(manca) : (sotto || '')}</div></div>`;
+
+// I ganci della lavagna: li mettono sia la pagina del viaggio sia lo spazio
+// della pianificazione, e sono gli stessi. «dopo» dice come rinfrescare quello
+// che si sta guardando: la pagina intera di la', solo questa vista di qua.
+function ganciLavagna(id, proposte, dopo) {
+  $('#piu-proposta')?.addEventListener('click', () => propostaForm(id, null, () => dopo()));
+  // Una sosta che ha il codice ma non sta sulla mappa: il posto si va a
+  // prendere, una alla volta e quando lo si tocca. In blocco sarebbe una
+  // raffica di richieste al sito di qualcun altro.
+  $$('[data-coordinate]').forEach(b2 => b2.onclick = safe(async () => {
+    const sua = soste.find(x => x.id === +b2.dataset.coordinate);
+    const r = await api('/park4night/' + encodeURIComponent(sua.p4n_id));
+    await api('/soste/' + sua.id, { method: 'PUT', body: { lat: r.lat, lon: r.lon } });
+    toast(`${sua.name} e\u2019 sulla mappa`);
+    dopo();
+  }));
+  $('#lavagna')?.addEventListener('click', safe(async e => {
+    const f = e.target.closest('[data-filtro]');
+    if (f) {
+      $$('#lavagna .filtro').forEach(x => x.classList.toggle('acceso', x === f));
+      $$('#lavagna .proposta').forEach(x => { x.hidden = f.dataset.filtro !== 'tutti' && x.dataset.stato !== f.dataset.filtro; });
+      return;
+    }
+    const apri = e.target.closest('[data-apri-sosta]');
+    if (apri) { e.preventDefault(); return $(`[data-sosta="${apri.dataset.apriSosta}"]`)?.click(); }
+    const box = e.target.closest('[data-proposta]');
+    const b = e.target.closest('button');
+    if (!box || !b) return;
+    const pid = +box.dataset.proposta;
+    const sua = (proposte || []).find(x => x.id === pid);
+    if (b.dataset.voto) {
+      // Toccando il voto che hai già lo togli: ci si ripensa, e non deve
+      // restare lì una faccina che non pensi più
+      const voto = b.classList.contains('acceso') ? 0 : +b.dataset.voto;
+      await api(`/proposte/${pid}/voto`, { method: 'POST', body: { voto, commento: (sua?.voti || []).find(v => v.user_id === user?.id)?.commento || '' } });
+      return dopo();
+    }
+    if (b.dataset.commenta != null) return commentoPropostaForm(sua, () => dopo());
+    if (b.dataset.stato) {
+      const corpo = { stato: b.dataset.stato };
+      if (b.dataset.stato === 'scartato') {
+        const perche = await promptDlg('Perché lo scartate?', sua?.perche_no || '', 'Es. troppo lontano dal giro del secondo giorno');
+        if (perche === null) return;
+        corpo.perche_no = perche;
+      }
+      await api('/proposte/' + pid, { method: 'PUT', body: corpo });
+      return dopo();
+    }
+    if (b.dataset.fanneSosta != null) {
+      const r = await api(`/proposte/${pid}/sosta`, { method: 'POST' });
+      toast(r.gia_cera ? 'Quel posto era già una sosta: collegato' : 'Diventata una sosta del viaggio');
+      return dopo();
+    }
+    if (b.dataset.cambia != null) return propostaForm(id, sua, () => dopo());
+    if (b.dataset.togli != null) {
+      if (!await confirmDlg(`Togliere «${sua?.nome}» dalla lavagna?`)) return;
+      await api('/proposte/' + pid, { method: 'DELETE' });
+      return dopo();
+    }
+  }));
+  // A viaggio partito la lavagna non si disegna più, ma si rilegge: è lì che
+  // sta scritto perché avevate scartato quel campeggio
+}
+
+async function viewPianifica(id) {
+  const d = await api(`/trips/${id}/pianifica`);
+  const { trip, liste, legs, soste, numeri, budget } = d;
+  const proposte = d.proposte || [];
+  const viste = proposte.filter(propostaPassa);
+  const vociViste = (budget.voci || []).filter(vocePassa);
+  const listeViste = (liste || []).filter(listaPassa);
+  const totaleVisto = Math.round(vociViste.reduce((a, v) => a + (v.importo || 0), 0) * 100) / 100;
+  const calcolato = vociViste.filter(v => v.calcolata).reduce((a, v) => a + (v.importo || 0), 0);
+  const taglio = filtroAcceso() ? '<span class="badge warn" title="I numeri qui sopra sono di quello che stai guardando, non di tutto il viaggio">su un taglio</span>' : '';
+
+  const chiCe = [...new Map(proposte.concat(liste || []).filter(x => x.user_id)
+    .map(x => [x.user_id, x.chi || x.scritta_da])).entries()];
+  const categorie = [...new Set((budget.voci || []).map(v => v.categoria))];
+
+  const filtro = (campo, valore, testo) => `<button type="button" class="btn sm filtro${filtriPianifica[campo] === valore ? ' acceso' : ''}" data-filtro="${campo}" data-valore="${valore == null ? '' : esc(String(valore))}">${testo}</button>`;
+
+  const sezioneGiro = `<div class="card pad-0" style="grid-column:1/-1">
+    <div class="row between" style="padding:14px 16px 6px"><h2>🧭 Il giro</h2>
+      <span class="small muted">${legs.length ? `${legs.length} tapp${legs.length === 1 ? 'a' : 'e'}` : 'ancora da disegnare'}</span></div>
+    <div class="list">${legs.map(l => `<div class="item"><div class="item-main"><div class="grow">
+        <div class="title">${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}</div>
+        <div class="meta">${[l.date ? fdate(l.date) : 'senza data', l.distance_km ? `${num(l.distance_km)} km` : null].filter(Boolean).join(' · ')}</div></div></div>
+      <div class="item-actions"><button class="btn ghost icon${l.da_confermare ? ' acceso' : ''}" data-conferma="legs:${l.id}" title="${l.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button></div></div>`).join('')
+      || '<div class="empty">Nessuna tappa. Si aggiungono dalla pagina del viaggio: qui si vede quali sono ancora da confermare.</div>'}</div>
+    ${soste.length ? `<div class="list">${soste.map(x => `<div class="item"><div class="item-main"><div class="grow">
+        <div class="title">${tipoIco(x.kind)} ${esc(x.name)}</div>
+        <div class="meta">${[x.from_date ? fdate(x.from_date) : 'giorni da decidere', x.motivo].filter(Boolean).join(' · ')}</div></div></div>
+      <div class="item-actions"><button class="btn ghost icon${x.da_confermare ? ' acceso' : ''}" data-conferma="soste:${x.id}" title="${x.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button></div></div>`).join('')}</div>` : ''}
+  </div>`;
+
+  const sezioneBudget = `<div class="card pad-0" style="grid-column:1/-1">
+    <div class="row between" style="padding:14px 16px 6px"><h2>💶 Quanto costerà</h2>
+      <button class="btn sm" id="piu-voce">＋ Voce</button></div>
+    <div class="small muted" style="padding:0 16px 8px">Un'ipotesi, non una spesa: le due non si sommano mai. Quello che l'app sa contare da sé dice con che conto.</div>
+    <div class="list">${vociViste.map(v => `<div class="item"${v.calcolata ? '' : ` data-voce="${v.id}"`}><div class="item-main"><div class="grow">
+        <div class="title">${catLabel(v.categoria)}${v.calcolata ? ' <span class="badge ok" title="La conta l’app">calcolata</span>' : ''}</div>
+        ${v.nota ? `<div class="meta">${esc(v.nota)}</div>` : ''}</div>
+        <div class="num"><b>${v.importo == null ? '—' : eur(v.importo)}</b></div></div>
+      ${v.calcolata ? '' : `<div class="item-actions"><button class="btn ghost icon" data-cambia-voce="${v.id}" title="Cambia">✏️</button><button class="btn ghost danger icon" data-togli-voce="${v.id}" title="Togli">🗑</button></div>`}</div>`).join('')
+      || '<div class="empty">Niente da contare ancora.</div>'}</div>
+    <div class="row between" style="padding:10px 16px 14px;border-top:1px solid var(--line)">
+      <div><div class="small muted">Ipotesi${filtroAcceso() ? ' (di questo taglio)' : ''}</div><div style="font-size:21px;font-weight:700">${eur(totaleVisto)}</div></div>
+      <div style="text-align:right"><div class="small muted">Già speso</div><div style="font-size:21px;font-weight:700">${eur(budget.speso)}</div></div></div>
+  </div>`;
+
+  const unaLista = (chiave, titolo, segnaposto) => {
+    const sue = listeViste.filter(x => x.lista === chiave);
+    const fatte = sue.filter(x => x.fatta).length;
+    return `<div class="card pad-0">
+      <div class="row between" style="padding:14px 16px 6px"><h2>${titolo}</h2>
+        <span class="small muted">${sue.length ? `${fatte} su ${sue.length}` : ''}</span></div>
+      <div class="list">${sue.map(x => `<div class="item${x.fatta ? ' fatta' : ''}" data-voce-lista="${x.id}"><div class="item-main">
+          <button class="btn ghost icon spunta" data-spunta="${x.id}" title="${x.fatta ? 'Non è più fatta' : 'Fatta'}">${x.fatta ? '✅' : '⬜️'}</button>
+          <div class="grow"><div class="title">${esc(x.testo)}</div>
+          ${x.fatta && x.spuntata_da ? `<div class="meta">fatta da ${esc(x.spuntata_da)}</div>` : x.scritta_da ? `<div class="meta">${esc(x.scritta_da)}</div>` : ''}</div></div>
+        <div class="item-actions"><button class="btn ghost danger icon" data-togli-lista="${x.id}" title="Togli">🗑</button></div></div>`).join('')
+        || `<div class="empty">Niente qui.</div>`}</div>
+      <form class="row" data-lista="${chiave}" style="padding:0 16px 14px;gap:8px">
+        <input name="testo" placeholder="${esc(segnaposto)}" maxlength="300" autocomplete="off" style="flex:1">
+        <button class="btn sm primary">＋</button></form></div>`;
+  };
+
+  $('#app').innerHTML = layout(`
+    <div class="row between" style="margin-bottom:14px"><div>
+      <a class="btn sm ghost" href="#/trip/${trip.id}">← ${esc(nomeViaggio(trip))}</a>
+      <h1 style="margin-top:8px">🧭 Pianificazione</h1></div></div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="row between" style="gap:12px;flex-wrap:wrap">
+        <div style="flex:2;min-width:200px"><label class="f">Quando, più o meno</label>
+          <input id="quando-circa" value="${esc(trip.quando_circa || '')}" placeholder="Es. fine giugno, 18-20 giorni" maxlength="200"></div>
+        <div style="flex:1;min-width:120px"><label class="f">Notti previste</label>
+          <input id="notti-previste" inputmode="numeric" value="${trip.notti_previste ?? ''}" placeholder="Quante"></div></div>
+      <div class="small muted" style="margin-top:6px">Finché non si decide, le date si scrivono in parole: una data falsa in un campo data diventa vera appena qualcuno la legge.</div>
+    </div>
+
+    <div class="tiles" style="margin-bottom:12px">
+      ${riquadro('Km del giro', `${num(numeri.km)} km`, numeri.minuti ? `${dur(numeri.minuti * 60)} di guida` : '', numeri.km ? null : 'nessuna tappa ancora')}
+      ${riquadro('Notti', numeri.notti ?? '', numeri.notti ? `${numeri.notti + 1} giorni` : '', numeri.notti ? null : 'dimmi quante')}
+      ${riquadro('Posti scelti', viste.filter(p => p.stato === 'scelto').length, `su ${viste.length} in lavagna ${taglio}`, viste.length ? null : 'lavagna vuota')}
+      ${riquadro('Ipotesi di spesa', eur(totaleVisto), `${calcolato ? `${eur(calcolato)} calcolati ` : ''}${taglio}`, totaleVisto ? null : 'ancora niente')}
+      ${riquadro('Già speso', eur(budget.speso), budget.speso ? `mancano ${eur(Math.max(0, totaleVisto - budget.speso))}` : '', budget.speso ? null : 'non ancora')}
+      ${riquadro('Da confermare', numeri.da_confermare, 'fra tappe e soste', numeri.da_confermare ? null : 'niente in sospeso')}
+    </div>
+
+    <div class="filtri-pianifica">
+      ${filtro('chi', null, 'tutti')}${chiCe.map(([uid, nome]) => filtro('chi', uid, esc(nome || 'chi?'))).join('')}
+      <span class="stacco"></span>
+      ${filtro('cosa', null, 'tutto')}${Object.entries(CHE_COSA).map(([k, t]) => filtro('cosa', k, t)).join('')}
+      <span class="stacco"></span>
+      ${Object.entries(STATI_PROPOSTA).map(([k, [i]]) => filtro('stato', k, i)).join('')}
+      <span class="stacco"></span>
+      ${categorie.map(c => filtro('voce', c, catLabel(c))).join('')}
+      ${filtroAcceso() ? '<button type="button" class="btn sm ghost" data-filtro="tutto">✕ togli i filtri</button>' : ''}
+    </div>
+
+    ${schedaLavagnaDentro(trip, viste, soste)}
+    ${sezioneGiro}
+    ${sezioneBudget}
+    <div class="grid due" style="margin-top:14px">
+      ${unaLista('fare', '✅ Da fare', 'Es. prenotare il traghetto')}
+      ${unaLista('comprare', '🛒 Da comprare', 'Es. il tubo dell’acqua')}
+      ${unaLista('portare', '🎒 Da portare', 'Es. le ciaspole')}
+    </div>`);
+
+  ganciPianifica(id, d);
+}
+
+function ganciPianifica(id, d) {
+  const rifai = () => viewPianifica(id);
+
+  // Quando si va e quante notti: si salvano uscendo dal campo, senza un tasto
+  // «salva» che nessuno premerebbe
+  const salvaQuando = safe(async () => {
+    await api(`/trips/${id}/pianifica`, { method: 'PUT', body: {
+      quando_circa: $('#quando-circa').value, notti_previste: $('#notti-previste').value } });
+    rifai();
+  });
+  $('#quando-circa').onchange = salvaQuando;
+  $('#notti-previste').onchange = salvaQuando;
+
+  // I filtri: toccare quello acceso lo spegne, che è il gesto che viene da sé
+  $$('[data-filtro]').forEach(b => b.onclick = () => {
+    if (b.dataset.filtro === 'tutto') filtriPianifica = { chi: null, cosa: null, stato: null, voce: null };
+    else {
+      const campo = b.dataset.filtro;
+      const valore = b.dataset.valore === '' ? null : (campo === 'chi' ? +b.dataset.valore : b.dataset.valore);
+      filtriPianifica[campo] = filtriPianifica[campo] === valore ? null : valore;
+    }
+    rifai();
+  });
+
+  ganciLavagna(id, d.proposte, rifai);
+
+  // Il bollino «da confermare» su una tappa o una sosta
+  $$('[data-conferma]').forEach(b => b.onclick = safe(async () => {
+    const [dove, quale] = b.dataset.conferma.split(':');
+    await api(`/${dove}/${quale}/conferma`, { method: 'PUT', body: { da_confermare: !b.classList.contains('acceso') } });
+    rifai();
+  }));
+
+  // Il budget scritto a mano
+  const voceForm = (v) => modal(`<h2>${v ? '💶 Cambia la voce' : '💶 Una voce di spesa prevista'}</h2>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Cos’è</label>
+        <select name="categoria">${Object.entries(CAT).map(([k, [i, n]]) => `<option value="${k}" ${k === (v?.categoria || 'altro') ? 'selected' : ''}>${i} ${n}</option>`).join('')}</select></div>
+      <div><label class="f">Quanto, più o meno</label><input name="importo" inputmode="decimal" value="${v?.importo ?? ''}" placeholder="Es. 320"></div>
+      <div><label class="f">Come l’hai contato</label><input name="nota" maxlength="300" value="${esc(v?.nota || '')}" placeholder="Es. 20 giorni × 35 € al giorno">
+        <div class="small muted" style="margin-top:4px">Un numero senza il suo conto, fra un mese, non si sa più se era giusto.</div></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = close;
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const corpo = { categoria: $('[name=categoria]', el).value, importo: $('[name=importo]', el).value, nota: $('[name=nota]', el).value };
+      if (v) await api('/budget/' + v.id, { method: 'PUT', body: corpo });
+      else await api(`/trips/${id}/budget`, { method: 'POST', body: corpo });
+      close(); rifai();
+    });
+  });
+  $('#piu-voce').onclick = () => voceForm(null);
+  $$('[data-cambia-voce]').forEach(b => b.onclick = () => voceForm((d.budget.voci || []).find(v => v.id === +b.dataset.cambiaVoce)));
+  $$('[data-togli-voce]').forEach(b => b.onclick = safe(async () => {
+    await api('/budget/' + b.dataset.togliVoce, { method: 'DELETE' });
+    rifai();
+  }));
+
+  // Le liste: si scrive e si preme invio, si spunta toccando
+  $$('form[data-lista]').forEach(f => f.onsubmit = safe(async e => {
+    e.preventDefault();
+    const campo = $('[name=testo]', f);
+    if (!campo.value.trim()) return;
+    await api(`/trips/${id}/liste`, { method: 'POST', body: { lista: f.dataset.lista, testo: campo.value } });
+    campo.value = '';
+    rifai();
+  }));
+  $$('[data-spunta]').forEach(b => b.onclick = safe(async () => {
+    const riga = b.closest('[data-voce-lista]');
+    await api('/liste/' + b.dataset.spunta, { method: 'PUT', body: { fatta: !riga.classList.contains('fatta') } });
+    rifai();
+  }));
+  $$('[data-togli-lista]').forEach(b => b.onclick = safe(async () => {
+    await api('/liste/' + b.dataset.togliLista, { method: 'DELETE' });
+    rifai();
+  }));
 }
 
 // ---------- Geocoder autocomplete ----------
@@ -1845,7 +2129,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v117';
+const VERSIONE = 'v118';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -2407,7 +2691,7 @@ async function viewTrip(id) {
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div><a href="#/" class="small">← Viaggi</a><h1><span id="ttl" title="Tocca per rinominare" style="cursor:pointer">${esc(nomeViaggio(trip))}</span> <span class="badge ${trip.status}">${closed ? 'concluso' : 'in corso'}</span></h1>
       <div class="muted small">${dateCliccabili(trip)} · creato da ${esc(trip.owner)} · gasolio ${trip.fuel_price ?? settings.vehicle?.fuel_price} €/l · ${trip.km_per_liter} km/l</div></div>
-      <div class="row">${trip.status !== 'bozza' && (d.proposte || []).length ? '<button class="btn" id="vedi-lavagna" title="I posti che avevate messo in lista quando lo preparavate">\ud83d\uddd2\ufe0f La lavagna</button>' : ''}<button class="btn" id="edit">✏️ Modifica</button>${trip.status === 'bozza' ? '<button class="btn primary" id="parti" title="Il viaggio comincia: passa fra quelli in corso">\ud83d\ude80 Si parte</button>'
+      <div class="row">${trip.status === 'bozza' ? `<a class="btn primary" href="#/pianifica/${trip.id}" title="I posti, quando, quanto costera' e cosa c'e' da preparare">\ud83e\udded Pianifica</a>` : ''}${trip.status !== 'bozza' && (d.proposte || []).length ? '<button class="btn" id="vedi-lavagna" title="I posti che avevate messo in lista quando lo preparavate">\ud83d\uddd2\ufe0f La lavagna</button>' : ''}<button class="btn" id="edit">✏️ Modifica</button>${trip.status === 'bozza' ? '<button class="btn primary" id="parti" title="Il viaggio comincia: passa fra quelli in corso">\ud83d\ude80 Si parte</button>'
         : closed ? '<button class="btn" id="reopen">Riapri</button>'
         : '<button class="btn primary" id="close">Concludi viaggio</button>'}${trip.status === 'bozza' ? '' : '<button class="btn" id="incostruzione" title="Rimettilo fra i viaggi che stiamo preparando">\ud83e\uddf0 In costruzione</button>'}${legs.length > 1 ? '<button class="btn icon" id="split" title="Dividi in viaggi casa → casa">✂️</button>' : ''}<button class="btn ghost danger icon" id="del" title="Elimina viaggio">🗑</button></div></div>
     <div class="tiles" style="margin-bottom:14px">
@@ -2431,7 +2715,6 @@ async function viewTrip(id) {
         : ''}
       <div class="tile"><div class="label">Allenamenti</div><div class="value">${workouts.length}</div><div class="sub">${atletiDelViaggio.length > 1 ? atletiDelViaggio.map(n => `${esc(n)} ${workouts.filter(w => w.athlete === n).length}`).join(' \u00b7 ') + '<br>' : ''}${num(workouts.reduce((a, w) => a + (w.distance_m || 0), 0) / 1000)} km di attività · ${num(workouts.reduce((a, w) => a + (w.calories || 0), 0), 0)} kcal</div></div>
     </div>
-    ${schedaLavagna(d)}
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${legendaViaggio(d)}</div>
     <div class="grid due" style="margin-top:14px">
@@ -2750,63 +3033,6 @@ async function viewTrip(id) {
   // La lavagna: votare, cambiare stato, farne una sosta. Ogni tocco parla col
   // server e poi la pagina si rifà dov'era: sono in due, e chi guarda vuole
   // vedere subito quello che ha appena fatto l'altro.
-  $('#piu-proposta')?.addEventListener('click', () => propostaForm(id, null, () => restaQui()));
-  // Una sosta che ha il codice ma non sta sulla mappa: il posto si va a
-  // prendere, una alla volta e quando lo si tocca. In blocco sarebbe una
-  // raffica di richieste al sito di qualcun altro.
-  $$('[data-coordinate]').forEach(b2 => b2.onclick = safe(async () => {
-    const sua = soste.find(x => x.id === +b2.dataset.coordinate);
-    const r = await api('/park4night/' + encodeURIComponent(sua.p4n_id));
-    await api('/soste/' + sua.id, { method: 'PUT', body: { lat: r.lat, lon: r.lon } });
-    toast(`${sua.name} e\u2019 sulla mappa`);
-    restaQui();
-  }));
-  $('#lavagna')?.addEventListener('click', safe(async e => {
-    const f = e.target.closest('[data-filtro]');
-    if (f) {
-      $$('#lavagna .filtro').forEach(x => x.classList.toggle('acceso', x === f));
-      $$('#lavagna .proposta').forEach(x => { x.hidden = f.dataset.filtro !== 'tutti' && x.dataset.stato !== f.dataset.filtro; });
-      return;
-    }
-    const apri = e.target.closest('[data-apri-sosta]');
-    if (apri) { e.preventDefault(); return $(`[data-sosta="${apri.dataset.apriSosta}"]`)?.click(); }
-    const box = e.target.closest('[data-proposta]');
-    const b = e.target.closest('button');
-    if (!box || !b) return;
-    const pid = +box.dataset.proposta;
-    const sua = (d.proposte || []).find(x => x.id === pid);
-    if (b.dataset.voto) {
-      // Toccando il voto che hai già lo togli: ci si ripensa, e non deve
-      // restare lì una faccina che non pensi più
-      const voto = b.classList.contains('acceso') ? 0 : +b.dataset.voto;
-      await api(`/proposte/${pid}/voto`, { method: 'POST', body: { voto, commento: (sua?.voti || []).find(v => v.user_id === user?.id)?.commento || '' } });
-      return restaQui();
-    }
-    if (b.dataset.commenta != null) return commentoPropostaForm(sua, () => restaQui());
-    if (b.dataset.stato) {
-      const corpo = { stato: b.dataset.stato };
-      if (b.dataset.stato === 'scartato') {
-        const perche = await promptDlg('Perché lo scartate?', sua?.perche_no || '', 'Es. troppo lontano dal giro del secondo giorno');
-        if (perche === null) return;
-        corpo.perche_no = perche;
-      }
-      await api('/proposte/' + pid, { method: 'PUT', body: corpo });
-      return restaQui();
-    }
-    if (b.dataset.fanneSosta != null) {
-      const r = await api(`/proposte/${pid}/sosta`, { method: 'POST' });
-      toast(r.gia_cera ? 'Quel posto era già una sosta: collegato' : 'Diventata una sosta del viaggio');
-      return restaQui();
-    }
-    if (b.dataset.cambia != null) return propostaForm(id, sua, () => restaQui());
-    if (b.dataset.togli != null) {
-      if (!await confirmDlg(`Togliere «${sua?.nome}» dalla lavagna?`)) return;
-      await api('/proposte/' + pid, { method: 'DELETE' });
-      return restaQui();
-    }
-  }));
-  // A viaggio partito la lavagna non si disegna più, ma si rilegge: è lì che
-  // sta scritto perché avevate scartato quel campeggio
   $('#vedi-lavagna')?.addEventListener('click', () => modal(`<h2>🗒️ La lavagna di ${esc(nomeViaggio(trip))}</h2>
     <div class="proposte sola-lettura" style="margin-top:10px">${elencoProposte(d.proposte, d.soste, false, user?.id)}</div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" data-x>Chiudi</button></div>`,
@@ -4930,8 +5156,9 @@ async function render(opzioni = {}) {
       } else return viewAuth(me.setup);
     }
     const h = location.hash || '#/';
-    const m = h.match(/^#\/(trip|allenamenti|allenamento)\/?(\d+)?/);
-    if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
+    const m = h.match(/^#\/(trip|pianifica|allenamenti|allenamento)\/?(\d+)?/);
+    if (m?.[1] === 'pianifica' && m[2]) await viewPianifica(m[2]);
+    else if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
     else if (m?.[1] === 'allenamento' && m[2]) await viewWorkout(m[2]);
     else if (m?.[1] === 'allenamenti') await viewWorkouts(m[2] ? +m[2] : user.id);
     else if (h.startsWith('#/cruscotto')) await viewDashboard();
