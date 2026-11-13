@@ -18,6 +18,14 @@ test('prende il nome senza il codice di avviamento postale', () => {
   assert.equal(estraiDaPagina(pagina).nome, 'Avigliana - 1 Strada Provinciale 188');
 });
 
+// Il tipo vero sta nell'icona dell'intestazione. Nelle parole chiave della
+// pagina c'e' una lista fissa - «Camper, Furgoni, Campeggio, Area di servizio,
+// Area picnic» - uguale su ogni posto: leggere quella vuol dire chiamare
+// campeggio anche un parcheggio sterrato.
+test('prende il tipo dall\u2019icona dell\u2019intestazione, non dalle parole chiave', () => {
+  assert.equal(estraiDaPagina(pagina).tipo, 'Parcheggio giorno e notte');
+});
+
 test('da una pagina senza coordinate non inventa niente', () => {
   assert.equal(estraiDaPagina('<html><title>park4night - 404</title></html>'), null);
 });

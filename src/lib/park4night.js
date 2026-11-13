@@ -8,9 +8,11 @@
 // che e' una seccatura, non un guasto.
 import { numeroPark4night, linkPark4nightPosto } from './geo.js';
 
-// Come park4night classifica i posti, in italiano: e' la lingua in cui gli
-// chiediamo la pagina
-const TIPI = ['Campeggio', 'Area di servizio', 'Area picnic', 'Parcheggio', 'Agriturismo'];
+// Come park4night classifica un posto sta scritto nell'icona in cima alla
+// scheda: «Campeggio», «Parcheggio giorno e notte», «Area di servizio»... Nelle
+// parole chiave della pagina c'e' invece una lista fissa, uguale su ogni posto,
+// e leggere quella vuol dire chiamare campeggio anche un parcheggio sterrato.
+const tipoDallIcona = t => t.match(/place-header-access[\s\S]{0,200}?<img[^>]*\salt="([^"]*)"/i)?.[1]?.trim() || null;
 
 // Il titolo della pagina e' «park4night - (10057) Avigliana - 1 Strada
 // Provinciale 188»: il nome e' quello che resta togliendo il marchio davanti e
@@ -35,7 +37,7 @@ export const estraiDaPagina = html => {
       // Il prezzo non si legge: nella pagina i numeri con l'euro stanno anche
       // dentro alle recensioni, e prenderne uno a caso vuol dire scrivere una
       // cifra sbagliata con l'aria di essere giusta. Quello lo mette chi sa.
-      tipo: TIPI.find(x => t.includes(x)) || null,
+      tipo: tipoDallIcona(t),
     };
   } catch { return null; }
 };
