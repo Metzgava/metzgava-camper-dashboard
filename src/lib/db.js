@@ -375,6 +375,28 @@ export async function migrate() {
     posizione INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
+  -- La roba utile si mette in ordine con un'etichetta, e quello che c'e' da
+  -- sapere di un paese dice a quale paese: sono la stessa cosa scritta in due
+  -- modi, e una tabella sola basta.
+  ALTER TABLE materiali ADD COLUMN IF NOT EXISTS etichetta TEXT;   -- luogo | esperienza | documento | leggere | sapere
+  ALTER TABLE materiali ADD COLUMN IF NOT EXISTS dove TEXT;        -- il paese o la regione
+
+  -- Le strade possibili, da confrontare prima di sceglierne una. Non sono
+  -- tappe: una tappa e' una strada che si fara', queste sono quelle fra cui si
+  -- sta decidendo, e le si tiene lì coi loro numeri finche' non si decide.
+  CREATE TABLE IF NOT EXISTS percorsi (
+    id SERIAL PRIMARY KEY,
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    nome TEXT,
+    punti JSONB NOT NULL,                      -- [{name, lat, lon}, ...]
+    varianti JSONB,                            -- quello che ha risposto il calcolatore
+    scelta TEXT,                               -- la chiave della variante scelta
+    perche TEXT,
+    da_confermare BOOLEAN NOT NULL DEFAULT false,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_percorsi_trip ON percorsi(trip_id);
   CREATE INDEX IF NOT EXISTS idx_budget_trip ON budget(trip_id);
   CREATE INDEX IF NOT EXISTS idx_liste_trip ON liste(trip_id);
   CREATE INDEX IF NOT EXISTS idx_proposte_trip ON proposte(trip_id);

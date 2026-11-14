@@ -1183,6 +1183,40 @@ function propostaForm(tripId, p, dopo) {
   });
 }
 
+// Le etichette sono poche e fisse: un elenco che cresce da sé torna a essere il
+// mucchio da cui si voleva uscire.
+const ETICHETTE = { luogo: '🏞️ luogo', esperienza: '🎟️ esperienza', documento: '📄 documento', leggere: '💡 da leggere', sapere: '📍 da sapere' };
+
+// Una strada possibile, con le sue varianti a confronto. I numeri - km, ore,
+// gasolio - sono il motivo per cui sta qui: è su quelli che si sceglie.
+const stradaRiga = p => {
+  const dove = (p.punti || []).map(x => esc(x.name || `${(+x.lat).toFixed(3)}, ${(+x.lon).toFixed(3)}`)).join(' → ');
+  const varianti = (p.varianti || []).map(v => `<button type="button" class="variante-piccola${v.chiave === p.scelta ? ' acceso' : ''}" data-scelta="${p.id}:${esc(v.chiave)}">
+      <b>${v.chiave === 'senza_pedaggi' ? 'evitando i pedaggi' : 'la più rapida'}</b>
+      <span>${num(v.distance_km)} km · ${dur(v.duration_min * 60)} · ${eur(v.gasolio)} di gasolio${v.pedaggio ? ` · ~${eur(v.pedaggio)} di pedaggi` : ''}</span></button>`).join('');
+  return `<div class="item strada" data-strada="${p.id}"><div class="item-main"><div class="grow">
+      <div class="title">${esc(p.nome || 'una strada')}${p.da_confermare ? ' <span class="badge warn">da confermare</span>' : ''}</div>
+      ${esc(p.nome || '') === dove ? '' : `<div class="meta">${dove}</div>`}
+      ${p.perche ? `<div class="meta perche-strada">${esc(p.perche)}</div>` : ''}
+      <div class="varianti-strada">${varianti || '<span class="small muted">i numeri non sono ancora stati contati — tocca 🔄</span>'}</div></div></div>
+    <div class="item-actions">
+      <button class="btn ghost icon${p.da_confermare ? ' acceso' : ''}" data-strada-conferma="${p.id}" title="${p.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button>
+      <button class="btn ghost icon" data-strada-perche="${p.id}" title="Perché questa">✏️</button>
+      <button class="btn ghost icon" data-strada-rifai="${p.id}" title="Rifai i conti">🔄</button>
+      <button class="btn ghost danger icon" data-strada-togli="${p.id}" title="Togli">🗑</button></div></div>`;
+};
+
+const materialeRiga = m => `<div class="item" data-materiale="${m.id}"><div class="item-main"><div class="grow">
+    <div class="title">${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.titolo || m.url)} ↗</a>` : esc(m.titolo || '')}</div>
+    ${m.testo ? `<div class="meta">${esc(m.testo.slice(0, 220))}</div>` : ''}
+    ${m.chi ? `<div class="meta muted">${esc(m.chi)}</div>` : ''}</div></div>
+  <div class="item-actions">
+    <select class="etichetta-scelta" data-etichetta="${m.id}">
+      <option value="">senza etichetta</option>
+      ${Object.entries(ETICHETTE).map(([k, t]) => `<option value="${k}" ${k === m.etichetta ? 'selected' : ''}>${t}</option>`).join('')}
+    </select>
+    <button class="btn ghost danger icon" data-materiale-togli="${m.id}" title="Togli">🗑</button></div></div>`;
+
 // ---------- lo spazio della pianificazione ----------
 // Preparare un viaggio e guardarne uno fatto sono due mestieri diversi: nel
 // primo si decide, nel secondo si ricorda. Questa pagina serve al primo. Non ha
@@ -1273,6 +1307,29 @@ function ganciLavagna(id, proposte, dopo) {
   // sta scritto perché avevate scartato quel campeggio
 }
 
+// La stanza dei viaggi che si stanno preparando. Qui non conta quanti
+// chilometri sono stati fatti: conta quanto manca a decidere.
+async function viewPianificati() {
+  const viaggi = await api('/pianificati');
+  const riga = t => `<a class="card viaggio-pianificato" href="#/pianifica/${t.id}">
+    <div class="row between"><b>${esc(nomeViaggio(t))}</b>
+      ${t.da_confermare ? `<span class="badge warn">${t.da_confermare} da confermare</span>` : ''}</div>
+    <div class="small muted">${esc(t.quando_circa || 'quando, ancora da decidere')}${t.notti_previste ? ` · ${t.notti_previste} notti` : ''}</div>
+    <div class="riga-numeri">
+      <span>🗒️ ${t.scelti} scelt${t.scelti === 1 ? 'o' : 'i'}${t.proposti ? ` su ${t.proposti}` : ''}</span>
+      ${t.km ? `<span>🛣️ ${num(t.km)} km</span>` : ''}
+      ${t.ipotesi ? `<span>💶 ~${eur(t.ipotesi)}</span>` : ''}
+      ${t.cose ? `<span>✅ ${t.cose} da fare</span>` : ''}
+    </div></a>`;
+  $('#app').innerHTML = layout(`
+    <div class="row between" style="margin-bottom:14px"><h1>🧭 Pianificati</h1>
+      <button class="btn primary" id="nuovo-pianificato">＋ Nuovo viaggio</button></div>
+    <div class="small muted" style="margin-bottom:14px">I viaggi che state preparando. Quelli in corso e quelli finiti stanno in Viaggi.</div>
+    ${viaggi.length ? `<div class="stack">${viaggi.map(riga).join('')}</div>`
+      : `<div class="card empty">Nessun viaggio in preparazione. Il prossimo comincia qui: un nome, e poi i posti che vi vengono in mente — prima che ve li dimentichiate.</div>`}`);
+  $('#nuovo-pianificato').onclick = () => tripForm(null, { bozza: true });
+}
+
 async function viewPianifica(id) {
   const d = await api(`/trips/${id}/pianifica`);
   const { trip, liste, legs, soste, numeri, budget } = d;
@@ -1303,6 +1360,49 @@ async function viewPianifica(id) {
         <div class="meta">${[x.from_date ? fdate(x.from_date) : 'giorni da decidere', x.motivo].filter(Boolean).join(' · ')}</div></div></div>
       <div class="item-actions"><button class="btn ghost icon${x.da_confermare ? ' acceso' : ''}" data-conferma="soste:${x.id}" title="${x.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button></div></div>`).join('')}</div>` : ''}
   </div>`;
+
+  const percorsi = d.percorsi || [];
+  const materiali = d.materiali || [];
+  // Quello che c'è da sapere di un paese sta a parte: non è roba da leggere,
+  // è roba che serve mentre ci si guida dentro
+  const daSapere = materiali.filter(m => m.etichetta === 'sapere');
+  const roba = materiali.filter(m => m.etichetta !== 'sapere');
+  const perPaese = [...new Map(daSapere.map(m => [m.dove || '', []])).entries()]
+    .map(([dove]) => [dove, daSapere.filter(m => (m.dove || '') === dove)]);
+
+  const sezioneCassetta = `<div class="card" style="margin-bottom:12px">
+    <form id="cassetta" class="row" style="gap:8px">
+      <input name="testo" placeholder="Incolla un link, un codice park4night, o scrivi due righe" autocomplete="off" style="flex:1">
+      <button class="btn primary">＋</button></form>
+    <div class="small muted" id="cassetta-esito" style="margin-top:6px">park4night, Google Maps, il sito di un posto, un appunto: capisce lei cos’è, e te lo dice.</div></div>`;
+
+  const sezioneStrade = `<div class="card pad-0" style="grid-column:1/-1">
+    <div class="row between" style="padding:14px 16px 6px"><h2>🛣️ Le strade possibili</h2>
+      <button class="btn sm" id="piu-strada">＋ Una strada</button></div>
+    <div class="small muted" style="padding:0 16px 8px">Quelle fra cui state decidendo, coi loro numeri. Non sono tappe: lo diventano quando scegliete.</div>
+    <div class="list">${percorsi.map(stradaRiga).join('')
+      || '<div class="empty">Nessuna strada a confronto. Incolla qui sopra il link delle indicazioni di Google Maps: diventa una strada coi suoi km, le sue ore e il suo gasolio.</div>'}</div></div>`;
+
+  const sezioneRoba = `<div class="card pad-0" style="grid-column:1/-1">
+    <div class="row between" style="padding:14px 16px 6px"><h2>📎 Roba utile</h2>
+      <span class="small muted">${roba.length || ''}</span></div>
+    <div class="list">${roba.map(materialeRiga).join('')
+      || '<div class="empty">Link, appunti e documenti finiscono qui: quello che incolli nella cassetta, se non è un posto né una strada.</div>'}</div></div>`;
+
+  const sezioneSapere = `<div class="card pad-0" style="grid-column:1/-1">
+    <div class="row between" style="padding:14px 16px 6px"><h2>📍 Da sapere</h2></div>
+    <div class="small muted" style="padding:0 16px 8px">Quello che non è né un posto né una spesa: vignette, ZTL, bombole, documenti, numeri utili. Di quel paese o di quella regione.</div>
+    ${perPaese.map(([dove, righe]) => `<div class="gruppo-paese">
+      <div class="anno">${esc(dove || 'in generale')}</div>
+      <div class="list">${righe.map(m => `<div class="item" data-materiale="${m.id}"><div class="item-main"><div class="grow">
+          <div class="title">${esc(m.titolo || '')}</div>
+          ${m.testo && m.testo !== m.titolo ? `<div class="meta">${esc(m.testo.slice(0, 300))}</div>` : ''}
+          ${m.url ? `<div class="meta"><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.url.slice(0, 60))} ↗</a></div>` : ''}</div></div>
+        <div class="item-actions"><button class="btn ghost danger icon" data-materiale-togli="${m.id}" title="Togli">🗑</button></div></div>`).join('')}</div></div>`).join('')}
+    <form id="piu-sapere" class="row" style="padding:0 16px 14px;gap:8px;flex-wrap:wrap">
+      <input name="dove" placeholder="Dove (es. Norvegia, Lofoten)" maxlength="80" style="flex:1;min-width:130px">
+      <input name="testo" placeholder="Cosa c’è da sapere" maxlength="2000" style="flex:2;min-width:160px">
+      <button class="btn sm primary">＋</button></form></div>`;
 
   const sezioneBudget = `<div class="card pad-0" style="grid-column:1/-1">
     <div class="row between" style="padding:14px 16px 6px"><h2>💶 Quanto costerà</h2>
@@ -1356,7 +1456,7 @@ async function viewPianifica(id) {
       ${riquadro('Posti scelti', viste.filter(p => p.stato === 'scelto').length, `su ${viste.length} in lavagna ${taglio}`, viste.length ? null : 'lavagna vuota')}
       ${riquadro('Ipotesi di spesa', eur(totaleVisto), `${calcolato ? `${eur(calcolato)} calcolati ` : ''}${taglio}`, totaleVisto ? null : 'ancora niente')}
       ${riquadro('Già speso', eur(budget.speso), budget.speso ? `mancano ${eur(Math.max(0, totaleVisto - budget.speso))}` : '', budget.speso ? null : 'non ancora')}
-      ${riquadro('Da confermare', numeri.da_confermare, 'fra tappe e soste', numeri.da_confermare ? null : 'niente in sospeso')}
+      ${riquadro('Da confermare', numeri.da_confermare, 'fra strade, tappe e soste', numeri.da_confermare ? null : 'niente in sospeso')}
     </div>
 
     <div class="filtri-pianifica">
@@ -1370,9 +1470,13 @@ async function viewPianifica(id) {
       ${filtroAcceso() ? '<button type="button" class="btn sm ghost" data-filtro="tutto">✕ togli i filtri</button>' : ''}
     </div>
 
+    ${sezioneCassetta}
     ${schedaLavagnaDentro(trip, viste, soste)}
+    ${sezioneStrade}
     ${sezioneGiro}
     ${sezioneBudget}
+    ${sezioneRoba}
+    ${sezioneSapere}
     <div class="grid due" style="margin-top:14px">
       ${unaLista('fare', '✅ Da fare', 'Es. prenotare il traghetto')}
       ${unaLista('comprare', '🛒 Da comprare', 'Es. il tubo dell’acqua')}
@@ -1382,8 +1486,65 @@ async function viewPianifica(id) {
   ganciPianifica(id, d);
 }
 
+// Una strada a mano: partenza, arrivo e le tappe in mezzo. Quella veloce è
+// incollare le indicazioni di Maps nella cassetta; questa serve quando le
+// indicazioni non ci sono ancora e si sta solo immaginando.
+function stradaForm(tripId, dopo) {
+  const punti = [null, null];
+  modal(`<h2>🛣️ Una strada possibile</h2>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Da</label><input id="s-da" autocomplete="off" placeholder="Cerca il posto di partenza" required></div>
+      <div id="s-tappe"></div>
+      <div><label class="f">A</label><input id="s-a" autocomplete="off" placeholder="Cerca il posto d’arrivo" required></div>
+      <button type="button" class="btn sm ghost" id="s-piu">＋ Una tappa in mezzo</button>
+      <div class="small muted">I numeri — km, ore, gasolio — li conta l’app appena salvi.</div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Conta</button></div>
+    </form>`, (el, close) => {
+    $('[data-x]', el).onclick = close;
+    geoInput($('#s-da', el), r => { punti[0] = r; });
+    geoInput($('#s-a', el), r => { punti[punti.length - 1] = r; });
+    $('#s-piu', el).onclick = () => {
+      if (punti.length >= 12) return toast('Al massimo dodici punti', true);
+      const i = punti.length - 1;
+      punti.splice(i, 0, null);
+      const riga = document.createElement('div');
+      riga.innerHTML = `<label class="f">E passando da</label><input autocomplete="off" placeholder="Cerca il posto">`;
+      $('#s-tappe', el).appendChild(riga);
+      geoInput(riga.querySelector('input'), r => { punti[i] = r; });
+    };
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const buoni = punti.filter(p => p && p.lat != null);
+      if (buoni.length < 2) return toast('Serve almeno la partenza e l’arrivo, scelti dall’elenco', true);
+      await api(`/trips/${tripId}/percorsi`, { method: 'POST', body: { punti: buoni } });
+      close(); dopo?.();
+    });
+  });
+}
+
 function ganciPianifica(id, d) {
   const rifai = () => viewPianifica(id);
+  // Dopo la cassetta la pagina si rifà, ma quello che ha capito deve restare
+  // sotto gli occhi: è lì che ci si accorge se ha sbagliato
+  let ultimaCassetta = null;
+  const rifaiTenendo = async frase => {
+    await viewPianifica(id);
+    const e = $('#cassetta-esito');
+    if (!e) return;
+    e.innerHTML = frase;
+    // «Non era questo»: si disfa quello che ha capito e resta un appunto, che
+    // e' la cosa che non puo' essere sbagliata
+    $('#cassetta-sbagliato', e) && ($('#cassetta-sbagliato', e).onclick = safe(async ev => {
+      ev.preventDefault();
+      const u = ultimaCassetta;
+      if (!u) return;
+      const dove = u.cosa === 'proposta' ? 'proposte' : u.cosa === 'percorso' ? 'percorsi' : 'materiali';
+      await api(`/${dove}/${u.riga.id}`, { method: 'DELETE' });
+      if (u.testo) await api(`/trips/${id}/cassetta`, { method: 'POST', body: { testo: '\u270f\ufe0f ' + u.testo } });
+      ultimaCassetta = null;
+      rifaiTenendo('Disfatto: te l\u2019ho lasciato fra gli appunti');
+    }));
+  };
 
   // Quando si va e quante notti: si salvano uscendo dal campo, senza un tasto
   // «salva» che nessuno premerebbe
@@ -1459,7 +1620,68 @@ function ganciPianifica(id, d) {
     await api('/liste/' + b.dataset.togliLista, { method: 'DELETE' });
     rifai();
   }));
+  // La cassetta: quello che ha capito lo dice, e se ha capito male si rimedia
+  // con un tocco. Indovinare in silenzio è il modo di farsi odiare.
+  $('#cassetta').onsubmit = safe(async e => {
+    e.preventDefault();
+    const campo = $('[name=testo]', e.target);
+    if (!campo.value.trim()) return;
+    const esito = $('#cassetta-esito');
+    esito.textContent = 'Guardo cos’è…';
+    const r = await api(`/trips/${id}/cassetta`, { method: 'POST', body: { testo: campo.value } });
+    campo.value = '';
+    esito.innerHTML = `${esc(r.detto)}${r.cosa !== 'nota' ? ' \u00b7 <a href="#" id="cassetta-sbagliato">non era questo</a>' : ''}`;
+    ultimaCassetta = { ...r, testo: r.riga?.url || r.riga?.nome || r.riga?.testo || '' };
+    rifaiTenendo(esito.innerHTML);
+  });
+
+  // Le strade possibili
+  $('#piu-strada').onclick = () => stradaForm(id, rifai);
+  $$('[data-scelta]').forEach(b => b.onclick = safe(async () => {
+    const [pid, chiave] = b.dataset.scelta.split(':');
+    await api('/percorsi/' + pid, { method: 'PUT', body: { scelta: chiave } });
+    rifai();
+  }));
+  $$('[data-strada-conferma]').forEach(b => b.onclick = safe(async () => {
+    await api('/percorsi/' + b.dataset.stradaConferma, { method: 'PUT', body: { da_confermare: !b.classList.contains('acceso') } });
+    rifai();
+  }));
+  $$('[data-strada-perche]').forEach(b => b.onclick = safe(async () => {
+    const sua = (d.percorsi || []).find(x => x.id === +b.dataset.stradaPerche);
+    const t = await promptDlg(`🛣️ ${sua?.nome || 'Questa strada'}`, sua?.perche || '', 'Es. più lunga ma si passa dal passo');
+    if (t === null) return;
+    await api('/percorsi/' + sua.id, { method: 'PUT', body: { perche: t } });
+    rifai();
+  }));
+  $$('[data-strada-rifai]').forEach(b => b.onclick = safe(async () => {
+    await api(`/percorsi/${b.dataset.stradaRifai}/ricalcola`, { method: 'POST' });
+    rifai();
+  }));
+  $$('[data-strada-togli]').forEach(b => b.onclick = safe(async () => {
+    if (!await confirmDlg('Togliere questa strada dal confronto?')) return;
+    await api('/percorsi/' + b.dataset.stradaTogli, { method: 'DELETE' });
+    rifai();
+  }));
+
+  // Roba utile: l'etichetta si cambia dalla riga, senza aprire niente
+  $$('[data-etichetta]').forEach(sel => sel.onchange = safe(async () => {
+    await api('/materiali/' + sel.dataset.etichetta, { method: 'PUT', body: { etichetta: sel.value || null } });
+    rifai();
+  }));
+  $$('[data-materiale-togli]').forEach(b => b.onclick = safe(async () => {
+    await api('/materiali/' + b.dataset.materialeTogli, { method: 'DELETE' });
+    rifai();
+  }));
+  $('#piu-sapere').onsubmit = safe(async e => {
+    e.preventDefault();
+    const dove = $('[name=dove]', e.target).value.trim();
+    const testo = $('[name=testo]', e.target).value.trim();
+    if (!testo) return;
+    await api(`/trips/${id}/materiali`, { method: 'POST', body: { tipo: 'nota', titolo: testo.slice(0, 80), testo, etichetta: 'sapere', dove } });
+    rifai();
+  });
 }
+
 
 // ---------- Geocoder autocomplete ----------
 function geoInput(input, onPick) {
@@ -1496,6 +1718,9 @@ const coloreAtleta = (nome, i) => COLORI_ATLETA[String(nome || '').trim().toLowe
 // due elenchi distinti, e le copie di uno stesso giro non devono mescolarsi
 const nav = () => [
   ['#/', '🚐', 'Viaggi'],
+  // I viaggi da fare e quelli fatti sono due stanze diverse: in una si decide,
+  // nell'altra si ricorda
+  ['#/pianificati', '🧭', 'Pianificati'],
   ...atleti.map((a, i) => [`#/allenamenti/${a.id}`, ICO_SCARPA(coloreAtleta(a.name, i)), `Allenamenti ${a.name}`]),
   ['#/cruscotto', '🎛️', 'Cruscotto'],
   ['#/riepiloghi', '📊', 'Riepiloghi'],
@@ -1663,7 +1888,7 @@ async function viewTrips() {
       <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub" title="Gasolio e pedaggi divisi per i chilometri fatti in camper">${totKm ? eur(totStrada / totKm) + '/km di strada' : ''}</div></div>
     </div>
     ${open.length ? `<div class="section"><div class="anno">In corso</div><div class="viaggi">${open.map(card).join('')}</div></div>` : ''}
-    ${bozze.length ? `<div class="section"><div class="anno">\ud83e\uddf0 In costruzione \u00b7 <span>${bozze.length} viagg${bozze.length === 1 ? 'io' : 'i'} che stiamo preparando</span></div><div class="viaggi">${bozze.map(card).join('')}</div></div>` : ''}
+    ${bozze.length ? `<div class="section"><a class="anno come-link" href="#/pianificati">\ud83e\udded ${bozze.length} viagg${bozze.length === 1 ? 'io che stiamo preparando' : 'i che stiamo preparando'} \u00b7 <span>stanno di l\u00e0, in Pianificati</span></a></div>` : ''}
     ${closed.length
       ? [...perAnno.entries()].map(([anno, lista]) => `<div class="section"><div class="anno">${esc(anno)} · <span>${lista.length} viagg${lista.length === 1 ? 'io' : 'i'}</span></div><div class="viaggi">${lista.map(card).join('')}</div></div>`).join('')
       : open.length ? '' : '<div class="card"><div class="empty">Nessun viaggio.<br>Crea il primo e aggiungi le tappe: distanze, gasolio e pedaggi si calcolano da soli.</div></div>'}`);
@@ -1679,7 +1904,9 @@ async function viewTrips() {
   }));
 }
 
-function tripForm(t = null) {
+// Dalla stanza dei pianificati un viaggio nasce gia' «da organizzare»: e' il
+// motivo per cui si e' entrati di la'
+function tripForm(t = null, opz = {}) {
   const v = settings.vehicle || {};
   // Il percorso si disegna solo alla nascita del viaggio: dopo, le tappe si
   // modificano una per una, che e' piu' preciso che rifare tutto
@@ -1703,7 +1930,7 @@ function tripForm(t = null) {
   modal(`<h2>${t ? 'Modifica viaggio' : 'Nuovo viaggio'}</h2><form id="f" class="stack" style="margin-top:14px">
     <div><label class="f">Titolo</label><input name="title" required value="${esc(t?.title || '')}" placeholder="Es. Giro della Puglia"></div>
     <div class="form-grid"><div><label class="f">Inizio</label><input type="date" name="start_date" value="${t?.start_date ? iso(t.start_date) : today()}"></div><div><label class="f">Fine</label><input type="date" name="end_date" value="${t?.end_date ? iso(t.end_date) : ''}"></div></div>
-    ${t ? '' : `<label class="riga-scelta"><input type="checkbox" name="stato" value="bozza"> \ud83e\uddf0 Ancora da organizzare
+    ${t ? '' : `<label class="riga-scelta"><input type="checkbox" name="stato" value="bozza" ${opz.bozza ? 'checked' : ''}> \ud83e\uddf0 Ancora da organizzare
       <span class="small muted">Finisce fra i viaggi in costruzione: ci si mette dentro il materiale, e quando si parte basta un tocco.</span></label>`}
     <div class="form-grid"><div><label class="f">Prezzo gasolio \u20ac/l</label><input type="number" step="0.001" name="fuel_price" value="${t?.fuel_price ?? v.fuel_price ?? 1.75}"></div><div><label class="f">Consumo km/l</label><input type="number" step="0.1" name="km_per_liter" value="${t?.km_per_liter ?? v.km_per_liter ?? 10}"></div></div>
     ${sezionePercorso}
@@ -2129,7 +2356,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v118';
+const VERSIONE = 'v121';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -5157,7 +5384,8 @@ async function render(opzioni = {}) {
     }
     const h = location.hash || '#/';
     const m = h.match(/^#\/(trip|pianifica|allenamenti|allenamento)\/?(\d+)?/);
-    if (m?.[1] === 'pianifica' && m[2]) await viewPianifica(m[2]);
+    if (h.startsWith('#/pianificati')) await viewPianificati();
+    else if (m?.[1] === 'pianifica' && m[2]) await viewPianifica(m[2]);
     else if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
     else if (m?.[1] === 'allenamento' && m[2]) await viewWorkout(m[2]);
     else if (m?.[1] === 'allenamenti') await viewWorkouts(m[2] ? +m[2] : user.id);

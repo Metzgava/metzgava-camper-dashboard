@@ -39,7 +39,7 @@ function indirizzoValido(v) {
 // Il titolo della pagina, per non ritrovarsi un elenco di indirizzi tutti
 // uguali. Se il sito non risponde o non lo dice, resta il nome del sito: un
 // link senza titolo e' comunque meglio di un errore.
-async function titoloDellaPagina(url) {
+export async function titoloDellaPagina(url) {
   const stop = AbortSignal.timeout(6000);
   try {
     const r = await fetch(url, { signal: stop, redirect: 'follow', headers: { 'User-Agent': 'camper-dashboard/1.0' } });
@@ -69,8 +69,10 @@ router.post('/trips/:id/materiali', wrap(async (req, res) => {
   } else if (!testo(b.testo, 20000) && !titolo) {
     return res.status(400).json({ error: 'Scrivi almeno due righe, o un titolo' });
   }
-  const r = (await q(`INSERT INTO materiali(trip_id,user_id,tipo,titolo,testo,url) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [req.params.id, req.user.id, tipo, titolo, testo(b.testo, 20000), url])).rows[0];
+  const r = (await q(`INSERT INTO materiali(trip_id,user_id,tipo,titolo,testo,url,etichetta,dove)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [req.params.id, req.user.id, tipo, titolo, testo(b.testo, 20000), url,
+      testo(b.etichetta, 20) || null, testo(b.dove, 80) || null])).rows[0];
   res.json(r);
 }));
 
@@ -92,8 +94,15 @@ router.post('/trips/:id/materiali/file', upload.array('file', 10), wrap(async (r
 
 router.put('/materiali/:id', wrap(async (req, res) => {
   const b = req.body || {};
-  const r = (await q(`UPDATE materiali SET titolo=coalesce($2,titolo), testo=coalesce($3,testo) WHERE id=$1 RETURNING *`,
-    [req.params.id, testo(b.titolo, 200), testo(b.testo, 20000)])).rows[0];
+  // L'etichetta e il paese si tolgono mandando una stringa vuota: «coalesce»
+  // da solo non saprebbe distinguere «non toccarlo» da «cancellalo»
+  const campo = (chiave, quanto) => (chiave in b ? (testo(b[chiave], quanto) || null) : undefined);
+  const r = (await q(`UPDATE materiali SET titolo=coalesce($2,titolo), testo=coalesce($3,testo),
+      etichetta = CASE WHEN $5 THEN $4 ELSE etichetta END,
+      dove = CASE WHEN $7 THEN $6 ELSE dove END WHERE id=$1 RETURNING *`,
+    [req.params.id, testo(b.titolo, 200), testo(b.testo, 20000),
+      campo('etichetta', 20) ?? null, 'etichetta' in b,
+      campo('dove', 80) ?? null, 'dove' in b])).rows[0];
   if (!r) return res.status(404).json({ error: 'Non trovato' });
   res.json(r);
 }));
