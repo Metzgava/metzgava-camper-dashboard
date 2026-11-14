@@ -11,6 +11,11 @@ import { wrap, num } from '../lib/util.js';
 import { requireAuth } from './auth.js';
 import { proposteDi } from './proposte.js';
 import { gasolioPrevisto, campeggiPrevisti } from '../lib/budget.js';
+import { capisciIncollato } from '../lib/cassetta.js';
+import { leggiPosto } from '../lib/park4night.js';
+import { linkPark4nightPosto, percorsiConTappe } from '../lib/geo.js';
+import { seguiLinkBreve } from '../lib/maps.js';
+import { titoloDellaPagina } from './materiali.js';
 
 export const router = Router();
 router.use(requireAuth);
@@ -70,7 +75,10 @@ router.get('/trips/:id/pianifica', wrap(async (req, res) => {
     proposti: proposte.length,
     da_confermare: legs.filter(l => l.da_confermare).length + soste.filter(s => s.da_confermare).length,
   };
-  res.json({ trip, proposte, liste, legs, soste, numeri, budget: await budgetDi(trip, proposte) });
+  const percorsi = await percorsiDi(trip.id);
+  res.json({ trip, proposte, liste, legs, soste, percorsi, numeri, budget: await budgetDi(trip, proposte),
+    materiali: (await q(`SELECT m.*, u.name AS chi FROM materiali m LEFT JOIN users u ON u.id=m.user_id
+      WHERE m.trip_id=$1 ORDER BY m.created_at DESC, m.id DESC`, [trip.id])).rows });
 }));
 
 // Quando si va, e quante notti: le due cose su cui si regge il resto del conto
@@ -150,3 +158,133 @@ for (const [strada, tabella] of [['legs', 'legs'], ['soste', 'stops']]) {
     res.json(r);
   }));
 }
+
+// ---------- le strade possibili ----------
+// Non sono tappe: una tappa e' una strada che si fara', queste sono quelle fra
+// cui si sta decidendo. Si tengono li' coi loro numeri - km, ore, gasolio -
+// finche' non si sceglie, perche' e' su quei numeri che si sceglie.
+const puntiBuoni = punti => (punti || [])
+  .filter(p => p && Number.isFinite(+p.lat) && Number.isFinite(+p.lon))
+  .map(p => ({ name: String(p.name || p.nome || '').slice(0, 200), lat: +p.lat, lon: +p.lon }))
+  .slice(0, 12);
+
+export async function contaVarianti(punti) {
+  const s = (await q(`SELECT value FROM settings WHERE key='vehicle'`)).rows[0]?.value || {};
+  const kmL = num(s.km_per_liter, 10) || 10;
+  const prezzo = num(s.fuel_price, 1.75);
+  const tariffa = num(s.toll_per_km, 0.09);
+  return (await percorsiConTappe(punti)).map(v => ({
+    ...v,
+    litri: +(v.distance_km / kmL).toFixed(1),
+    gasolio: +(v.distance_km / kmL * prezzo).toFixed(2),
+    // Dei pedaggi si conoscono i chilometri, non la tariffa: il costo e' una stima
+    pedaggio: v.pedaggio_km != null ? +(v.pedaggio_km * tariffa).toFixed(2) : null,
+  }));
+}
+
+const percorsiDi = async tripId => (await q(`SELECT p.*, u.name AS chi FROM percorsi p
+  LEFT JOIN users u ON u.id = p.user_id WHERE p.trip_id=$1 ORDER BY p.id`, [tripId])).rows;
+
+async function nuovoPercorso(tripId, userId, nome, punti) {
+  const buoni = puntiBuoni(punti);
+  if (buoni.length < 2) return null;
+  let varianti = null;
+  try { varianti = await contaVarianti(buoni); } catch { /* il calcolatore non risponde: si riprova col tasto */ }
+  const r = (await q(`INSERT INTO percorsi (trip_id, user_id, nome, punti, varianti, scelta)
+    VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [tripId, userId, nome || `${buoni[0].name || 'partenza'} → ${buoni[buoni.length - 1].name || 'arrivo'}`,
+      JSON.stringify(buoni), varianti ? JSON.stringify(varianti) : null, varianti?.[0]?.chiave || null])).rows[0];
+  return (await percorsiDi(tripId)).find(x => x.id === r.id);
+}
+
+router.post('/trips/:id/percorsi', wrap(async (req, res) => {
+  const p = await nuovoPercorso(req.params.id, req.user.id, req.body?.nome, req.body?.punti);
+  if (!p) return res.status(400).json({ error: 'Servono almeno partenza e arrivo, col loro posto sulla mappa' });
+  res.json(p);
+}));
+
+router.put('/percorsi/:id', wrap(async (req, res) => {
+  const cur = (await q('SELECT * FROM percorsi WHERE id=$1', [req.params.id])).rows[0];
+  if (!cur) return res.status(404).json({ error: 'Strada non trovata' });
+  const b = req.body || {};
+  const r = (await q(`UPDATE percorsi SET nome=$2, perche=$3, scelta=$4, da_confermare=$5 WHERE id=$1 RETURNING id`,
+    [cur.id,
+      b.nome == null ? cur.nome : String(b.nome).trim().slice(0, 200) || null,
+      b.perche == null ? cur.perche : String(b.perche).trim().slice(0, 500) || null,
+      b.scelta == null ? cur.scelta : String(b.scelta).slice(0, 40) || null,
+      b.da_confermare == null ? cur.da_confermare : !!b.da_confermare])).rows[0];
+  res.json((await percorsiDi(cur.trip_id)).find(x => x.id === r.id));
+}));
+
+router.post('/percorsi/:id/ricalcola', wrap(async (req, res) => {
+  const cur = (await q('SELECT * FROM percorsi WHERE id=$1', [req.params.id])).rows[0];
+  if (!cur) return res.status(404).json({ error: 'Strada non trovata' });
+  const varianti = await contaVarianti(cur.punti);
+  await q('UPDATE percorsi SET varianti=$2 WHERE id=$1', [cur.id, JSON.stringify(varianti)]);
+  res.json((await percorsiDi(cur.trip_id)).find(x => x.id === cur.id));
+}));
+
+router.delete('/percorsi/:id', wrap(async (req, res) => {
+  await q('DELETE FROM percorsi WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// ---------- la cassetta ----------
+// Un tasto solo: ci si butta dentro un link, un codice o due righe scritte, e
+// quello che ne esce lo decide lei. Dice sempre cosa ha capito - indovinare in
+// silenzio e' peggio che chiedere - e quel che ha fatto si corregge con un
+// tocco.
+router.post('/trips/:id/cassetta', wrap(async (req, res) => {
+  const tripId = req.params.id;
+  let letto = capisciIncollato(req.body?.testo);
+
+  // Un indirizzo accorciato non dice niente finche' non lo si segue
+  if (letto.tipo === 'maps-corto') {
+    let disteso = null;
+    try { disteso = await seguiLinkBreve(letto.url); } catch { /* non si lascia seguire */ }
+    letto = disteso ? capisciIncollato(disteso) : { tipo: 'link', url: letto.url };
+  }
+
+  const proposta = async (nome, lat, lon, p4n, tipoP4n) => {
+    const r = (await q(`INSERT INTO proposte (trip_id, user_id, nome, lat, lon, p4n_id, link, tipo_p4n)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [tripId, req.user.id, nome, lat, lon, p4n || null, linkPark4nightPosto(p4n), tipoP4n || null])).rows[0];
+    return (await proposteDi(tripId)).find(x => x.id === r.id);
+  };
+  const materiale = async (tipo, titolo, testo, url) => (await q(
+    `INSERT INTO materiali (trip_id, user_id, tipo, titolo, testo, url) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [tripId, req.user.id, tipo, titolo, testo, url])).rows[0];
+
+  if (letto.tipo === 'park4night') {
+    const posto = await leggiPosto(letto.p4n_id);
+    const riga = await proposta(posto?.nome || `park4night ${letto.p4n_id}`, posto?.lat ?? null, posto?.lon ?? null,
+      letto.p4n_id, posto?.tipo);
+    return res.json({ cosa: 'proposta', riga,
+      detto: posto ? `In lavagna: ${posto.nome}` : `In lavagna col solo codice ${letto.p4n_id}: la scheda non si è lasciata leggere, il posto mettilo tu` });
+  }
+
+  if (letto.tipo === 'maps-punto') {
+    const p = letto.punto;
+    const riga = await proposta(p.name || 'Un posto da Maps', p.lat, p.lon, null, null);
+    return res.json({ cosa: 'proposta', riga, detto: `In lavagna: ${riga.nome}` });
+  }
+
+  if (letto.tipo === 'maps-percorso') {
+    const riga = await nuovoPercorso(tripId, req.user.id, null, letto.punti);
+    if (riga) return res.json({ cosa: 'percorso', riga, detto: `Una strada possibile: ${riga.nome}` });
+    const m = await materiale('link', 'Indicazioni da Maps', null, letto.url);
+    return res.json({ cosa: 'link', riga: m, detto: 'Dal link non ho ricavato dei punti: l’ho messo fra la roba utile' });
+  }
+
+  if (letto.tipo === 'link') {
+    let titolo = null;
+    try { titolo = await titoloDellaPagina(letto.url); } catch { /* pagina muta: resta l'indirizzo */ }
+    const m = await materiale('link', titolo || new URL(letto.url).hostname.replace(/^www\./, ''), null, letto.url);
+    return res.json({ cosa: 'link', riga: m, detto: `Fra la roba utile: ${m.titolo}` });
+  }
+
+  const testo = String(letto.testo || '').trim();
+  if (!testo) return res.status(400).json({ error: 'Non c’è niente da mettere via' });
+  const m = await materiale('nota', testo.split('\n')[0].slice(0, 80), testo, null);
+  return res.json({ cosa: 'nota', riga: m, detto: 'Segnato fra gli appunti' });
+}));

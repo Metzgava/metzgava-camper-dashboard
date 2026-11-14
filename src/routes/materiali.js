@@ -39,7 +39,7 @@ function indirizzoValido(v) {
 // Il titolo della pagina, per non ritrovarsi un elenco di indirizzi tutti
 // uguali. Se il sito non risponde o non lo dice, resta il nome del sito: un
 // link senza titolo e' comunque meglio di un errore.
-async function titoloDellaPagina(url) {
+export async function titoloDellaPagina(url) {
   const stop = AbortSignal.timeout(6000);
   try {
     const r = await fetch(url, { signal: stop, redirect: 'follow', headers: { 'User-Agent': 'camper-dashboard/1.0' } });
@@ -69,8 +69,10 @@ router.post('/trips/:id/materiali', wrap(async (req, res) => {
   } else if (!testo(b.testo, 20000) && !titolo) {
     return res.status(400).json({ error: 'Scrivi almeno due righe, o un titolo' });
   }
-  const r = (await q(`INSERT INTO materiali(trip_id,user_id,tipo,titolo,testo,url) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [req.params.id, req.user.id, tipo, titolo, testo(b.testo, 20000), url])).rows[0];
+  const r = (await q(`INSERT INTO materiali(trip_id,user_id,tipo,titolo,testo,url,etichetta,dove)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [req.params.id, req.user.id, tipo, titolo, testo(b.testo, 20000), url,
+      testo(b.etichetta, 20) || null, testo(b.dove, 80) || null])).rows[0];
   res.json(r);
 }));
 
