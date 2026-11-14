@@ -3,7 +3,7 @@
 // nessun budget.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gasolioPrevisto, campeggiPrevisti } from '../src/lib/budget.js';
+import { gasolioPrevisto, campeggiPrevisti, pedaggiPrevisti } from '../src/lib/budget.js';
 
 test('il gasolio si conta dai km, dal consumo e dal prezzo', () => {
   const r = gasolioPrevisto({ km: 1240, kmPerLitro: 10, prezzoLitro: 1.85 });
@@ -26,4 +26,23 @@ test('i campeggi si contano sulla media dei posti scelti per le notti', () => {
 test('senza posti scelti o senza notti non c’è niente da contare', () => {
   assert.equal(campeggiPrevisti({ prezzi: [], notti: 10 }), null);
   assert.equal(campeggiPrevisti({ prezzi: [30], notti: 0 }), null);
+});
+
+// I pedaggi: il calcolatore dice quanti chilometri di autostrada, non quanto
+// costano. Il costo è una stima a tariffa fissa, e si dice che lo è.
+test('i pedaggi si contano sui chilometri di autostrada', () => {
+  const r = pedaggiPrevisti({ kmPedaggio: 250, tariffa: 0.09 });
+  assert.equal(r.importo, 22.5);
+  assert.match(r.conto, /stima/);
+});
+
+test('zero chilometri di autostrada sono zero euro di pedaggi: qui lo zero è un dato', () => {
+  assert.equal(pedaggiPrevisti({ kmPedaggio: 0, tariffa: 0.09 }).importo, 0);
+});
+
+test('senza i chilometri di pedaggio, o senza tariffa, non si inventa un costo', () => {
+  assert.equal(pedaggiPrevisti({ kmPedaggio: null, tariffa: 0.09 }), null);
+  assert.equal(pedaggiPrevisti({ tariffa: 0.09 }), null);
+  assert.equal(pedaggiPrevisti({ kmPedaggio: 250, tariffa: 0 }), null);
+  assert.equal(pedaggiPrevisti({ kmPedaggio: 250 }), null);
 });

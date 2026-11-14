@@ -38,3 +38,21 @@ export function campeggiPrevisti({ prezzi, notti }) {
     conto: `${comeSiScrive(media, 2)} € a notte in media su ${validi.length} ${validi.length === 1 ? 'posto scelto' : 'posti scelti'} × ${n} ${n === 1 ? 'notte' : 'notti'}`,
   };
 }
+
+// Quanto costeranno i pedaggi. Il calcolatore dice quanti chilometri si fanno
+// su strada a pagamento, non quanto si paga: il casello non ha un prezzo al
+// chilometro pubblicato, e fra Italia, Francia e Austria cambia tutto. Quindi
+// questa e' una stima a tariffa fissa, e lo dice.
+//
+// Zero chilometri di autostrada sono zero euro, e qui lo zero e' un dato: vuol
+// dire che quella strada i pedaggi li evita. Non saperli, invece, e' null.
+export function pedaggiPrevisti({ kmPedaggio, tariffa }) {
+  if (kmPedaggio == null || !Number.isFinite(+kmPedaggio)) return null;
+  const t = Number(tariffa) || 0;
+  if (!t) return null;
+  const km = Math.max(0, +kmPedaggio);
+  return {
+    importo: dueDecimali(km * t),
+    conto: `${comeSiScrive(km)} km di strada a pagamento × ${comeSiScrive(t, 2)} €/km (stima)`,
+  };
+}

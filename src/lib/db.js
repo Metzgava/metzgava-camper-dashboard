@@ -398,6 +398,43 @@ export async function migrate() {
   );
   CREATE INDEX IF NOT EXISTS idx_percorsi_trip ON percorsi(trip_id);
 
+  -- Un'ipotesi di viaggio: una direzione presa per intero. La destinazione, e
+  -- sotto i giorni che servono ad arrivarci e a girarci. Ne stanno piu' di una
+  -- accanto - le Lofoten o la Spagna - ognuna col suo conto, finche' non si
+  -- scegle.
+  CREATE TABLE IF NOT EXISTS ipotesi (
+    id SERIAL PRIMARY KEY,
+    trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    nome TEXT,                                     -- «Lofoten passando dalla Svezia»
+    destinazione TEXT,                             -- dove si vuole arrivare
+    dest_lat DOUBLE PRECISION,
+    dest_lon DOUBLE PRECISION,
+    perche TEXT,
+    stato TEXT NOT NULL DEFAULT 'aperta',          -- aperta | scelta | scartata
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_ipotesi_trip ON ipotesi(trip_id);
+
+  -- Il giorno e' un contenitore, non una tratta: dentro ci stanno una tratta,
+  -- due, o nessuna. Un giro di venti giorni senza un giorno fermo non esiste.
+  CREATE TABLE IF NOT EXISTS giorni (
+    id SERIAL PRIMARY KEY,
+    ipotesi_id INT NOT NULL REFERENCES ipotesi(id) ON DELETE CASCADE,
+    numero INT NOT NULL,
+    titolo TEXT,                                   -- «si scende a Trento», «fermi»
+    luoghi TEXT,                                   -- cosa si vede quel giorno
+    notte TEXT,                                    -- dove si dorme
+    prezzo_notte NUMERIC(10,2),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_giorni_ipotesi ON giorni(ipotesi_id);
+
+  -- Una strada possibile diventa la tratta di un giorno. Senza giorno resta
+  -- dov'era: fra le strade che si stanno ancora guardando.
+  ALTER TABLE percorsi ADD COLUMN IF NOT EXISTS giorno_id INT REFERENCES giorni(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_percorsi_giorno ON percorsi(giorno_id);
+
   -- Una tappa nata da una strada possibile resta legata a quella strada: senza
   -- questo filo, «togli da mappa» dovrebbe indovinare quali tappe togliere.
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS percorso_id INT REFERENCES percorsi(id) ON DELETE SET NULL;

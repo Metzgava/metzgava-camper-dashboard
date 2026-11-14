@@ -870,3 +870,17 @@ input[type=checkbox], input[type=radio] { width: auto; }
 @media (max-width: 640px) { .mappa-giro { height: 260px; } }
 .item.strada.in-mappa { border-left: 3px solid #0f766e; }
 .item.strada .item-actions { flex-wrap: wrap; justify-content: flex-end; }
+
+/* Le ipotesi di viaggio: una scheda per direzione, i giorni dentro. */
+.ipotesi.scartata { opacity: .62; }
+.ipotesi.scelta { box-shadow: inset 3px 0 0 #0f766e; }
+.conto-ipotesi { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
+.voce-conto { font-size: 13px; font-weight: 600; background: #f1f5f9; border-radius: 8px; padding: 4px 9px; white-space: nowrap; }
+.voce-conto.manca { background: transparent; border: 1px dashed #cbd5e1; color: #94a3b8; font-weight: 500; }
+.voce-conto.totale { background: #0f766e; color: #fff; }
+.giorni-ipotesi { border-top: 1px solid #e8eef0; }
+.giorno { padding: 10px 16px; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 4px; }
+.giorno:last-child { border-bottom: 0; }
+.titolo-giorno { font-weight: 500; }
+.tratta-giorno { display: flex; align-items: center; gap: 6px; background: #f8fafc; border-radius: 8px; padding: 4px 6px 4px 10px; }
+.giorno select { max-width: 100%; }
