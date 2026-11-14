@@ -83,6 +83,7 @@ router.get('/trips/:id/pianifica', wrap(async (req, res) => {
   const trip = (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
   const [proposte, liste] = await Promise.all([proposteDi(trip.id), listeDi(trip.id)]);
+  const percorsi = await percorsiDi(trip.id);
   const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
   const soste = (await q('SELECT * FROM stops WHERE trip_id=$1 ORDER BY from_date NULLS LAST, id', [trip.id])).rows;
   const camper = legs.filter(l => (l.mezzo || 'camper') === 'camper');
@@ -93,9 +94,9 @@ router.get('/trips/:id/pianifica', wrap(async (req, res) => {
     notti: trip.notti_previste,
     scelti: proposte.filter(p => p.stato === 'scelto').length,
     proposti: proposte.length,
-    da_confermare: legs.filter(l => l.da_confermare).length + soste.filter(s => s.da_confermare).length,
+    da_confermare: legs.filter(l => l.da_confermare).length + soste.filter(s => s.da_confermare).length
+      + percorsi.filter(x => x.da_confermare).length,
   };
-  const percorsi = await percorsiDi(trip.id);
   res.json({ trip, proposte, liste, legs, soste, percorsi, numeri, budget: await budgetDi(trip, proposte),
     materiali: (await q(`SELECT m.*, u.name AS chi FROM materiali m LEFT JOIN users u ON u.id=m.user_id
       WHERE m.trip_id=$1 ORDER BY m.created_at DESC, m.id DESC`, [trip.id])).rows });

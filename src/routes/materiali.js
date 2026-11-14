@@ -94,8 +94,15 @@ router.post('/trips/:id/materiali/file', upload.array('file', 10), wrap(async (r
 
 router.put('/materiali/:id', wrap(async (req, res) => {
   const b = req.body || {};
-  const r = (await q(`UPDATE materiali SET titolo=coalesce($2,titolo), testo=coalesce($3,testo) WHERE id=$1 RETURNING *`,
-    [req.params.id, testo(b.titolo, 200), testo(b.testo, 20000)])).rows[0];
+  // L'etichetta e il paese si tolgono mandando una stringa vuota: «coalesce»
+  // da solo non saprebbe distinguere «non toccarlo» da «cancellalo»
+  const campo = (chiave, quanto) => (chiave in b ? (testo(b[chiave], quanto) || null) : undefined);
+  const r = (await q(`UPDATE materiali SET titolo=coalesce($2,titolo), testo=coalesce($3,testo),
+      etichetta = CASE WHEN $5 THEN $4 ELSE etichetta END,
+      dove = CASE WHEN $7 THEN $6 ELSE dove END WHERE id=$1 RETURNING *`,
+    [req.params.id, testo(b.titolo, 200), testo(b.testo, 20000),
+      campo('etichetta', 20) ?? null, 'etichetta' in b,
+      campo('dove', 80) ?? null, 'dove' in b])).rows[0];
   if (!r) return res.status(404).json({ error: 'Non trovato' });
   res.json(r);
 }));
