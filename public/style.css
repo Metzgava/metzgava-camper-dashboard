@@ -863,3 +863,10 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .item .perche-strada { font-style: italic; }
 .etichetta-scelta { width: auto; font-size: 13px; padding: 5px 8px; }
 .gruppo-paese .anno { padding: 10px 16px 2px; }
+
+/* La mappa del giro, dentro lo spazio della pianificazione. Alta quanto serve
+   a vedere due strade vicine: più bassa e le alternative si confondono. */
+.mappa-giro { height: 320px; width: 100%; background: #e8eef0; }
+@media (max-width: 640px) { .mappa-giro { height: 260px; } }
+.item.strada.in-mappa { border-left: 3px solid #0f766e; }
+.item.strada .item-actions { flex-wrap: wrap; justify-content: flex-end; }

@@ -12,6 +12,8 @@ import { requireAuth } from './auth.js';
 import { proposteDi } from './proposte.js';
 import { gasolioPrevisto, campeggiPrevisti } from '../lib/budget.js';
 import { capisciIncollato } from '../lib/cassetta.js';
+import { tappeDaPercorso } from '../lib/tappe.js';
+import { dataDelGiorno, giornoDellaData } from '../lib/giorni.js';
 import { leggiPosto } from '../lib/park4night.js';
 import { linkPark4nightPosto, percorsiConTappe, geocode } from '../lib/geo.js';
 import { seguiLinkBreve, completaPunti, centroDelLink } from '../lib/maps.js';
@@ -96,6 +98,12 @@ router.get('/trips/:id/pianifica', wrap(async (req, res) => {
     proposti: proposte.length,
     da_confermare: legs.filter(l => l.da_confermare).length + soste.filter(s => s.da_confermare).length
       + percorsi.filter(x => x.da_confermare).length,
+    in_mappa: percorsi.filter(x => x.in_mappa).length,
+    fuori_mappa: percorsi.filter(x => !x.in_mappa).length,
+    // Quanto dura il viaggio pensato: il giorno piu' alto che qualcuno ha
+    // scritto, prima che esistano le date
+    giorni_teorici: Math.max(0, ...legs.map(l => +l.giorno || 0), ...soste.map(s => +s.giorno || 0)),
+    senza_giorno: legs.filter(l => !l.giorno && !l.date).length + soste.filter(s => !s.giorno && !s.from_date).length,
   };
   res.json({ trip, proposte, liste, legs, soste, percorsi, numeri, budget: await budgetDi(trip, proposte),
     materiali: (await q(`SELECT m.*, u.name AS chi FROM materiali m LEFT JOIN users u ON u.id=m.user_id
@@ -180,6 +188,58 @@ for (const [strada, tabella] of [['legs', 'legs'], ['soste', 'stops']]) {
   }));
 }
 
+// ---------- i giorni teorici ----------
+// Un viaggio si pensa per giorni prima che per date. Il numero sta accanto alla
+// tappa finche' non si sa quando si parte.
+for (const [strada, tabella] of [['legs', 'legs'], ['soste', 'stops']]) {
+  router.put(`/${strada}/:id/giorno`, wrap(async (req, res) => {
+    const g = Number(req.body?.giorno);
+    const giorno = Number.isInteger(g) && g >= 1 && g <= 400 ? g : null;
+    const r = (await q(`UPDATE ${tabella} SET giorno=$2 WHERE id=$1 RETURNING id, giorno`,
+      [req.params.id, giorno])).rows[0];
+    if (!r) return res.status(404).json({ error: 'Non trovata' });
+    res.json(r);
+  }));
+}
+
+// Fissare la partenza: i numeri dei giorni diventano date vere, tutte insieme.
+// Il numero del giorno non si cancella: se la partenza slitta di una settimana
+// si premono di nuovo e tutto si sposta insieme, invece di correggere a mano
+// venti date una per una.
+router.post('/trips/:id/fissa-partenza', wrap(async (req, res) => {
+  const partenza = dataDelGiorno(req.body?.data, 1);
+  if (!partenza) return res.status(400).json({ error: 'Serve il giorno della partenza' });
+  const tripId = req.params.id;
+  const legs = (await q('SELECT id, giorno FROM legs WHERE trip_id=$1 AND giorno IS NOT NULL ORDER BY giorno', [tripId])).rows;
+  const soste = (await q(`SELECT id, giorno, from_date, to_date FROM stops
+    WHERE trip_id=$1 AND giorno IS NOT NULL ORDER BY giorno`, [tripId])).rows;
+  if (!legs.length && !soste.length) return res.status(400).json({
+    error: 'Nessun giorno teorico da trasformare: metti prima i numeri dei giorni sulle tappe' });
+
+  const date = [];
+  for (const l of legs) {
+    const d = dataDelGiorno(partenza, l.giorno);
+    if (!d) continue;
+    await q('UPDATE legs SET date=$2 WHERE id=$1', [l.id, d]);
+    date.push(d);
+  }
+  for (const s of soste) {
+    const d = dataDelGiorno(partenza, s.giorno);
+    if (!d) continue;
+    // Una sosta di tre notti resta di tre notti: si sposta, non si accorcia
+    const notti = Math.max(0, (giornoDellaData(s.from_date, s.to_date) || 1) - 1);
+    const fine = s.to_date ? dataDelGiorno(d, notti + 1) : null;
+    await q('UPDATE stops SET from_date=$2, to_date=$3 WHERE id=$1', [s.id, d, fine]);
+    date.push(fine || d);
+  }
+  const ultima = date.sort().pop() || partenza;
+  const trip = (await q('SELECT start_date, end_date FROM trips WHERE id=$1', [tripId])).rows[0];
+  await q('UPDATE trips SET start_date=$2, end_date=COALESCE(end_date,$3) WHERE id=$1',
+    [tripId, partenza, ultima]);
+  res.json({ ok: true, partenza, ultima, tappe: legs.length, soste: soste.length,
+    fine_tenuta: !!trip?.end_date });
+}));
+
 // ---------- le strade possibili ----------
 // Non sono tappe: una tappa e' una strada che si fara', queste sono quelle fra
 // cui si sta decidendo. Si tengono li' coi loro numeri - km, ore, gasolio -
@@ -203,8 +263,39 @@ export async function contaVarianti(punti) {
   }));
 }
 
-const percorsiDi = async tripId => (await q(`SELECT p.*, u.name AS chi FROM percorsi p
-  LEFT JOIN users u ON u.id = p.user_id WHERE p.trip_id=$1 ORDER BY p.id`, [tripId])).rows;
+const percorsiDi = async tripId => (await q(`SELECT p.*, u.name AS chi,
+    EXISTS(SELECT 1 FROM legs l WHERE l.percorso_id = p.id) AS in_mappa,
+    (SELECT count(*) FROM legs l WHERE l.percorso_id = p.id)::int AS quante_tappe
+  FROM percorsi p LEFT JOIN users u ON u.id = p.user_id
+  WHERE p.trip_id=$1 ORDER BY p.id`, [tripId])).rows;
+
+// Mettere una strada in mappa vuol dire tradurre la sua variante scelta in
+// tappe del viaggio: da quel momento i suoi chilometri entrano nei totali e la
+// sua linea si vede. Si rifa' da zero ogni volta - prima si toglie quel che
+// c'era - cosi' premere due volte non raddoppia niente e cambiare variante
+// ridisegna invece di aggiungere.
+//
+// Le tappe nascono «da confermare»: vengono da una strada che si sta ancora
+// confrontando, e dire il contrario sarebbe darsi una certezza che non c'e'.
+async function inMappa(percorso) {
+  await q('DELETE FROM legs WHERE percorso_id=$1', [percorso.id]);
+  const tappe = tappeDaPercorso(percorso);
+  if (!tappe.length) return 0;
+  const base = +(await q('SELECT coalesce(max(position),-1)+1 AS p FROM legs WHERE trip_id=$1',
+    [percorso.trip_id])).rows[0].p;
+  for (const t of tappe) {
+    await q(`INSERT INTO legs (trip_id, percorso_id, position, from_name, from_lat, from_lon,
+      to_name, to_lat, to_lon, distance_km, duration_min, geometry, pedaggio_km, da_confermare)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true)`,
+    [percorso.trip_id, percorso.id, base + t.posizione, t.from_name, t.from_lat, t.from_lon,
+      t.to_name, t.to_lat, t.to_lon, t.distance_km, t.duration_min,
+      t.geometry ? JSON.stringify(t.geometry) : null, t.pedaggio_km]);
+  }
+  return tappe.length;
+}
+
+const fuoriMappa = async percorsoId => +(await q(
+  'DELETE FROM legs WHERE percorso_id=$1 RETURNING id', [percorsoId])).rowCount;
 
 async function nuovoPercorso(tripId, userId, nome, punti) {
   const buoni = puntiBuoni(punti);
@@ -234,7 +325,25 @@ router.put('/percorsi/:id', wrap(async (req, res) => {
       b.perche == null ? cur.perche : String(b.perche).trim().slice(0, 500) || null,
       b.scelta == null ? cur.scelta : String(b.scelta).slice(0, 40) || null,
       b.da_confermare == null ? cur.da_confermare : !!b.da_confermare])).rows[0];
+  // Se la strada era in mappa e si e' cambiata variante, la mappa deve seguire:
+  // scegliere «senza pedaggi» e vedere ancora l'autostrada sarebbe una bugia.
+  const nuova = (await q('SELECT * FROM percorsi WHERE id=$1', [cur.id])).rows[0];
+  if (nuova.scelta !== cur.scelta
+    && (await q('SELECT 1 FROM legs WHERE percorso_id=$1 LIMIT 1', [cur.id])).rowCount) await inMappa(nuova);
   res.json((await percorsiDi(cur.trip_id)).find(x => x.id === r.id));
+}));
+
+// Il tasto: «inserisci percorso su mappa» e «togli da mappa». Quello che e' in
+// mappa fa il totale del viaggio; quello che non c'e' resta un'alternativa, coi
+// suoi numeri sotto gli occhi ma fuori dai conti.
+router.put('/percorsi/:id/in-mappa', wrap(async (req, res) => {
+  const cur = (await q('SELECT * FROM percorsi WHERE id=$1', [req.params.id])).rows[0];
+  if (!cur) return res.status(404).json({ error: 'Strada non trovata' });
+  const dentro = !!req.body?.dentro;
+  const quante = dentro ? await inMappa(cur) : await fuoriMappa(cur.id);
+  if (dentro && !quante) return res.status(400).json({
+    error: 'Questa strada non ha ancora i suoi numeri: premi \ud83d\udd04 per farli contare, poi mettila in mappa' });
+  res.json({ ok: true, dentro, tappe: quante });
 }));
 
 router.post('/percorsi/:id/ricalcola', wrap(async (req, res) => {
@@ -246,8 +355,12 @@ router.post('/percorsi/:id/ricalcola', wrap(async (req, res) => {
 }));
 
 router.delete('/percorsi/:id', wrap(async (req, res) => {
+  // Le tappe che quella strada aveva messo in mappa se ne vanno con lei: erano
+  // quella strada, e lasciarle li' vorrebbe dire lasciare in mappa dei pezzi
+  // che non si possono piu' togliere da nessuna parte.
+  const tappe = await fuoriMappa(req.params.id);
   await q('DELETE FROM percorsi WHERE id=$1', [req.params.id]);
-  res.json({ ok: true });
+  res.json({ ok: true, tappe });
 }));
 
 // ---------- la cassetta ----------

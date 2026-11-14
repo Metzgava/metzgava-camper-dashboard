@@ -1187,6 +1187,19 @@ function propostaForm(tripId, p, dopo) {
 // mucchio da cui si voleva uscire.
 const ETICHETTE = { luogo: '🏞️ luogo', esperienza: '🎟️ esperienza', documento: '📄 documento', leggere: '💡 da leggere', sapere: '📍 da sapere' };
 
+// La linea di una strada possibile: la variante scelta porta le sue tratte, e
+// ogni tratta la sua geometria. Serve a disegnare sulla mappa anche le strade
+// che non sono in mappa - tratteggiate, perche' non contano ancora.
+const lineaDiPercorso = p => {
+  const varianti = p.varianti || [];
+  const v = varianti.find(x => x.chiave === p.scelta) || varianti[0];
+  return (v?.tratte || []).map(t => (Array.isArray(t.geometry) && t.geometry.length > 1
+    ? t.geometry
+    : [[t.from?.lat, t.from?.lon], [t.to?.lat, t.to?.lon]])
+    .map(q => [+q[0], +q[1]]).filter(q => Number.isFinite(q[0]) && Number.isFinite(q[1])))
+    .filter(g => g.length > 1);
+};
+
 // Una strada possibile, con le sue varianti a confronto. I numeri - km, ore,
 // gasolio - sono il motivo per cui sta qui: è su quelli che si sceglie.
 const stradaRiga = p => {
@@ -1194,12 +1207,13 @@ const stradaRiga = p => {
   const varianti = (p.varianti || []).map(v => `<button type="button" class="variante-piccola${v.chiave === p.scelta ? ' acceso' : ''}" data-scelta="${p.id}:${esc(v.chiave)}">
       <b>${v.chiave === 'senza_pedaggi' ? 'evitando i pedaggi' : 'la più rapida'}</b>
       <span>${num(v.distance_km)} km · ${dur(v.duration_min * 60)} · ${eur(v.gasolio)} di gasolio${v.pedaggio ? ` · ~${eur(v.pedaggio)} di pedaggi` : ''}</span></button>`).join('');
-  return `<div class="item strada" data-strada="${p.id}"><div class="item-main"><div class="grow">
-      <div class="title">${esc(p.nome || 'una strada')}${p.da_confermare ? ' <span class="badge warn">da confermare</span>' : ''}</div>
+  return `<div class="item strada${p.in_mappa ? ' in-mappa' : ''}" data-strada="${p.id}"><div class="item-main"><div class="grow">
+      <div class="title">${esc(p.nome || 'una strada')}${p.in_mappa ? ` <span class="badge ok">in mappa · ${p.quante_tappe} tapp${p.quante_tappe === 1 ? 'a' : 'e'}</span>` : ''}${p.da_confermare ? ' <span class="badge warn">da confermare</span>' : ''}</div>
       ${esc(p.nome || '') === dove ? '' : `<div class="meta">${dove}</div>`}
       ${p.perche ? `<div class="meta perche-strada">${esc(p.perche)}</div>` : ''}
       <div class="varianti-strada">${varianti || '<span class="small muted">i numeri non sono ancora stati contati — tocca 🔄</span>'}</div></div></div>
     <div class="item-actions">
+      <button class="btn sm ${p.in_mappa ? 'acceso' : 'primary'}" data-in-mappa="${p.id}:${p.in_mappa ? 0 : 1}">🗺️ ${p.in_mappa ? 'togli da mappa' : 'inserisci percorso su mappa'}</button>
       <button class="btn ghost icon${p.da_confermare ? ' acceso' : ''}" data-strada-conferma="${p.id}" title="${p.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button>
       <button class="btn ghost icon" data-strada-perche="${p.id}" title="Perché questa">✏️</button>
       <button class="btn ghost icon" data-strada-rifai="${p.id}" title="Rifai i conti">🔄</button>
@@ -1347,18 +1361,28 @@ async function viewPianifica(id) {
 
   const filtro = (campo, valore, testo) => `<button type="button" class="btn sm filtro${filtriPianifica[campo] === valore ? ' acceso' : ''}" data-filtro="${campo}" data-valore="${valore == null ? '' : esc(String(valore))}">${testo}</button>`;
 
+  // Il giorno di una tappa: una data vera se c'e', altrimenti il numero
+  // teorico, altrimenti niente - e «niente» va detto, non lasciato in bianco.
+  const quando = (data, giorno) => data ? fdate(data) : giorno ? `giorno ${giorno}` : 'giorno da decidere';
+  const tastoGiorno = (dove, x) => `<button class="btn ghost icon" data-giorno="${dove}:${x.id}" data-ora="${x.giorno || ''}" title="${x.giorno ? `È il giorno ${x.giorno}` : 'Metti il numero del giorno'}">${x.date || x.from_date ? '📅' : x.giorno ? `${x.giorno}°` : '📅'}</button>`;
+  const numerati = legs.filter(l => l.giorno).length + soste.filter(x => x.giorno).length;
+
   const sezioneGiro = `<div class="card pad-0" style="grid-column:1/-1">
-    <div class="row between" style="padding:14px 16px 6px"><h2>🧭 Il giro</h2>
-      <span class="small muted">${legs.length ? `${legs.length} tapp${legs.length === 1 ? 'a' : 'e'}` : 'ancora da disegnare'}</span></div>
+    <div class="row between" style="padding:14px 16px 6px;gap:8px;flex-wrap:wrap"><h2>🧭 Il giro</h2>
+      <div class="row" style="gap:6px">
+        ${numerati ? `<button class="btn sm primary" id="fissa-partenza">✅ Fissa la partenza</button>` : ''}
+        <span class="small muted">${legs.length ? `${legs.length} tapp${legs.length === 1 ? 'a' : 'e'} · ${num(numeri.km)} km` : 'ancora da disegnare'}</span></div></div>
+    <div id="mappa-giro" class="mappa-giro"></div>
+    <div class="small muted" style="padding:8px 16px 0">Quello che è in mappa fa il totale. Le strade che stai ancora confrontando si vedono tratteggiate${numeri.fuori_mappa ? `: ne hai ${numeri.fuori_mappa}` : ''}.</div>
     <div class="list">${legs.map(l => `<div class="item"><div class="item-main"><div class="grow">
-        <div class="title">${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}</div>
-        <div class="meta">${[l.date ? fdate(l.date) : 'senza data', l.distance_km ? `${num(l.distance_km)} km` : null].filter(Boolean).join(' · ')}</div></div></div>
-      <div class="item-actions"><button class="btn ghost icon${l.da_confermare ? ' acceso' : ''}" data-conferma="legs:${l.id}" title="${l.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button></div></div>`).join('')
-      || '<div class="empty">Nessuna tappa. Si aggiungono dalla pagina del viaggio: qui si vede quali sono ancora da confermare.</div>'}</div>
+        <div class="title">${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}${l.percorso_id ? ' <span class="small muted">🛣️ da una strada</span>' : ''}</div>
+        <div class="meta">${[quando(l.date, l.giorno), l.distance_km ? `${num(l.distance_km)} km` : null].filter(Boolean).join(' · ')}</div></div></div>
+      <div class="item-actions">${tastoGiorno('legs', l)}<button class="btn ghost icon${l.da_confermare ? ' acceso' : ''}" data-conferma="legs:${l.id}" title="${l.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button></div></div>`).join('')
+      || '<div class="empty">Nessuna tappa in mappa. Le tappe nascono dalle strade possibili qui sopra: scegli una variante e premi «🗺️ inserisci percorso su mappa». Da quel momento i suoi chilometri entrano nel totale.</div>'}</div>
     ${soste.length ? `<div class="list">${soste.map(x => `<div class="item"><div class="item-main"><div class="grow">
         <div class="title">${tipoIco(x.kind)} ${esc(x.name)}</div>
-        <div class="meta">${[x.from_date ? fdate(x.from_date) : 'giorni da decidere', x.motivo].filter(Boolean).join(' · ')}</div></div></div>
-      <div class="item-actions"><button class="btn ghost icon${x.da_confermare ? ' acceso' : ''}" data-conferma="soste:${x.id}" title="${x.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button></div></div>`).join('')}</div>` : ''}
+        <div class="meta">${[quando(x.from_date, x.giorno), x.motivo].filter(Boolean).join(' · ')}</div></div></div>
+      <div class="item-actions">${tastoGiorno('soste', x)}<button class="btn ghost icon${x.da_confermare ? ' acceso' : ''}" data-conferma="soste:${x.id}" title="${x.da_confermare ? 'Segnata da confermare' : 'Segna da confermare'}">📌</button></div></div>`).join('')}</div>` : ''}
   </div>`;
 
   const percorsi = d.percorsi || [];
@@ -1456,6 +1480,8 @@ async function viewPianifica(id) {
       ${riquadro('Posti scelti', viste.filter(p => p.stato === 'scelto').length, `su ${viste.length} in lavagna ${taglio}`, viste.length ? null : 'lavagna vuota')}
       ${riquadro('Ipotesi di spesa', eur(totaleVisto), `${calcolato ? `${eur(calcolato)} calcolati ` : ''}${taglio}`, totaleVisto ? null : 'ancora niente')}
       ${riquadro('Già speso', eur(budget.speso), budget.speso ? `mancano ${eur(Math.max(0, totaleVisto - budget.speso))}` : '', budget.speso ? null : 'non ancora')}
+      ${riquadro('Strade in mappa', numeri.in_mappa, numeri.fuori_mappa ? `${numeri.fuori_mappa} ancora fuori` : 'tutte dentro', numeri.in_mappa ? null : 'nessuna, ancora')}
+      ${riquadro('Giorni del giro', numeri.giorni_teorici || '', numeri.senza_giorno ? `${numeri.senza_giorno} senza giorno` : 'tutti numerati', numeri.giorni_teorici ? null : 'giorni da numerare')}
       ${riquadro('Da confermare', numeri.da_confermare, 'fra strade, tappe e soste', numeri.da_confermare ? null : 'niente in sospeso')}
     </div>
 
@@ -1484,6 +1510,63 @@ async function viewPianifica(id) {
     </div>`);
 
   ganciPianifica(id, d);
+}
+
+// La mappa del giro, dentro lo spazio della pianificazione: in pieno le tappe
+// che fanno il totale, tratteggiate le strade che si stanno ancora
+// confrontando. Vederle vicine e' il motivo per cui si tengono delle
+// alternative: su un elenco di numeri non si decide che strada fare.
+function disegnaGiro(d) {
+  const el = $('#mappa-giro');
+  if (!el || !window.L) return;
+  const map = makeMap(el, { simple: true });
+  const bordi = [];
+  const legs = d.legs || [];
+  legs.forEach((l, i) => {
+    const g = tragittoDisegnato(l);
+    L.polyline(g, { color: COLORE_CAMPER, weight: 5, opacity: .9 }).addTo(map)
+      .bindPopup(`<b>Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}`
+        + (l.date ? `<br>${fdate(l.date)}` : l.giorno ? `<br>giorno ${l.giorno}` : ''));
+    L.marker([l.from_lat, l.from_lon], { icon: pin(COLORE_CAMPER, i + 1) }).addTo(map).bindPopup(esc(l.from_name));
+    if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(map).bindPopup(esc(l.to_name));
+    g.forEach(q => bordi.push(q));
+  });
+  // Le alternative: la linea c'e' ma e' spezzata, come la decisione
+  (d.percorsi || []).filter(p => !p.in_mappa).forEach(p => lineaDiPercorso(p).forEach(g => {
+    L.polyline(g, { color: '#64748b', weight: 3, opacity: .75, dashArray: '8 7' }).addTo(map)
+      .bindPopup(`<b>${esc(p.nome || 'una strada possibile')}</b><br>non in mappa: non fa il totale`);
+    g.forEach(q => bordi.push(q));
+  }));
+  (d.soste || []).filter(x => x.lat != null && x.lon != null).forEach(x => {
+    L.marker([+x.lat, +x.lon], { icon: dotIcon('#f59e0b', tipoIco(x.kind)) }).addTo(map).bindPopup(`<b>${esc(x.name)}</b>`);
+    bordi.push([+x.lat, +x.lon]);
+  });
+  if (bordi.length) map.fitBounds(L.latLngBounds(bordi), { padding: [18, 18] });
+  // Una mappa appena infilata nella pagina non sa ancora quanto e' larga
+  setTimeout(() => map.invalidateSize(), 0);
+}
+
+// Fissare la partenza: i numeri dei giorni diventano date vere, tutte insieme.
+// E' l'atto che chiude la parte teorica, quindi si dice prima cosa fa: riscrive
+// la data di ogni tappa e di ogni sosta che ha un numero.
+function partenzaForm(tripId, d, dopo) {
+  const giorni = d.numeri?.giorni_teorici || 0;
+  modal(`<h2>✅ Fissa la partenza</h2>
+    <div class="small muted" style="margin-top:8px">Il giorno 1 è quello che scegli qui. Tutti gli altri numeri diventano date da sé${giorni ? `: il giro arriva al giorno ${giorni}` : ''}.</div>
+    <form id="f" class="stack" style="margin-top:12px">
+      <div><label class="f">Si parte il</label><input type="date" name="data" value="${d.trip?.start_date ? iso(d.trip.start_date) : ''}" required></div>
+      <div class="small muted">I numeri dei giorni restano dove sono: se la partenza slitta, si rifanno tutte le date insieme invece di correggerle a mano.</div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Fissa</button></div></form>`,
+  (el, close) => {
+    $('[data-x]', el).onclick = close;
+    $('#f', el).onsubmit = safe(async e => {
+      e.preventDefault();
+      const r = await api(`/trips/${tripId}/fissa-partenza`, { method: 'POST', body: { data: $('[name=data]', el).value } });
+      close();
+      toast(`Date scritte: ${r.tappe} tapp${r.tappe === 1 ? 'a' : 'e'} e ${r.soste} sost${r.soste === 1 ? 'a' : 'e'}, dal ${fdate(r.partenza)} al ${fdate(r.ultima)}`);
+      dopo?.();
+    });
+  });
 }
 
 // Una strada a mano: partenza, arrivo e le tappe in mezzo. Quella veloce è
@@ -1680,7 +1763,35 @@ function ganciPianifica(id, d) {
     await api(`/trips/${id}/materiali`, { method: 'POST', body: { tipo: 'nota', titolo: testo.slice(0, 80), testo, etichetta: 'sapere', dove } });
     rifai();
   });
+  // La mappa del giro
+  disegnaGiro(d);
+
+  // Il tasto che decide: in mappa fa il totale, fuori resta un'alternativa
+  $$('[data-in-mappa]').forEach(b => b.onclick = safe(async () => {
+    const [pid, dentro] = b.dataset.inMappa.split(':');
+    b.disabled = true;
+    const r = await api(`/percorsi/${pid}/in-mappa`, { method: 'PUT', body: { dentro: dentro === '1' } });
+    toast(r.dentro
+      ? `In mappa: ${r.tappe} tapp${r.tappe === 1 ? 'a' : 'e'}, e i suoi chilometri entrano nel totale`
+      : 'Tolta dalla mappa: resta fra le strade possibili, fuori dai conti');
+    rifai();
+  }));
+
+  // I giorni teorici: un numero, non una data
+  $$('[data-giorno]').forEach(b => b.onclick = safe(async () => {
+    const [dove, quale] = b.dataset.giorno.split(':');
+    const t = await promptDlg('📅 Che giorno del viaggio è?', b.dataset.ora || '', 'Es. 3 — vuoto per togliere il numero');
+    if (t === null) return;
+    const v = t.trim();
+    if (v && !/^\d{1,3}$/.test(v)) return toast('Il giorno è un numero: 1, 2, 3…', true);
+    await api(`/${dove}/${quale}/giorno`, { method: 'PUT', body: { giorno: v === '' ? null : +v } });
+    rifai();
+  }));
+
+  const fissa = $('#fissa-partenza');
+  if (fissa) fissa.onclick = () => partenzaForm(id, d, rifai);
 }
+
 
 
 // ---------- Geocoder autocomplete ----------
@@ -2356,7 +2467,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v121';
+const VERSIONE = 'v122';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se

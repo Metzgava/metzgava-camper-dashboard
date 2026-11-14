@@ -397,6 +397,17 @@ export async function migrate() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS idx_percorsi_trip ON percorsi(trip_id);
+
+  -- Una tappa nata da una strada possibile resta legata a quella strada: senza
+  -- questo filo, «togli da mappa» dovrebbe indovinare quali tappe togliere.
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS percorso_id INT REFERENCES percorsi(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_legs_percorso ON legs(percorso_id);
+
+  -- Il giorno teorico: un viaggio si pensa per giorni («il secondo si scende a
+  -- Trento») prima che per date. Il numero resta anche dopo che la partenza e'
+  -- fissata, cosi' se la partenza si sposta si rifanno tutte le date insieme.
+  ALTER TABLE legs  ADD COLUMN IF NOT EXISTS giorno INT;
+  ALTER TABLE stops ADD COLUMN IF NOT EXISTS giorno INT;
   CREATE INDEX IF NOT EXISTS idx_budget_trip ON budget(trip_id);
   CREATE INDEX IF NOT EXISTS idx_liste_trip ON liste(trip_id);
   CREATE INDEX IF NOT EXISTS idx_proposte_trip ON proposte(trip_id);
