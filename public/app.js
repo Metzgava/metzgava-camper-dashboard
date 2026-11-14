@@ -1273,6 +1273,29 @@ function ganciLavagna(id, proposte, dopo) {
   // sta scritto perché avevate scartato quel campeggio
 }
 
+// La stanza dei viaggi che si stanno preparando. Qui non conta quanti
+// chilometri sono stati fatti: conta quanto manca a decidere.
+async function viewPianificati() {
+  const viaggi = await api('/pianificati');
+  const riga = t => `<a class="card viaggio-pianificato" href="#/pianifica/${t.id}">
+    <div class="row between"><b>${esc(nomeViaggio(t))}</b>
+      ${t.da_confermare ? `<span class="badge warn">${t.da_confermare} da confermare</span>` : ''}</div>
+    <div class="small muted">${esc(t.quando_circa || 'quando, ancora da decidere')}${t.notti_previste ? ` · ${t.notti_previste} notti` : ''}</div>
+    <div class="riga-numeri">
+      <span>🗒️ ${t.scelti} scelt${t.scelti === 1 ? 'o' : 'i'}${t.proposti ? ` su ${t.proposti}` : ''}</span>
+      ${t.km ? `<span>🛣️ ${num(t.km)} km</span>` : ''}
+      ${t.ipotesi ? `<span>💶 ~${eur(t.ipotesi)}</span>` : ''}
+      ${t.cose ? `<span>✅ ${t.cose} da fare</span>` : ''}
+    </div></a>`;
+  $('#app').innerHTML = layout(`
+    <div class="row between" style="margin-bottom:14px"><h1>🧭 Pianificati</h1>
+      <button class="btn primary" id="nuovo-pianificato">＋ Nuovo viaggio</button></div>
+    <div class="small muted" style="margin-bottom:14px">I viaggi che state preparando. Quelli in corso e quelli finiti stanno in Viaggi.</div>
+    ${viaggi.length ? `<div class="stack">${viaggi.map(riga).join('')}</div>`
+      : `<div class="card empty">Nessun viaggio in preparazione. Il prossimo comincia qui: un nome, e poi i posti che vi vengono in mente — prima che ve li dimentichiate.</div>`}`);
+  $('#nuovo-pianificato').onclick = () => tripForm(null, { bozza: true });
+}
+
 async function viewPianifica(id) {
   const d = await api(`/trips/${id}/pianifica`);
   const { trip, liste, legs, soste, numeri, budget } = d;
@@ -1496,6 +1519,9 @@ const coloreAtleta = (nome, i) => COLORI_ATLETA[String(nome || '').trim().toLowe
 // due elenchi distinti, e le copie di uno stesso giro non devono mescolarsi
 const nav = () => [
   ['#/', '🚐', 'Viaggi'],
+  // I viaggi da fare e quelli fatti sono due stanze diverse: in una si decide,
+  // nell'altra si ricorda
+  ['#/pianificati', '🧭', 'Pianificati'],
   ...atleti.map((a, i) => [`#/allenamenti/${a.id}`, ICO_SCARPA(coloreAtleta(a.name, i)), `Allenamenti ${a.name}`]),
   ['#/cruscotto', '🎛️', 'Cruscotto'],
   ['#/riepiloghi', '📊', 'Riepiloghi'],
@@ -1663,7 +1689,7 @@ async function viewTrips() {
       <div class="tile"><div class="label">Spesa totale</div><div class="value">${eur(totSp)}</div><div class="sub" title="Gasolio e pedaggi divisi per i chilometri fatti in camper">${totKm ? eur(totStrada / totKm) + '/km di strada' : ''}</div></div>
     </div>
     ${open.length ? `<div class="section"><div class="anno">In corso</div><div class="viaggi">${open.map(card).join('')}</div></div>` : ''}
-    ${bozze.length ? `<div class="section"><div class="anno">\ud83e\uddf0 In costruzione \u00b7 <span>${bozze.length} viagg${bozze.length === 1 ? 'io' : 'i'} che stiamo preparando</span></div><div class="viaggi">${bozze.map(card).join('')}</div></div>` : ''}
+    ${bozze.length ? `<div class="section"><a class="anno come-link" href="#/pianificati">\ud83e\udded ${bozze.length} viagg${bozze.length === 1 ? 'io che stiamo preparando' : 'i che stiamo preparando'} \u00b7 <span>stanno di l\u00e0, in Pianificati</span></a></div>` : ''}
     ${closed.length
       ? [...perAnno.entries()].map(([anno, lista]) => `<div class="section"><div class="anno">${esc(anno)} · <span>${lista.length} viagg${lista.length === 1 ? 'io' : 'i'}</span></div><div class="viaggi">${lista.map(card).join('')}</div></div>`).join('')
       : open.length ? '' : '<div class="card"><div class="empty">Nessun viaggio.<br>Crea il primo e aggiungi le tappe: distanze, gasolio e pedaggi si calcolano da soli.</div></div>'}`);
@@ -1679,7 +1705,9 @@ async function viewTrips() {
   }));
 }
 
-function tripForm(t = null) {
+// Dalla stanza dei pianificati un viaggio nasce gia' «da organizzare»: e' il
+// motivo per cui si e' entrati di la'
+function tripForm(t = null, opz = {}) {
   const v = settings.vehicle || {};
   // Il percorso si disegna solo alla nascita del viaggio: dopo, le tappe si
   // modificano una per una, che e' piu' preciso che rifare tutto
@@ -1703,7 +1731,7 @@ function tripForm(t = null) {
   modal(`<h2>${t ? 'Modifica viaggio' : 'Nuovo viaggio'}</h2><form id="f" class="stack" style="margin-top:14px">
     <div><label class="f">Titolo</label><input name="title" required value="${esc(t?.title || '')}" placeholder="Es. Giro della Puglia"></div>
     <div class="form-grid"><div><label class="f">Inizio</label><input type="date" name="start_date" value="${t?.start_date ? iso(t.start_date) : today()}"></div><div><label class="f">Fine</label><input type="date" name="end_date" value="${t?.end_date ? iso(t.end_date) : ''}"></div></div>
-    ${t ? '' : `<label class="riga-scelta"><input type="checkbox" name="stato" value="bozza"> \ud83e\uddf0 Ancora da organizzare
+    ${t ? '' : `<label class="riga-scelta"><input type="checkbox" name="stato" value="bozza" ${opz.bozza ? 'checked' : ''}> \ud83e\uddf0 Ancora da organizzare
       <span class="small muted">Finisce fra i viaggi in costruzione: ci si mette dentro il materiale, e quando si parte basta un tocco.</span></label>`}
     <div class="form-grid"><div><label class="f">Prezzo gasolio \u20ac/l</label><input type="number" step="0.001" name="fuel_price" value="${t?.fuel_price ?? v.fuel_price ?? 1.75}"></div><div><label class="f">Consumo km/l</label><input type="number" step="0.1" name="km_per_liter" value="${t?.km_per_liter ?? v.km_per_liter ?? 10}"></div></div>
     ${sezionePercorso}
@@ -2129,7 +2157,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v118';
+const VERSIONE = 'v119';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
@@ -5157,7 +5185,8 @@ async function render(opzioni = {}) {
     }
     const h = location.hash || '#/';
     const m = h.match(/^#\/(trip|pianifica|allenamenti|allenamento)\/?(\d+)?/);
-    if (m?.[1] === 'pianifica' && m[2]) await viewPianifica(m[2]);
+    if (h.startsWith('#/pianificati')) await viewPianificati();
+    else if (m?.[1] === 'pianifica' && m[2]) await viewPianifica(m[2]);
     else if (m?.[1] === 'trip' && m[2]) await viewTrip(m[2]);
     else if (m?.[1] === 'allenamento' && m[2]) await viewWorkout(m[2]);
     else if (m?.[1] === 'allenamenti') await viewWorkouts(m[2] ? +m[2] : user.id);

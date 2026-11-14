@@ -59,6 +59,26 @@ async function budgetDi(trip, proposte) {
   return { voci, totale: Math.round(totale * 100) / 100, speso };
 }
 
+// L'elenco dei viaggi che si stanno preparando, con quello che conta mentre li
+// si prepara: non i chilometri fatti, ma quanto manca a decidere.
+router.get('/pianificati', wrap(async (req, res) => {
+  const trips = (await q(`SELECT t.*, u.name AS owner FROM trips t JOIN users u ON u.id=t.user_id
+    WHERE t.status='bozza' ORDER BY coalesce(t.start_date, t.created_at::date) DESC, t.id DESC`)).rows;
+  const fuori = [];
+  for (const trip of trips) {
+    const proposte = await proposteDi(trip.id);
+    const km = +(await q(`SELECT coalesce(sum(distance_km) FILTER (WHERE mezzo='camper'),0)::float AS km FROM legs WHERE trip_id=$1`, [trip.id])).rows[0].km;
+    const daConfermare = +(await q(`SELECT (SELECT count(*) FROM legs WHERE trip_id=$1 AND da_confermare)
+      + (SELECT count(*) FROM stops WHERE trip_id=$1 AND da_confermare)
+      + (SELECT count(*) FROM percorsi WHERE trip_id=$1 AND da_confermare) AS n`, [trip.id])).rows[0].n;
+    const budget = await budgetDi(trip, proposte);
+    fuori.push({ ...trip, km: Math.round(km), scelti: proposte.filter(p => p.stato === 'scelto').length,
+      proposti: proposte.length, da_confermare: daConfermare, ipotesi: budget.totale,
+      cose: +(await q('SELECT count(*) FROM liste WHERE trip_id=$1 AND NOT fatta', [trip.id])).rows[0].count });
+  }
+  res.json(fuori);
+}));
+
 router.get('/trips/:id/pianifica', wrap(async (req, res) => {
   const trip = (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
