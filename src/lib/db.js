@@ -430,6 +430,12 @@ export async function migrate() {
   );
   CREATE INDEX IF NOT EXISTS idx_giorni_ipotesi ON giorni(ipotesi_id);
 
+  -- Un posto della lavagna diventa una fermata di un giorno: dove si dorme,
+  -- cosa si vede. Senza giorno resta dov'era, in lavagna, buono per qualunque
+  -- giorno di qualunque ipotesi.
+  ALTER TABLE proposte ADD COLUMN IF NOT EXISTS giorno_id INT REFERENCES giorni(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_proposte_giorno ON proposte(giorno_id);
+
   -- Una strada possibile diventa la tratta di un giorno. Senza giorno resta
   -- dov'era: fra le strade che si stanno ancora guardando.
   ALTER TABLE percorsi ADD COLUMN IF NOT EXISTS giorno_id INT REFERENCES giorni(id) ON DELETE SET NULL;

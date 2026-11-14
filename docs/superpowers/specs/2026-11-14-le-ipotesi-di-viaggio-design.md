@@ -62,9 +62,34 @@ Finché non si scegle, nessuna fa il totale del viaggio.
 - Interfaccia: una scheda per ipotesi, con la striscia dei soldi, i giorni
   dentro, e il tasto che la mette in mappa.
 
+## Le soste dentro ai giorni (14 novembre, lo stesso giorno)
+
+> «ovviamente lungo le tappe si devono poter inserire le soste dove pernottare,
+> visitare e quant'altro. per le soste deve potersi inserire in numero
+> identificativo di park4night come al solito che da solo identifica e colloca
+> sulla mappa il luogo e il link per aprire sull'app di park4night».
+
+Era il buco che avevo lasciato io: «dove si dorme» era testo libero. Chiuso
+così, e la scelta è la stessa delle strade — **non un oggetto nuovo**:
+
+8. **Le soste di un giorno sono i posti della lavagna** (`proposte.giorno_id`).
+   La lavagna già fa tutto quello che chiede: codice park4night che da solo
+   trova nome, coordinate e tipo, il collegamento che apre l'app, il tipo
+   (dormire / sosta breve / da vedere) e il prezzo a notte. Un quarto oggetto
+   «fermata» avrebbe duplicato tutto questo, e sarebbe divergente entro un mese.
+9. **Un posto senza giorno resta libero in lavagna**, buono per qualunque giorno
+   di qualunque ipotesi — come una strada.
+10. **In mappa, i posti dei giorni diventano soste vere del viaggio**, col numero
+    del loro giorno, riusando la conversione che c'era già (che non duplica un
+    posto arrivato per due strade, e non copia mai il prezzo). Un posto senza
+    coordinate si salta, e si dice quanti: una sosta che non si sa dove sia non
+    si disegna in mezzo al mare.
+11. **Il prezzo della notte**: quello scritto sul giorno vince, perché è
+    l'ultima parola di chi pianifica; se no quello dei posti dove si dorme di
+    quel giorno. Due posti per la stessa notte vogliono dire che non si è ancora
+    scelto: si fa la media, invece di dare per buono il primo.
+
 ## Quello che resta al prossimo giro
 
 - Riordinare i giorni (oggi si aggiungono in coda; togliendone uno gli altri
   scalano).
-- Un giorno non può ancora dire «qui si dorme in questa sosta della lavagna»: il
-  posto dove si dorme è testo libero col suo prezzo.

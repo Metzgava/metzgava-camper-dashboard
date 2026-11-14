@@ -884,3 +884,8 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .titolo-giorno { font-weight: 500; }
 .tratta-giorno { display: flex; align-items: center; gap: 6px; background: #f8fafc; border-radius: 8px; padding: 4px 6px 4px 10px; }
 .giorno select { max-width: 100%; }
+
+/* I posti dentro a un giorno: dove si dorme, cosa si vede. */
+.fermata-giorno { display: flex; align-items: center; gap: 4px; background: #fffbeb; border-radius: 8px; padding: 4px 6px 4px 10px; flex-wrap: wrap; }
+.fermata-giorno.scartato { opacity: .6; text-decoration: line-through; }
+.fermata-giorno a { white-space: nowrap; }

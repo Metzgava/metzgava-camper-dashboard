@@ -107,3 +107,47 @@ test('un’ipotesi vuota non ha un totale di zero euro: non ha un totale', () =>
   assert.equal(c.totale, null);
   assert.equal(c.giorni, 0);
 });
+
+// I posti dei giorni: dove si dorme, cosa si vede. Vengono dalla lavagna, col
+// loro prezzo e col loro codice park4night, e il conto li deve usare — se no
+// si finisce a riscrivere a mano un prezzo che l'app aveva già.
+const posto = (tipo, prezzo, nome = 'un posto') => ({ tipo, prezzo, nome });
+
+test('la notte si conta sul posto dove si dorme, quando c’è', () => {
+  const c = contoIpotesi({ giorni: [
+    { numero: 1, percorsi: [], proposte: [posto('pernotto', 28)] },
+  ], ...CAMPER });
+  assert.equal(c.notti, 1);
+  assert.equal(c.campeggi.importo, 28);
+});
+
+test('un posto da vedere non è una notte, e non costa una notte', () => {
+  const c = contoIpotesi({ giorni: [
+    { numero: 1, percorsi: [], proposte: [posto('visita', 12, 'il museo')] },
+  ], ...CAMPER });
+  assert.equal(c.notti, 0);
+  assert.equal(c.campeggi, null);
+});
+
+test('il prezzo scritto sul giorno vince su quello del posto: è l’ultima parola di chi pianifica', () => {
+  const c = contoIpotesi({ giorni: [
+    { numero: 1, percorsi: [], prezzo_notte: 10, proposte: [posto('pernotto', 28)] },
+  ], ...CAMPER });
+  assert.equal(c.campeggi.importo, 10);
+});
+
+test('due posti per dormire nello stesso giorno: si fa la media, perché non si è ancora scelto', () => {
+  const c = contoIpotesi({ giorni: [
+    { numero: 1, percorsi: [], proposte: [posto('pernotto', 20), posto('pernotto', 40)] },
+  ], ...CAMPER });
+  assert.equal(c.campeggi.importo, 30);
+});
+
+test('un posto per dormire senza prezzo è una notte che si paga con la media delle altre', () => {
+  const c = contoIpotesi({ giorni: [
+    { numero: 1, percorsi: [], proposte: [posto('pernotto', 30)] },
+    { numero: 2, percorsi: [], proposte: [posto('pernotto', null)] },
+  ], ...CAMPER });
+  assert.equal(c.notti, 2);
+  assert.equal(c.campeggi.importo, 60);
+});

@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { q } from '../lib/db.js';
 import { wrap, num } from '../lib/util.js';
 import { requireAuth } from './auth.js';
-import { proposteDi } from './proposte.js';
+import { proposteDi, fanneUnaSosta } from './proposte.js';
 import { gasolioPrevisto, campeggiPrevisti, pedaggiPrevisti } from '../lib/budget.js';
 import { contoIpotesi } from '../lib/ipotesi.js';
 import { capisciIncollato } from '../lib/cassetta.js';
@@ -45,7 +45,7 @@ async function comeVaIlCamper(trip) {
 
 // Le ipotesi col loro conto. Le strade arrivano gia' caricate: sono le stesse
 // che l'elenco mostra, e caricarle due volte vorrebbe dire due verita'.
-async function ipotesiDi(trip, percorsi) {
+async function ipotesiDi(trip, percorsi, proposte) {
   const righe = (await q(`SELECT i.*, u.name AS chi FROM ipotesi i
     LEFT JOIN users u ON u.id = i.user_id WHERE i.trip_id=$1 ORDER BY i.id`, [trip.id])).rows;
   if (!righe.length) return [];
@@ -57,6 +57,9 @@ async function ipotesiDi(trip, percorsi) {
       ...g,
       prezzo_notte: g.prezzo_notte == null ? null : +g.prezzo_notte,
       percorsi: (percorsi || []).filter(p => p.giorno_id === g.id),
+      // I posti del giorno: dove si dorme, cosa si vede. Sono quelli della
+      // lavagna, col loro codice park4night e il loro prezzo.
+      proposte: (proposte || []).filter(p => p.giorno_id === g.id),
     }));
     return { ...i, giorni: suoi, conto: contoIpotesi({ giorni: suoi, ...camper }),
       // In mappa quando almeno una delle sue tratte ha messo le sue tappe
@@ -160,7 +163,7 @@ router.get('/trips/:id/pianifica', wrap(async (req, res) => {
     senza_giorno: legs.filter(l => !l.giorno && !l.date).length + soste.filter(s => !s.giorno && !s.from_date).length,
   };
   res.json({ trip, proposte, liste, legs, soste, percorsi, numeri,
-    ipotesi: await ipotesiDi(trip, percorsi),
+    ipotesi: await ipotesiDi(trip, percorsi, proposte),
     budget: await budgetDi(trip, proposte),
     materiali: (await q(`SELECT m.*, u.name AS chi FROM materiali m LEFT JOIN users u ON u.id=m.user_id
       WHERE m.trip_id=$1 ORDER BY m.created_at DESC, m.id DESC`, [trip.id])).rows });
@@ -570,7 +573,22 @@ router.put('/ipotesi/:id/in-mappa', wrap(async (req, res) => {
   }
   if (!quante) return res.status(400).json({
     error: 'Nessuna tratta ha i suoi numeri: premi 🔄 sulle strade per farli contare' });
-  res.json({ ok: true, dentro: true, tappe: quante, senza_numeri: senzaNumeri,
+
+  // I posti dei giorni diventano soste vere del viaggio, col numero del loro
+  // giorno. Un posto senza coordinate si salta: una sosta che non si sa dove
+  // sia non si disegna, e dirlo e' meglio che metterla in mezzo al mare.
+  const posti = (await q(`SELECT p.* FROM proposte p JOIN giorni g ON g.id = p.giorno_id
+    WHERE g.ipotesi_id=$1 AND p.stato <> 'scartato' ORDER BY g.numero, p.id`, [ip.id])).rows;
+  const numeri = new Map((await q('SELECT id, numero FROM giorni WHERE ipotesi_id=$1', [ip.id]))
+    .rows.map(g => [g.id, g.numero]));
+  let soste = 0, senzaPosto = 0;
+  for (const po of posti) {
+    if (po.lat == null || po.lon == null) { senzaPosto++; continue; }
+    await fanneUnaSosta(po, { giorno: numeri.get(po.giorno_id) ?? null, daConfermare: true });
+    soste++;
+  }
+
+  res.json({ ok: true, dentro: true, tappe: quante, senza_numeri: senzaNumeri, soste, senza_posto: senzaPosto,
     uscite: uscite.map(x => x.nome || x.destinazione || `ipotesi ${x.id}`) });
 }));
 

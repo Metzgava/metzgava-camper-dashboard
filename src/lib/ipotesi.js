@@ -58,12 +58,24 @@ export function contoIpotesi({ giorni, kmPerLitro, prezzoLitro, tariffaPedaggio 
   }
 
   // ---- le notti ----
-  // Le notti sono i giorni in cui si dorme da qualche parte: quelli che hanno
-  // un posto o un prezzo. Se nessun giorno lo dice, si stima coi giorni meno
-  // uno - il primo si parte, l'ultimo si torna.
-  const conNotte = elenco.filter(g => g.notte || g.prezzo_notte != null);
+  // Le notti sono i giorni in cui si dorme da qualche parte: quelli che hanno un
+  // posto dove dormire - preso dalla lavagna col suo codice park4night, o
+  // scritto a mano - o almeno un prezzo. Se nessun giorno lo dice, si stima coi
+  // giorni meno uno: il primo si parte, l'ultimo si torna.
+  //
+  // Il prezzo di una notte: quello scritto sul giorno se c'e', perche' e'
+  // l'ultima parola di chi pianifica; se no quello dei posti dove si dorme di
+  // quel giorno. Due posti per la stessa notte vogliono dire che non si e'
+  // ancora scelto: si fa la media, invece di dare per buono il primo.
+  const dormire = g => (g.proposte || []).filter(p => (p.tipo || 'pernotto') === 'pernotto');
+  const prezzoNotte = g => {
+    if (g.prezzo_notte != null && Number.isFinite(+g.prezzo_notte)) return +g.prezzo_notte;
+    const loro = dormire(g).map(p => +p.prezzo).filter(x => Number.isFinite(x) && x > 0);
+    return loro.length ? loro.reduce((a, b) => a + b, 0) / loro.length : null;
+  };
+  const conNotte = elenco.filter(g => g.notte || g.prezzo_notte != null || dormire(g).length);
   const notti = conNotte.length || Math.max(0, elenco.length - 1);
-  const prezzi = conNotte.map(g => +g.prezzo_notte).filter(x => Number.isFinite(x) && x > 0);
+  const prezzi = conNotte.map(prezzoNotte).filter(x => x != null && x > 0);
   let campeggi = null;
   if (!prezzi.length) { if (notti) mancano.push('il prezzo di almeno una notte'); }
   else {

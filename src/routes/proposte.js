@@ -88,14 +88,19 @@ router.post('/proposte/:id/voto', wrap(async (req, res) => {
 // costa diventa da sola una spesa vera, datata oggi e cambiata al cambio di
 // oggi, e un campeggio scelto a novembre finirebbe nei conti di un viaggio di
 // giugno. Niente date: quelle arrivano quando il viaggio si conferma.
-router.post('/proposte/:id/sosta', wrap(async (req, res) => {
-  const p = (await q('SELECT * FROM proposte WHERE id=$1', [req.params.id])).rows[0];
-  if (!p) return res.status(404).json({ error: 'Proposta non trovata' });
-
+// Da posto della lavagna a sosta vera del viaggio. Sta qui, fuori dalla rotta,
+// perche' la chiamano in due: il tasto sulla lavagna, e l'ipotesi che va in
+// mappa coi posti dei suoi giorni.
+//
+// Il prezzo non si copia mai: una sosta che costa diventa da sola una spesa del
+// viaggio, e qui non si e' ancora speso niente.
+export async function fanneUnaSosta(p, opz = {}) {
   const collega = async (stopId, gia) => {
     await q(`UPDATE proposte SET stato='scelto', stop_id=$2 WHERE id=$1`, [p.id, stopId]);
-    const sosta = (await q('SELECT * FROM stops WHERE id=$1', [stopId])).rows[0];
-    res.json({ proposta: await unaProposta(p.id), sosta, ...(gia ? { gia_cera: true } : {}) });
+    // Il giorno del programma viaggia con la sosta: da li' «fissa la partenza»
+    // lo trasforma in una data, come fa con le tappe.
+    if (opz.giorno != null) await q('UPDATE stops SET giorno=$2 WHERE id=$1', [stopId, opz.giorno]);
+    return { stopId, gia };
   };
 
   // Gia' fatta: si apre quella, non se ne fa una seconda
@@ -111,12 +116,35 @@ router.post('/proposte/:id/sosta', wrap(async (req, res) => {
     if (gemella) return collega(gemella.id, true);
   }
 
-  const nuova = (await q(`INSERT INTO stops (trip_id, name, lat, lon, kind, p4n_id, link, motivo, source)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'manuale') RETURNING id`,
+  const nuova = (await q(`INSERT INTO stops (trip_id, name, lat, lon, kind, p4n_id, link, motivo, source, da_confermare)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'manuale',$9) RETURNING id`,
     // Il «perche'» di una sosta sta in centoventi caratteri: tagliarlo qui,
     // dove si vede, e' meglio che farlo tagliare in silenzio alla prima
     // modifica della sosta. Sulla lavagna resta per intero.
     [p.trip_id, p.nome, p.lat, p.lon, tipoSostaDa(p.tipo, p.tipo_p4n), p.p4n_id, p.link,
-      (p.perche || '').slice(0, 120) || null])).rows[0];
+      (p.perche || '').slice(0, 120) || null, !!opz.daConfermare])).rows[0];
   return collega(nuova.id, false);
+}
+
+router.post('/proposte/:id/sosta', wrap(async (req, res) => {
+  const p = (await q('SELECT * FROM proposte WHERE id=$1', [req.params.id])).rows[0];
+  if (!p) return res.status(404).json({ error: 'Proposta non trovata' });
+  const { stopId, gia } = await fanneUnaSosta(p);
+  const sosta = (await q('SELECT * FROM stops WHERE id=$1', [stopId])).rows[0];
+  res.json({ proposta: await unaProposta(p.id), sosta, ...(gia ? { gia_cera: true } : {}) });
+}));
+
+// Un posto diventa una fermata di un giorno, o torna libero in lavagna
+router.put('/proposte/:id/in-giorno', wrap(async (req, res) => {
+  const p = (await q('SELECT * FROM proposte WHERE id=$1', [req.params.id])).rows[0];
+  if (!p) return res.status(404).json({ error: 'Proposta non trovata' });
+  const gid = req.body?.giorno_id;
+  const giorno = gid == null || gid === '' ? null
+    : (await q(`SELECT g.* FROM giorni g JOIN ipotesi i ON i.id = g.ipotesi_id
+        WHERE g.id=$1 AND i.trip_id=$2`, [gid, p.trip_id])).rows[0];
+  if (gid != null && gid !== '' && !giorno) return res.status(400).json({ error: 'Quel giorno non e\u2019 di questo viaggio' });
+  await q('UPDATE proposte SET giorno_id=$2 WHERE id=$1', [p.id, giorno?.id ?? null]);
+  // Se era gia' diventata una sosta del viaggio, la sosta segue il giorno
+  if (p.stop_id != null) await q('UPDATE stops SET giorno=$2 WHERE id=$1', [p.stop_id, giorno?.numero ?? null]);
+  res.json({ ok: true, giorno: giorno?.numero ?? null });
 }));

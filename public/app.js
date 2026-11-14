@@ -1069,7 +1069,7 @@ const vocePropostaHTML = (p, soste, siScrive, io) => {
   ].filter(Boolean).join(' · ');
   const voti = (p.voti || []).map(v => `<span class="voto">${v.voto > 0 ? '👍' : '🤔'} ${esc(v.nome)}${v.commento ? ` <i>«${esc(v.commento)}»</i>` : ''}</span>`).join('');
   return `<div class="proposta ${p.stato}" data-proposta="${p.id}" data-stato="${p.stato}">
-    <div class="capo"><b>${ICO_PROPOSTA[p.tipo] || ''} ${esc(nome)}</b><span class="stato">${ico} ${etichetta}</span></div>
+    <div class="capo"><b>${ICO_PROPOSTA[p.tipo] || ''} ${esc(nome)}</b><span class="stato">${p.dove_sta ? `<span class="badge">${esc(p.dove_sta)}</span> ` : ''}${ico} ${etichetta}</span></div>
     ${sotto ? `<div class="small muted">${sotto}</div>` : ''}
     ${p.perche ? `<div class="perche">${esc(p.perche)}</div>` : ''}
     ${p.perche_no ? `<div class="small muted">🚫 ${esc(p.perche_no)}</div>` : ''}
@@ -1256,7 +1256,7 @@ const contoRiga = c => {
 
 // Un giorno. Dentro ci sta una tratta, due, o nessuna: il giorno fermo e' un
 // giorno come gli altri, e si vede che e' fermo.
-const giornoRiga = (g, libere) => {
+const giornoRiga = (g, libere, posti) => {
   const tratte = (g.percorsi || []).map(p => {
     const v = (p.varianti || []).find(x => x.chiave === p.scelta) || (p.varianti || [])[0];
     return `<div class="tratta-giorno">
@@ -1265,6 +1265,17 @@ const giornoRiga = (g, libere) => {
         : ' <span class="small muted">senza numeri — premi 🔄 fra le strade</span>'}</span>
       <button class="btn ghost icon" data-strada-fuori="${p.id}" title="Togli questa strada dal giorno">✕</button></div>`;
   }).join('');
+  // I posti del giorno. Col codice di park4night il posto si colloca da se'
+  // sulla mappa e il collegamento apre l'app; senza, resta un nome - e lo si
+  // dice, invece di far finta che sia sulla mappa.
+  const fermate = (g.proposte || []).map(x => `<div class="fermata-giorno ${x.stato}">
+      <span class="grow">${ICO_PROPOSTA[x.tipo] || '📍'} ${esc(x.nome || 'un posto')}
+        ${x.prezzo != null ? `<span class="small muted">${eur(x.prezzo)} a notte</span>` : ''}
+        ${x.p4n_id ? `<a class="small" href="${esc(x.link)}" target="_blank" rel="noopener" title="Apri la scheda su park4night">park4night ${esc(x.p4n_id)} ↗</a>`
+          : x.lat == null ? '<span class="small muted">senza posto sulla mappa</span>' : ''}</span>
+      ${tastiPortami(x.lat, x.lon, x.nome, 'btn ghost icon soloico')}
+      <button class="btn ghost icon" data-posto-fuori="${x.id}" title="Togli questo posto dal giorno">✕</button></div>`).join('');
+
   return `<div class="giorno" data-giorno-riga="${g.id}">
     <div class="row between">
       <b>Giorno ${g.numero}${g.titolo ? ` · <span class="titolo-giorno">${esc(g.titolo)}</span>` : ''}</b>
@@ -1272,17 +1283,23 @@ const giornoRiga = (g, libere) => {
         <button class="btn ghost icon" data-giorno-cambia="${g.id}" title="Cambia questo giorno">✏️</button>
         <button class="btn ghost danger icon" data-giorno-togli="${g.id}" title="Togli questo giorno">🗑</button></span></div>
     ${tratte || '<div class="small muted">Nessuna tratta: giorno fermo.</div>'}
+    ${fermate}
     ${g.luoghi ? `<div class="small">📍 ${esc(g.luoghi)}</div>` : ''}
     ${g.notte ? `<div class="small muted">🛏️ ${esc(g.notte)}${g.prezzo_notte != null ? ` · ${eur(g.prezzo_notte)}` : ' · prezzo da sapere'}</div>` : ''}
-    <div class="row" style="gap:6px;margin-top:4px">
+    <div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">
       <select class="btn sm" data-strada-dentro="${g.id}">
         <option value="">＋ una strada…</option>
         ${libere.map(p => `<option value="${p.id}">${esc((p.nome || 'una strada').slice(0, 48))}</option>`).join('')}
         <option value="nuova">✎ disegnane una nuova</option>
+      </select>
+      <select class="btn sm" data-posto-dentro="${g.id}">
+        <option value="">＋ una sosta…</option>
+        ${(posti || []).map(x => `<option value="${x.id}">${ICO_PROPOSTA[x.tipo] || ''} ${esc((x.nome || 'un posto').slice(0, 44))}</option>`).join('')}
+        <option value="nuova">✎ un posto nuovo, anche col codice park4night</option>
       </select></div></div>`;
 };
 
-const ipotesiCard = (i, libere) => {
+const ipotesiCard = (i, libere, posti) => {
   const [ico, etichetta] = STATI_IPOTESI[i.stato] || STATI_IPOTESI.aperta;
   const c = i.conto;
   return `<div class="card pad-0 ipotesi ${i.stato}" data-ipotesi="${i.id}" style="grid-column:1/-1;margin-bottom:12px">
@@ -1297,7 +1314,7 @@ const ipotesiCard = (i, libere) => {
     ${i.perche ? `<div class="small" style="padding:0 16px 6px"><i>«${esc(i.perche)}»</i></div>` : ''}
     <div class="small muted" style="padding:0 16px 6px">${c.giorni ? `${c.giorni} giorn${c.giorni === 1 ? 'o' : 'i'} · ${c.notti} nott${c.notti === 1 ? 'e' : 'i'}${c.km ? ` · ${num(c.km)} km · ${dur(c.minuti * 60)} di guida` : ' · ancora senza tratte'}` : 'nessun giorno, ancora'}</div>
     ${contoRiga(c)}
-    <div class="giorni-ipotesi">${(i.giorni || []).map(g => giornoRiga(g, libere)).join('')}</div>
+    <div class="giorni-ipotesi">${(i.giorni || []).map(g => giornoRiga(g, libere, posti)).join('')}</div>
     <div style="padding:8px 16px 14px"><button class="btn sm" data-giorno-piu="${i.id}">＋ Aggiungi un giorno</button></div></div>`;
 };
 
@@ -1453,7 +1470,13 @@ async function viewPianifica(id) {
   const d = await api(`/trips/${id}/pianifica`);
   const { trip, liste, legs, soste, numeri, budget } = d;
   const proposte = d.proposte || [];
-  const viste = proposte.filter(propostaPassa);
+  // Di ogni giorno: a che ipotesi appartiene, cosi' una strada o un posto sanno
+  // dire dove stanno, anche visti da fuori
+  const dovesta = new Map((d.ipotesi || []).flatMap(i => (i.giorni || [])
+    .map(g => [g.id, `giorno ${g.numero} di ${(i.nome || i.destinazione || 'un’ipotesi').slice(0, 28)}`])));
+  // Un posto che e' il programma di un giorno lo dice anche in lavagna: se no
+  // lo si cerca fra i liberi e non c'e'
+  const viste = proposte.filter(propostaPassa).map(p => ({ ...p, dove_sta: dovesta.get(p.giorno_id) }));
   const vociViste = (budget.voci || []).filter(vocePassa);
   const listeViste = (liste || []).filter(listaPassa);
   const totaleVisto = Math.round(vociViste.reduce((a, v) => a + (v.importo || 0), 0) * 100) / 100;
@@ -1491,9 +1514,6 @@ async function viewPianifica(id) {
   </div>`;
 
   const percorsi = d.percorsi || [];
-  // Di ogni giorno: a che ipotesi appartiene, cosi' una strada sa dire dove sta
-  const dovesta = new Map((d.ipotesi || []).flatMap(i => (i.giorni || [])
-    .map(g => [g.id, `giorno ${g.numero} di ${(i.nome || i.destinazione || 'un\u2019ipotesi').slice(0, 28)}`])));
   const materiali = d.materiali || [];
   // Quello che c'è da sapere di un paese sta a parte: non è roba da leggere,
   // è roba che serve mentre ci si guida dentro
@@ -1510,12 +1530,15 @@ async function viewPianifica(id) {
 
   // Le strade senza giorno sono quelle che si possono ancora dare a un giorno
   const libere = percorsi.filter(p => !p.giorno_id);
+  // I posti ancora liberi: quelli che non sono il programma di nessun giorno, e
+  // che nessuno ha scartato
+  const postiLiberi = proposte.filter(p => !p.giorno_id && p.stato !== 'scartato');
   const ipotesi = d.ipotesi || [];
   const sezioneIpotesi = `<div style="grid-column:1/-1">
     <div class="row between" style="margin:4px 0 8px"><h2>💭 Le ipotesi</h2>
       <button class="btn sm primary" id="piu-ipotesi">＋ Un’altra ipotesi</button></div>
     <div class="small muted" style="margin-bottom:10px">Una destinazione e i giorni che servono ad arrivarci. Tienine quante vuoi, anche in direzioni opposte: si confrontano sul conto, e quella che vince si mette in mappa.</div>
-    ${ipotesi.map(i => ipotesiCard(i, libere)).join('')
+    ${ipotesi.map(i => ipotesiCard(i, libere, postiLiberi)).join('')
       || '<div class="card empty">Nessuna ipotesi. Comincia da dove vorresti arrivare — «le Lofoten» — e i giorni si aggiungono dopo, uno per volta.</div>'}</div>`;
 
   const sezioneStrade = `<div class="card pad-0" style="grid-column:1/-1">
@@ -2006,7 +2029,8 @@ function ganciPianifica(id, d) {
     b.disabled = true;
     const r = await api(`/ipotesi/${iid}/in-mappa`, { method: 'PUT', body: { dentro: dentro === '1' } });
     toast(r.dentro
-      ? `In mappa: ${r.tappe} tapp${r.tappe === 1 ? 'a' : 'e'}, coi loro giorni. Ora fa il totale del viaggio.`
+      ? `In mappa: ${r.tappe} tapp${r.tappe === 1 ? 'a' : 'e'}${r.soste ? ` e ${r.soste} sost${r.soste === 1 ? 'a' : 'e'}` : ''}, coi loro giorni. Ora fa il totale del viaggio.`
+        + (r.senza_posto ? ` ${r.senza_posto} post${r.senza_posto === 1 ? 'o' : 'i'} ${r.senza_posto === 1 ? 'non ha' : 'non hanno'} coordinate: ${r.senza_posto === 1 ? 'resta' : 'restano'} fuori dalla mappa.` : '')
         + ((r.uscite || []).length ? ` È uscita dalla mappa ${r.uscite.join(' e ')}: in mappa ci sta una direzione per volta.` : '')
       : 'Tolta dalla mappa: l’ipotesi resta, coi suoi giorni e il suo conto');
     rifai();
@@ -2044,6 +2068,25 @@ function ganciPianifica(id, d) {
     await api(`/percorsi/${v}/in-giorno`, { method: 'PUT', body: { giorno_id: gid } });
     rifai();
   }));
+  // ---- un posto dentro o fuori da un giorno ----
+  $$('[data-posto-dentro]').forEach(sel => sel.onchange = safe(async () => {
+    const v = sel.value;
+    const gid = +sel.dataset.postoDentro;
+    sel.value = '';
+    if (!v) return;
+    if (v === 'nuova') return propostaForm(id, null, async nuovo => {
+      // Nato dentro un giorno, resta in quel giorno
+      if (nuovo?.id) await api(`/proposte/${nuovo.id}/in-giorno`, { method: 'PUT', body: { giorno_id: gid } });
+      rifai();
+    });
+    await api(`/proposte/${v}/in-giorno`, { method: 'PUT', body: { giorno_id: gid } });
+    rifai();
+  }));
+  $$('[data-posto-fuori]').forEach(b => b.onclick = safe(async () => {
+    await api(`/proposte/${b.dataset.postoFuori}/in-giorno`, { method: 'PUT', body: { giorno_id: null } });
+    rifai();
+  }));
+
   $$('[data-strada-fuori]').forEach(b => b.onclick = safe(async () => {
     await api(`/percorsi/${b.dataset.stradaFuori}/in-giorno`, { method: 'PUT', body: { giorno_id: null } });
     rifai();
@@ -2735,7 +2778,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v124';
+const VERSIONE = 'v125';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se
