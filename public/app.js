@@ -119,7 +119,9 @@ function commentoPropostaForm(p, dopo) {
     }));
 }
 
-const confirmDlg = msg => new Promise(res => modal(`<h2>${esc(msg)}</h2><div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" data-x>Annulla</button><button class="btn danger" data-ok>Conferma</button></div>`,
+// La domanda sta nel titolo, e quello che c'e' da sapere prima di rispondere
+// sta sotto: «sei sicuro?» da solo non aiuta nessuno a decidere.
+const confirmDlg = (msg, dettaglio, tastoOk) => new Promise(res => modal(`<h2>${esc(msg)}</h2>${dettaglio ? `<div class="small muted" style="margin-top:8px">${esc(dettaglio)}</div>` : ''}<div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" data-x>Annulla</button><button class="btn danger" data-ok>${esc(tastoOk || 'Conferma')}</button></div>`,
   (el, close) => { $('[data-x]', el).onclick = () => { close(); res(false); }; $('[data-ok]', el).onclick = () => { close(); res(true); }; }));
 
 // ---------- Mappe ----------
@@ -1321,13 +1323,42 @@ function ganciLavagna(id, proposte, dopo) {
   // sta scritto perché avevate scartato quel campeggio
 }
 
+// Eliminare un viaggio che si stava preparando. Si dice prima cosa si porta
+// via, pezzo per pezzo e coi numeri veri: dopo non si torna indietro, e un
+// viaggio pensato in due per settimane non deve sparire dietro un «sei sicuro?».
+// Il cestino si vede solo a chi puo' premerlo: il server rifiuterebbe comunque,
+// ma offrire un tasto che non funziona e' peggio che non offrirlo.
+const posso = t => user?.role === 'admin' || t?.user_id === user?.id;
+
+const inElenco = voci => voci.length < 2 ? (voci[0] || '')
+  : `${voci.slice(0, -1).join(', ')} e ${voci[voci.length - 1]}`;
+
+async function eliminaPianificato(t, dopo) {
+  const pezzi = [
+    t.proposti ? `${t.proposti} post${t.proposti === 1 ? 'o' : 'i'} in lavagna` : null,
+    t.strade ? `${t.strade} strad${t.strade === 1 ? 'a' : 'e'} possibil${t.strade === 1 ? 'e' : 'i'}` : null,
+    t.tappe ? `${t.tappe} tapp${t.tappe === 1 ? 'a' : 'e'}` : null,
+    t.cose ? `${t.cose} cos${t.cose === 1 ? 'a' : 'e'} da fare` : null,
+    t.ipotesi ? `l’ipotesi di spesa da ${eur(t.ipotesi)}` : null,
+  ].filter(Boolean);
+  const dettaglio = pezzi.length
+    ? `Si porta via ${inElenco(pezzi)}. Non si torna indietro.`
+    : 'Dentro non c’è ancora niente. Non si torna indietro.';
+  if (!await confirmDlg(`Eliminare «${nomeViaggio(t)}»?`, dettaglio, 'Elimina il viaggio')) return;
+  await api('/trips/' + t.id, { method: 'DELETE' });
+  toast(`«${nomeViaggio(t)}» eliminato`);
+  dopo();
+}
+
 // La stanza dei viaggi che si stanno preparando. Qui non conta quanti
 // chilometri sono stati fatti: conta quanto manca a decidere.
 async function viewPianificati() {
   const viaggi = await api('/pianificati');
   const riga = t => `<a class="card viaggio-pianificato" href="#/pianifica/${t.id}">
     <div class="row between"><b>${esc(nomeViaggio(t))}</b>
-      ${t.da_confermare ? `<span class="badge warn">${t.da_confermare} da confermare</span>` : ''}</div>
+      <span class="row" style="gap:6px">
+        ${t.da_confermare ? `<span class="badge warn">${t.da_confermare} da confermare</span>` : ''}
+        ${posso(t) ? `<button class="btn ghost danger icon" data-togli-viaggio="${t.id}" title="Elimina questo viaggio">🗑</button>` : ''}</span></div>
     <div class="small muted">${esc(t.quando_circa || 'quando, ancora da decidere')}${t.notti_previste ? ` · ${t.notti_previste} notti` : ''}</div>
     <div class="riga-numeri">
       <span>🗒️ ${t.scelti} scelt${t.scelti === 1 ? 'o' : 'i'}${t.proposti ? ` su ${t.proposti}` : ''}</span>
@@ -1342,6 +1373,12 @@ async function viewPianificati() {
     ${viaggi.length ? `<div class="stack">${viaggi.map(riga).join('')}</div>`
       : `<div class="card empty">Nessun viaggio in preparazione. Il prossimo comincia qui: un nome, e poi i posti che vi vengono in mente — prima che ve li dimentichiate.</div>`}`);
   $('#nuovo-pianificato').onclick = () => tripForm(null, { bozza: true });
+  $$('[data-togli-viaggio]').forEach(b => b.onclick = safe(async e => {
+    // Il cestino sta dentro la scheda, che e' un collegamento: senza questo il
+    // tocco aprirebbe il viaggio invece di chiedere se eliminarlo
+    e.preventDefault(); e.stopPropagation();
+    await eliminaPianificato(viaggi.find(t => t.id === +b.dataset.togliViaggio), viewPianificati);
+  }));
 }
 
 async function viewPianifica(id) {
@@ -1463,7 +1500,8 @@ async function viewPianifica(id) {
   $('#app').innerHTML = layout(`
     <div class="row between" style="margin-bottom:14px"><div>
       <a class="btn sm ghost" href="#/trip/${trip.id}">← ${esc(nomeViaggio(trip))}</a>
-      <h1 style="margin-top:8px">🧭 Pianificazione</h1></div></div>
+      <h1 style="margin-top:8px">🧭 Pianificazione</h1></div>
+      ${posso(trip) ? '<button class="btn ghost danger icon" id="togli-viaggio" title="Elimina questo viaggio">🗑</button>' : ''}</div>
 
     <div class="card" style="margin-bottom:14px">
       <div class="row between" style="gap:12px;flex-wrap:wrap">
@@ -1790,6 +1828,16 @@ function ganciPianifica(id, d) {
 
   const fissa = $('#fissa-partenza');
   if (fissa) fissa.onclick = () => partenzaForm(id, d, rifai);
+
+  const cestino = $('#togli-viaggio');
+  if (cestino) cestino.onclick = safe(() => eliminaPianificato({
+    ...d.trip,
+    proposti: (d.proposte || []).length,
+    strade: (d.percorsi || []).length,
+    tappe: (d.legs || []).length,
+    cose: (d.liste || []).filter(x => !x.fatta).length,
+    ipotesi: d.budget?.totale,
+  }, () => { location.hash = '#/pianificati'; }));
 }
 
 
@@ -2467,7 +2515,7 @@ const paionoFoto = f => /^image\//.test(f.type || '') || /\.(jpe?g|png|heic|heif
 
 // Un guasto che resta sullo schermo di chi ci ha provato non lo vede nessun
 // altro. Questo lo racconta anche ai log del servizio, dove si puo' leggere.
-const VERSIONE = 'v122';
+const VERSIONE = 'v123';
 let segnalazioni = 0;
 const segnala = (dove, esito, extra = {}) => {
   // Se anche questa chiamata fallisse, il suo fallimento non deve chiamare se

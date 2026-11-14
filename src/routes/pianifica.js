@@ -69,13 +69,18 @@ router.get('/pianificati', wrap(async (req, res) => {
   const fuori = [];
   for (const trip of trips) {
     const proposte = await proposteDi(trip.id);
-    const km = +(await q(`SELECT coalesce(sum(distance_km) FILTER (WHERE mezzo='camper'),0)::float AS km FROM legs WHERE trip_id=$1`, [trip.id])).rows[0].km;
+    const legs = (await q(`SELECT distance_km, mezzo FROM legs WHERE trip_id=$1`, [trip.id])).rows;
+    const km = legs.filter(l => (l.mezzo || 'camper') === 'camper').reduce((a, l) => a + (+l.distance_km || 0), 0);
     const daConfermare = +(await q(`SELECT (SELECT count(*) FROM legs WHERE trip_id=$1 AND da_confermare)
       + (SELECT count(*) FROM stops WHERE trip_id=$1 AND da_confermare)
       + (SELECT count(*) FROM percorsi WHERE trip_id=$1 AND da_confermare) AS n`, [trip.id])).rows[0].n;
     const budget = await budgetDi(trip, proposte);
     fuori.push({ ...trip, km: Math.round(km), scelti: proposte.filter(p => p.stato === 'scelto').length,
       proposti: proposte.length, da_confermare: daConfermare, ipotesi: budget.totale,
+      // Quanta roba c'e' dentro: serve a dire, prima di eliminarlo, cosa si
+      // porta via. «Sei sicuro?» non e' un'informazione.
+      strade: +(await q('SELECT count(*) FROM percorsi WHERE trip_id=$1', [trip.id])).rows[0].count,
+      tappe: legs.length,
       cose: +(await q('SELECT count(*) FROM liste WHERE trip_id=$1 AND NOT fatta', [trip.id])).rows[0].count });
   }
   res.json(fuori);
