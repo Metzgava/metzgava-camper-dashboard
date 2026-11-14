@@ -13,8 +13,8 @@ import { proposteDi } from './proposte.js';
 import { gasolioPrevisto, campeggiPrevisti } from '../lib/budget.js';
 import { capisciIncollato } from '../lib/cassetta.js';
 import { leggiPosto } from '../lib/park4night.js';
-import { linkPark4nightPosto, percorsiConTappe } from '../lib/geo.js';
-import { seguiLinkBreve } from '../lib/maps.js';
+import { linkPark4nightPosto, percorsiConTappe, geocode } from '../lib/geo.js';
+import { seguiLinkBreve, completaPunti, centroDelLink } from '../lib/maps.js';
 import { titoloDellaPagina } from './materiali.js';
 
 export const router = Router();
@@ -285,16 +285,29 @@ router.post('/trips/:id/cassetta', wrap(async (req, res) => {
   }
 
   if (letto.tipo === 'maps-punto') {
-    const p = letto.punto;
-    const riga = await proposta(p.name || 'Un posto da Maps', p.lat, p.lon, null, null);
-    return res.json({ cosa: 'proposta', riga, detto: `In lavagna: ${riga.nome}` });
+    // Nel link c'e' scritto «Innsbruck», non «47.26, 11.40»: il nome si cerca,
+    // altrimenti il posto non si apre in Maps e non sta sulla mappa.
+    const { punti, mancanti } = await completaPunti([letto.punto], geocode, centroDelLink(letto.url));
+    const p = punti[0] || letto.punto;
+    const riga = await proposta(p.name || 'Un posto da Maps', p.lat ?? null, p.lon ?? null, null, null);
+    return res.json({ cosa: 'proposta', riga, detto: mancanti.length
+      ? `In lavagna: ${riga.nome} — ma dov'è non l’ho trovato, il posto sulla mappa mettilo tu`
+      : `In lavagna: ${riga.nome}` });
   }
 
   if (letto.tipo === 'maps-percorso') {
-    const riga = await nuovoPercorso(tripId, req.user.id, null, letto.punti);
-    if (riga) return res.json({ cosa: 'percorso', riga, detto: `Una strada possibile: ${riga.nome}` });
+    // Google scrive i nomi dei posti, non le loro coordinate. Senza coordinate
+    // una strada non ha km, né ore, né gasolio - e sono quelli il motivo per
+    // cui la strada sta in elenco. Quindi si cercano, e quel che non si trova
+    // si dice invece di sparire.
+    const { punti, mancanti } = await completaPunti(letto.punti, geocode, centroDelLink(letto.url));
+    const fuori = mancanti.length ? ` (${mancanti.join(', ')}: non li ho trovati, sono rimasti fuori)` : '';
+    const riga = punti.length > 1 ? await nuovoPercorso(tripId, req.user.id, null, punti) : null;
+    if (riga) return res.json({ cosa: 'percorso', riga, detto: `Una strada possibile: ${riga.nome}${fuori}` });
     const m = await materiale('link', 'Indicazioni da Maps', null, letto.url);
-    return res.json({ cosa: 'link', riga: m, detto: 'Dal link non ho ricavato dei punti: l’ho messo fra la roba utile' });
+    return res.json({ cosa: 'link', riga: m, detto: mancanti.length
+      ? `Dei posti del link non ho trovato ${mancanti.join(', ')}: il link sta fra la roba utile`
+      : 'Dal link non ho ricavato dei punti: l’ho messo fra la roba utile' });
   }
 
   if (letto.tipo === 'link') {
