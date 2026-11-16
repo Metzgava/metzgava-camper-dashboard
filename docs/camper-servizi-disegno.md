@@ -479,3 +479,41 @@ LevelControl** per il livello della bombola (è un sensore Bluetooth del sistema
 iNet: da verificare se si legge passivamente), **VE.Direct a filo** con un cavo
 USB da una trentina di euro, che darebbe più dati dei Victron rispetto agli
 annunci radio e permetterebbe di scriverne le impostazioni.
+
+## La serata di taratura, e la modalità che le serve
+
+Promessa al proprietario il 16 novembre 2026, ritrovata nel diario e scritta
+qui perché non si perda: *«si spegne tutto, e poi si accende una cosa per volta
+mentre la pagina registra: frigo, Truma a livello 1, livello 2, pompa, ogni
+gruppo di luci»*. Ne esce una tabella **di questo camper**, non da catalogo, e
+da lì i conti smettono di dire «il totale» e cominciano a dire «il frigo».
+
+### Perché non si può fare prima della scatoletta
+
+La corrente delle Ective, oggi, da remoto **non si legge**. La taratura è
+un'operazione sulla corrente: senza la scatoletta a bordo non c'è il numero da
+guardare.
+
+### Perché il giro da 5 minuti non basta
+
+Un passo di cinque minuti è giusto per sorvegliare, non per misurare uno
+scalino: si accende una luce e il campione arriva quando la luce è già spenta.
+Serve una **modalità taratura**, da costruire prima di quella serata:
+
+- l'agente passa a un giro **ogni 10 secondi** per il tempo della sessione, poi
+  torna da sé al passo normale (anche se nessuno la chiude: una modalità veloce
+  che resta accesa consuma e logora la scheda);
+- in pagina un bottone **«sto accendendo…»** con il nome del carico: segna
+  l'istante, e lo scalino si misura fra il prima e il dopo invece di indovinarlo;
+- il risultato si scrive in `impianto` come una voce per carico, misurata — e da
+  lì i conti la usano come usano `consumo_fermo_w`.
+
+### Due carichi non hanno bisogno della prova a mano
+
+- **il frigo si dichiara da sé**: il compressore parte e si ferma, e quei gradini
+  ripetuti nella corrente sono suoi. Un termometro dentro lo conferma;
+- **la Truma dice il proprio stato sul bus**: sapendo quando scalda e a che
+  livello, il suo consumo si attribuisce senza accenderla di proposito.
+
+Resta da accendere a mano quel che **nessuno annuncia**: i gruppi di luci, la
+pompa dell'acqua, le prese a 12 V. Lì non c'è alternativa a «accendi e guarda».
