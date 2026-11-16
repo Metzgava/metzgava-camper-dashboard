@@ -209,30 +209,49 @@ function vistaAdesso() {
             </div>
             ${b.errore ? `<div class="avviso" style="margin-top:14px">${esc(b.errore)}</div>` : ''}
           </div>
-          <div class="griglia">
+          <div class="griglia stretta">
             <div class="scheda"><div class="eti">Entra</div><div class="cifra">${forse(dentro, ' W')}</div>
-              <div class="sotto">☀️ ${forse(b.fotovoltaico_w, ' W')} · 🔌 ${forse(b.rete_w, ' W')}</div></div>
+              <div class="sotto">☀️ ${forse(b.fotovoltaico_w, ' W')}<br>🔌 ${forse(b.rete_w, ' W')}</div></div>
             <div class="scheda"><div class="eti">Esce</div><div class="cifra">${forse(fuori, ' W')}</div>
-              <div class="sotto">220 V ${forse(b.uscita_ac_w, ' W')} · 12 V ${forse(b.uscita_dc_w, ' W')}</div></div>
+              <div class="sotto">220 V ${forse(b.uscita_ac_w, ' W')}<br>12 V ${forse(b.uscita_dc_w, ' W')}</div></div>
             <div class="scheda"><div class="eti">Carica residua</div>
-              <div class="cifra">${c.carica_residua?.detto ? esc(c.carica_residua.detto) : '<span class="vuoto">—</span>'}</div>
-              <div class="sotto">${bollo(c.carica_residua?.base || 'incompleto')}</div></div>
+              <div class="cifra">${b.carica == null ? '<span class="vuoto">—</span>' : num(b.carica, 0) + ' %'}</div>
+              <div class="sotto">${c.carica_residua?.detto ? esc(c.carica_residua.detto) : '<span class="vuoto">—</span>'}<br>${bollo(c.carica_residua?.base || 'incompleto')}</div></div>
           </div>`;
 
   // Le Ective avranno due manometri come quello della Bluetti. Finche' non
   // parlano si disegnano smorzati e senza lancetta: un quadrante a zero direbbe
   // «scariche», che e' una bugia diversa dal non sapere.
+  // Quando la scatoletta sara' a bordo, qui ci saranno le batterie vere: si
+  // riconoscono perche' mandano le celle. Finche' non arrivano, due quadranti
+  // spenti con i nomi che avranno.
+  const vere = (dati.istantanee || []).filter(r => r.dati?.celle_mv || /^NWJ/i.test(r.apparecchio || ''));
+  const quadrante = (r, i) => {
+    const d = r?.dati || {};
+    const residuoAh = d.capacita_ah != null && d.carica != null ? d.capacita_ah * d.carica / 100 : null;
+    // Colonna alta uguale e riquadro spinto in fondo: cosi' i due «carica
+    // residua» stanno sulla stessa riga anche quando il testo del ritmo e' piu'
+    // lungo da una parte. Due riquadri sfalsati sembrano un errore.
+    return `<div style="display:flex;flex-direction:column;height:100%">
+      ${manometro({ pct: d.carica ?? null, nome: `Ective ${i + 1}`,
+        tendenza: r?.tendenza, atteso: !r, perche: 'con la scatoletta' })}
+      <div class="scheda" style="margin:8px 0 0;padding:10px 9px;margin-top:auto">
+        <div class="eti">Carica residua</div>
+        <div class="cifra" style="font-size:19px">${d.carica == null ? '<span class="vuoto">—</span>' : num(d.carica, 0) + ' %'}</div>
+        <div class="sotto" style="font-size:10.5px">${residuoAh == null ? '<span class="vuoto">—</span>' : num(residuoAh, 0) + ' Ah di ' + num(d.capacita_ah, 0)}${d.volt != null ? `<br>${num(d.volt, 2)} V · ${d.ampere > 0 ? '+' : ''}${num(d.ampere, 2)} A` : ''}</div>
+      </div></div>`;
+  };
   const ective = `<div class="scheda">
       <div class="griglia" style="grid-template-columns:1fr 1fr">
-        ${manometro({ pct: null, nome: 'Ective 1', atteso: true, perche: 'con la scatoletta' })}
-        ${manometro({ pct: null, nome: 'Ective 2', atteso: true, perche: 'con la scatoletta' })}
+        ${quadrante(vere[0], 0)}
+        ${quadrante(vere[1], 1)}
       </div>
-      <div class="riga" style="margin-top:8px">
+      ${vere.length ? '' : `<div class="riga" style="margin-top:8px">
         <div class="cresci"><div class="eti">Col consumo di adesso</div>
           <div class="perche">${esc(dati.conti?.tempo_residuo_ective?.perche || '')}</div></div>
         <div class="valore"><span class="vuoto">—</span></div>
       </div>
-      <div class="perche" style="text-align:center;margin-top:6px">Stesso quadrante della Bluetti, stessa lancetta: appena il Raspberry sarà a bordo si accendono.</div>
+      <div class="perche" style="text-align:center;margin-top:6px">Stesso quadrante della Bluetti, stessa lancetta: appena il Raspberry sarà a bordo si accendono.</div>`}
     </div>`;
 
   const attesi = (dati.attesi || []).filter(a => a.id !== 'ective').map(a => `<div class="scheda atteso">

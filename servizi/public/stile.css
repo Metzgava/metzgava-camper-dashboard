@@ -190,3 +190,24 @@ input:-webkit-autofill:active {
   caret-color: var(--testo);
   transition: background-color 9999s ease-in-out 0s;
 }
+
+/* Tre riquadri in fila su un telefono stretto. A 375 px ognuno ha poco piu'
+   di cento punti: il numero scende a 19, l'etichetta a 11, e ci stanno senza
+   andare a capo. Prima erano due sopra e uno sotto, che sprecava mezzo schermo
+   per dire tre numeri. */
+.griglia.stretta { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.griglia.stretta .scheda { padding: 11px 9px; margin-bottom: 0; }
+.griglia.stretta .eti { font-size: 11px; line-height: 1.25; }
+.griglia.stretta .cifra { font-size: 19px; letter-spacing: -.5px; }
+.griglia.stretta .sotto { font-size: 10.5px; line-height: 1.3; margin-top: 2px; }
+@media (max-width: 330px) {
+  /* Sui telefoni piu' piccoli tre non ci stanno: meglio due leggibili che tre
+     schiacciati. */
+  .griglia.stretta { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Una colonna di griglia non si restringe sotto al suo contenuto, a meno che
+   non glielo si dica: senza questo, un nome lungo sfonda la colonna e taglia
+   quello che c'e' di fianco. Succedeva coi numeri di serie delle Ective. */
+.griglia > div { min-width: 0; }
+.griglia > div > div { overflow-wrap: anywhere; }
