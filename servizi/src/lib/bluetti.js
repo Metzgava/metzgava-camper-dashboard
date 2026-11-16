@@ -103,6 +103,7 @@ async function salva(accesso, rinnovo, scade) {
 // esattamente la cosa da fare.
 async function scorda(perche) {
   await q(`DELETE FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`);
+  console.warn('Bluetti: permesso SCARTATO — ' + perche);
   await segna('gettone', 'Permesso Bluetti scartato: ' + perche);
 }
 
@@ -267,6 +268,7 @@ export async function statoBluetti({ fresco = false } = {}) {
     if (n.esito === 'ok') {
       accesso = n.accesso;
       r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+      console.log(`Bluetti: dopo il rinnovo la lettura ${rifiutato(r) ? 'e\u2019 ANCORA rifiutata' : `risponde msgCode=${r.dato?.msgCode ?? '-'}`}`);
     } else if (n.esito === 'irraggiungibile') {
       // Non si sa se il permesso sia ancora buono, e nel dubbio **si tiene**.
       // Si riprova al giro dopo: una lettura persa costa molto meno di un
@@ -284,6 +286,7 @@ export async function statoBluetti({ fresco = false } = {}) {
   }
 
   const elenco = r.dato.data || [];
+  console.log(`Bluetti: lettura riuscita, ${elenco.length} apparecchi nell\u2019elenco`);
   if (!elenco.length) return { collegato: true, quando: new Date().toISOString(), apparecchi: [] };
 
   const sns = elenco.map(x => x.sn).filter(Boolean).join(',');
