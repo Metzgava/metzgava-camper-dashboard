@@ -250,8 +250,44 @@ l'apparecchio:
 | `H` | stufa |
 | `T` | Truma iNet Box |
 
-**Serve la `C`, e almeno `C 3.00.00`**: è il requisito che Truma mette per la
-iNet Box nella tabella delle combinazioni di collegamento.
+**Serve la `C`**, e il numero decide fra **tre** esiti, non due:
+
+| la `C` | cosa si può fare |
+|---|---|
+| `C 2.xx` | niente: sotto il requisito di Truma stessa per la iNet Box |
+| `C 3.xx` | **si legge, non si comanda**: protocollo diverso |
+| `C 4.xx` | si legge e si comanda |
+
+`C 3.00.00` è la soglia che Truma mette per la iNet Box; il salto a `C 4` per
+poter *scrivere* viene dal README di `inetbox2mqtt`. Da notare: il progetto
+ESPHome non dichiara nessun limite di versione, quindi su una `C 3` la scrittura
+va provata prima di darla per persa.
+
+Se risultasse `C 3`, nell'ordine: provare comunque per la via ESPHome; chiedere a
+Truma o a un centro assistenza (testimonianze contrastanti: alcuni apparecchi si
+aggiornano, altri no); sostituire il pannello (~329 €, non vale per il solo
+comando da remoto). La lettura funziona in ogni caso.
+
+### Il pannello è un CP plus, non un iNet X — ed è dirimente
+
+`inetbox2mqtt` **non supporta** il Truma iNet X Panel. Su un camper del 2023 era
+un rischio reale, perché l'iNet X sostituisce il CP plus riusando lo stesso cavo
+TIN. È escluso dalla descrizione del proprietario: l'iNet X è un **touchscreen da
+4,3"**, mentre lui ha una **manopola che si gira e si preme**. Nessuna manopola
+sull'iNet X.
+
+Non supportato nemmeno un CP plus a cui sia già collegata una iNet Box: se ce ne
+fosse stata una prima, va fatto un INIT senza di essa. Qui non c'è mai stata.
+
+### Previsione sulla versione, e su cosa si basa
+
+Camper del **2023**, stufa **Combi 6D + E**. Un thread tedesco riporta che le
+Combi dal 2018 richiedono un CP plus con software `04.0x`. Quattro anni dopo
+quella soglia, l'attesa è **`C 4.0x` o successiva**.
+
+Resta una previsione da forum, non un dato di Truma: la conferma o la smentisce
+il pannello in due minuti. Vale come stima del rischio d'acquisto, non come
+fatto.
 
 ### I due passaggi che si dimenticano
 
