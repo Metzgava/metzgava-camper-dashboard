@@ -181,8 +181,14 @@ function vistaAdesso() {
   const dentro = b ? (b.fotovoltaico_w || 0) + (b.rete_w || 0) : null;
   const fuori = b ? (b.uscita_ac_w || 0) + (b.uscita_dc_w || 0) : null;
 
+  // Anche quando non e' collegata, la Bluetti si disegna come quadrante: cosi'
+  // la pagina ha sempre la stessa forma e si capisce a colpo d'occhio che cosa
+  // manca. Un apparecchio che compare solo dopo essere stato collegato sembra
+  // un apparecchio che non c'e'.
   const capo = !dati.bluetti?.collegato
-    ? `<div class="scheda"><div class="nota">La Bluetti non è ancora collegata. Serve una volta sola: si apre la pagina di Bluetti, si entra col tuo account e si preme <b>Agree</b>.</div>
+    ? `<div class="scheda">
+        ${manometro({ pct: null, nome: 'Bluetti Elite 300', atteso: true, perche: 'da collegare' })}
+        <div class="nota" style="margin-top:10px">Serve una volta sola: si apre la pagina di Bluetti, si entra col tuo account e si preme <b>Agree</b>.</div>
         <a class="btn primario largo" style="display:block;text-align:center;text-decoration:none;margin-top:12px" href="${esc(dati.collegamento?.indirizzo || '#')}">Collega la Bluetti</a></div>`
     : err
       ? `<div class="scheda"><div class="avviso">Bluetti: ${esc(err)}</div></div>`
@@ -236,7 +242,8 @@ function vistaAdesso() {
           <div class="perche">Dirà: ${esc(a.cosa)}</div></div>
       </div></div>`).join('');
 
-  return `${capo}
+  return `<div class="titolo">Stazione di accumulo</div>
+    ${capo}
     <div class="titolo">Batterie di servizio</div>
     ${ective}
     <div class="titolo">Non ancora collegati</div>
