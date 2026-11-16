@@ -523,6 +523,7 @@ async function disegna() {
     history.replaceState(null, '', location.hash.replace(/[?&]bluetti=[a-z]+/, ''));
     brindello(esito === 'fatto' ? 'Bluetti collegata'
       : esito === 'annullato' ? 'Collegamento annullato'
+      : esito === 'scaduto' ? 'Il collegamento è scaduto: ripremi il tasto e rifallo entro un quarto d’ora'
       : 'Il collegamento non è riuscito: riprova');
   }
 }
