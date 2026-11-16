@@ -69,13 +69,14 @@ export async function completaAutorizzazione(codice, ritorno) {
 // ---------- i gettoni ----------
 
 async function gettoni() {
-  const righe = (await q(`SELECT nome, valore FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`)).rows;
+  const righe = (await q(`SELECT nome, valore, scade FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`)).rows;
   const dentro = Object.fromEntries(righe.map(r => [r.nome, r.valore]));
+  const scade = righe.find(r => r.nome === 'bluetti_accesso')?.scade || null;
   if (!dentro.bluetti_accesso && process.env.BLUETTI_ACCESS_TOKEN) {
     await salva(process.env.BLUETTI_ACCESS_TOKEN, process.env.BLUETTI_REFRESH_TOKEN || null, null);
     return { accesso: process.env.BLUETTI_ACCESS_TOKEN, rinnovo: process.env.BLUETTI_REFRESH_TOKEN || null };
   }
-  return { accesso: dentro.bluetti_accesso, rinnovo: dentro.bluetti_rinnovo };
+  return { accesso: dentro.bluetti_accesso, rinnovo: dentro.bluetti_rinnovo, scade };
 }
 
 async function salva(accesso, rinnovo, scade) {
@@ -173,8 +174,18 @@ function traduci(a) {
 export async function statoBluetti({ fresco = false } = {}) {
   if (!fresco && cache.dato && Date.now() - cache.quando < RESPIRO) return cache.dato;
 
-  let { accesso, rinnovo } = await gettoni();
+  let { accesso, rinnovo, scade } = await gettoni();
   if (!accesso) return { collegato: false };
+
+  // Il permesso dura un mese. Rinnovarlo **prima** che scada, invece di
+  // aspettare il rifiuto, serve a due cose: non perdere nemmeno una lettura
+  // nel momento del cambio, e tenere vivo il gettone di rinnovo — che in molti
+  // servizi si spegne se non lo si usa mai. Tre giorni di margine bastano.
+  const MARGINE = 3 * 24 * 3600 * 1000;
+  if (scade && new Date(scade).getTime() - Date.now() < MARGINE && rinnovo) {
+    const nuovo = await rinnova(rinnovo);
+    if (nuovo) accesso = nuovo;
+  }
 
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   if (r.dato?.msgCode === 805 || r.http === 401) {
