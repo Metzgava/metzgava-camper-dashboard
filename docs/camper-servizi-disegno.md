@@ -294,7 +294,55 @@ Truma?». Elettricamente è indifferente — il TIN è un **bus**, i tre apparec
 stanno sugli stessi due fili e chi si attacca lo sente da qualunque punto. La
 scelta è quindi tutta pratica, e cambia il disegno.
 
-### Correzione: l'ESP32 non va in wifi, va in USB al Raspberry
+### USB o wifi: la scelta non è ancora chiusa
+
+**Riaperta il 16 novembre 2026**, e per un buon motivo: scoperto che il modulo
+LIN **vuole 12 V** (su un bus LIN il riposo è la tensione di batteria, e il
+ricetrasmettitore misura le soglie rispetto alla propria alimentazione), il
+mio argomento principale per la USB — «un'alimentazione sola» — è caduto.
+Dove va l'ESP32 ci devono essere i 12 V comunque, e dove ci sono i 12 V si
+alimenta anche l'ESP32 con sei euro di adattatore.
+
+Cosa resta davvero in favore della **USB**:
+
+- **il collegamento non può cadere.** Per la sola lettura è un vantaggio tenue;
+  per **mandare un comando a una stufa a gas** è l'argomento serio. Via wifi,
+  un comando può non arrivare e l'app non lo sa; via USB non esiste il caso.
+- la coda offline del Raspberry copre anche le letture della Truma, gratis;
+- nessuna password del wifi dentro l'ESP32, da rifare se la rete cambia;
+- un apparecchio solo da diagnosticare invece di due;
+- si riflasha dal Raspberry senza smontare niente.
+
+Cosa resta in favore del **wifi**:
+
+- **i due ottimi non coincidono.** Il Raspberry vuole stare dove sente meglio il
+  Bluetooth; l'ESP32 vorrebbe stare dove c'è il bus. Senza fili ognuno sta dove
+  gli conviene.
+- **niente cavo da far passare.** Tirare cinque metri di RJ12 dentro i mobili di
+  un camper è la parte piu' faticosa di tutto il lavoro, e il wifi la cancella.
+- ESPHome fa wifi e aggiornamenti via rete molto bene: non è una strada
+  sperimentale, è quella per cui quel componente è nato.
+
+### Quel che decide non è USB contro wifi
+
+È **dove c'è una presa a 12 V già esistente**, perché all'impianto non si mette
+mano:
+
+- se quel punto è **vicino al pannello** → cavo RJ12 corto, i due apparecchi
+  stanno insieme, e la USB è semplicemente più semplice;
+- se quel punto è **lontano dal pannello** → o si tira il cavo lungo (USB), o
+  l'ESP32 va vicino al pannello e il wifi diventa la strada naturale, a patto di
+  risolvere i suoi 12 V lì.
+
+Quindi: **si decide dopo le foto**, e la cosa buona è che **non cambia l'ordine**.
+L'ESP32 fa wifi di suo, l'adattatore OTG costa un euro, e l'unica voce che
+cambia è la lunghezza del cavo RJ12.
+
+Regola di decisione, scritta ora per non riaprirla a caso: **se i comandi alla
+stufa entrano in Camper Servizi, si va in USB**; se resta solo lettura, va bene
+la via che costa meno fatica di montaggio.
+
+### Come era scritto prima (e perché si era arrivati alla USB)
 
 Prima qui c'era scritto che l'ESP32 «espone i suoi valori sulla rete del camper
 e la scatoletta li raccoglie». Funziona, ma è la variante peggiore. Meglio:
