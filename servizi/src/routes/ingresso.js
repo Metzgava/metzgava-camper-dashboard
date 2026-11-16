@@ -28,6 +28,9 @@ const AMMESSE = {
   capacita_ah: [0, 2000],
   pannelli_w: [0, 4000],
   resa_oggi_kwh: [0, 60],
+  // Quanto forte si sente un apparecchio. Negativo sempre: 0 sarebbe
+  // un trasmettitore attaccato all'antenna.
+  rssi: [-120, 0],
 };
 
 export const chiave = () => process.env.INGEST_TOKEN || null;

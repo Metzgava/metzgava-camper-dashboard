@@ -222,7 +222,18 @@ async def giro_bluetooth(conf):
 
     termometri = {}
 
+    # Quanto forte si sente ciascuno. Non e' una curiosita': e' il dato che
+    # dice dove va montato il Raspberry. Un apparecchio che si sente a -90 dBm
+    # oggi funziona e domani no, e senza misurarlo lo si scopre il giorno in
+    # cui serviva. Si manda come tutto il resto, e la pagina lo mostra.
+    potenze = {}
+
     def senti(dispositivo, dati):
+        # getattr: nelle bleak vecchie il campo stava sul dispositivo, non
+        # sull'annuncio. Senza, si perde la potenza e non il resto.
+        forza = getattr(dati, "rssi", None)
+        if forza is not None:
+            potenze[dispositivo.address] = forza
         grezzo = (dati.manufacturer_data or {}).get(VICTRON_ID)
         if grezzo:
             annunci.setdefault(dispositivo.address, (dispositivo.name or "", grezzo))
@@ -266,6 +277,10 @@ async def giro_bluetooth(conf):
             log.info("%s: record 0x%02x non ancora letto", nome, tipo)
             continue
         if d:
+            forza = potenze.get(indirizzo)
+            if forza is not None:
+                d = dict(d, rssi=forza)
+                misure["rssi"] = forza
             trovati[nome or indirizzo] = {"id": nome or indirizzo, "nome": nome or indirizzo,
                                           "tipo": "victron", "dati": d, "misure": misure}
 
@@ -275,10 +290,14 @@ async def giro_bluetooth(conf):
         # Senza un nome dato da te resta il suo indirizzo: meglio un nome brutto
         # che un sensore anonimo in mezzo agli altri.
         etichetta = nomi.get(indirizzo.lower()) or nome or indirizzo
+        forza = potenze.get(indirizzo)
+        misure = {k: v for k, v in letto.items() if k in ("temperatura", "umidita")}
+        if forza is not None:
+            letto = dict(letto, rssi=forza)
+            misure["rssi"] = forza
         trovati[etichetta] = {
             "id": "term-" + indirizzo.replace(":", "").lower(), "nome": etichetta,
-            "tipo": "termometro", "dati": letto,
-            "misure": {k: v for k, v in letto.items() if k in ("temperatura", "umidita")},
+            "tipo": "termometro", "dati": letto, "misure": misure,
         }
 
     # --- 2. le Ective: collegarsi e stare ad ascoltare ---

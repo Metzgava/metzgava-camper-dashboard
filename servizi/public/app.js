@@ -268,9 +268,40 @@ function vistaAdesso() {
     ${capo}
     <div class="titolo">Batterie di servizio</div>
     ${ective}
-    <div class="titolo">Non ancora collegati</div>
+${vistaSegnale()}
+        <div class="titolo">Non ancora collegati</div>
     <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono e sono già stati letti una volta, il 16 novembre, col computer dentro al camper. Parlano solo da vicino: arriveranno qui quando la scatoletta sarà a bordo. Finché non ci sono, <b>non mostro numeri</b>: sarebbero vecchi di settimane.</div>
     ${attesi}`;
+}
+
+// ---------- quanto si sente ----------
+//
+// Serve a una cosa sola: decidere dove sta il Raspberry. Un apparecchio che si
+// sente al limite oggi funziona e domani no, e senza guardarlo lo si scopre il
+// giorno in cui serviva. Le soglie sono quelle che si usano per il Bluetooth a
+// bassa energia: sotto -85 dBm i pacchetti cominciano a perdersi.
+const QUANTO = [[-60, 'ottimo', 4], [-75, 'buono', 3], [-85, 'debole', 2], [-999, 'al limite', 1]];
+
+function antenna(rssi) {
+  if (rssi == null) return '';
+  const [, parola, tacche] = QUANTO.find(([s]) => rssi >= s);
+  const barre = [1, 2, 3, 4].map(n =>
+    `<span style="display:inline-block;width:3px;height:${3 + n * 2}px;margin-right:1px;vertical-align:bottom;background:${n <= tacche ? 'currentColor' : 'rgba(255,255,255,.18)'}"></span>`).join('');
+  return `<span title="${rssi} dBm">${barre} ${parola}</span>`;
+}
+
+function vistaSegnale() {
+  const sentiti = (dati.istantanee || []).filter(r => r.dati?.rssi != null)
+    .sort((a, b) => b.dati.rssi - a.dati.rssi);
+  if (!sentiti.length) return '';
+  return `<div class="titolo">Quanto si sente</div>
+    <div class="scheda">
+      ${sentiti.map(r => `<div class="riga">
+        <div class="cresci"><div class="eti">${esc(r.apparecchio)}</div></div>
+        <div class="valore" style="font-size:13px">${antenna(r.dati.rssi)}</div>
+      </div>`).join('')}
+      <div class="nota" style="margin:8px 0 0">Decide dove va montata la scatoletta: se qualcosa sta su <b>debole</b> o <b>al limite</b>, spostarla di mezzo metro cambia tutto. Si misura da sola a ogni giro, quindi si può provare e riguardare.</div>
+    </div>`;
 }
 
 function dilloInOre(ore) {
