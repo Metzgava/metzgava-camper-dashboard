@@ -49,6 +49,9 @@ const ETICHETTE = {
   ective_v: 'Tensione del pacco',
   ective_carica_a: 'Caricabatterie delle Ective',
   rendimento_bluetti_ective: 'Rendimento Bluetti → Ective',
+  truma_el1_w: 'Truma elettrica, livello 1',
+  truma_el2_w: 'Truma elettrica, livello 2',
+  rendimento_inverter_bluetti: 'Rendimento dell’inverter',
   consumo_fermo_w: 'Consumo a camper fermo',
   starlink_w: 'Consumo di Starlink',
   scatoletta_w: 'Consumo della scatoletta',
@@ -377,6 +380,12 @@ function vistaEnergia() {
     <div class="scheda">
       ${rigaConto('Bluetti, col consumo di adesso', c.tempo_residuo_bluetti)}
       ${rigaConto('Ective, col consumo di adesso', c.tempo_residuo_ective)}
+    </div>
+    <div class="titolo">Quanta Truma elettrica ci sta</div>
+    <div class="scheda">
+      ${rigaConto('A 900 W — EL 1 e MIX 1', c.ore_truma_el1)}
+      ${rigaConto('A 1800 W — EL 2 e MIX 2', c.ore_truma_el2)}
+      <div class="nota">Tempo di <b>resistenza accesa</b>, non di stufa accesa: la Combi stacca quando arriva a temperatura, e l'orologio dura di più. La ventola sta sui 12 V delle Ective e qui non è contata. E vale solo se i 230 V li fa la Bluetti: attaccato alla colonnina, la stufa elettrica alla Bluetti non costa niente.</div>
     </div>
     <div class="titolo">Quanto dura fermo</div>
     <div class="scheda">

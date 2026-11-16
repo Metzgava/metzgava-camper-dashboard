@@ -106,6 +106,32 @@ export async function tuttiIConti(bluetti) {
           detto: dilloInOre(mancaWh / acW),
         });
 
+  // ---- quante ore di Truma elettrica ci stanno nella Bluetti ----
+  //
+  // La resistenza della Combi tira 900 o 1800 W dalla 230 V. Se quella 230 V
+  // la fa l'inverter della Bluetti, ogni ora di stufa si paga in carica: e' il
+  // conto che dice se accendere l'elettrico in sosta libera ha senso o no.
+  //
+  // Due avvertenze senza le quali il numero inganna, e che la pagina ripete:
+  //   - e' tempo di **resistenza accesa**, non di stufa accesa. La Combi
+  //     stacca quando arriva a temperatura, quindi l'orologio dura di piu';
+  //   - la ventola sta sui 12 V delle Ective, non sulla Bluetti: qui non c'e'.
+  const rendInv = val(m, 'rendimento_inverter_bluetti');
+  for (const [chiave, potenza] of [['ore_truma_el1', 'truma_el1_w'], ['ore_truma_el2', 'truma_el2_w']]) {
+    const w = val(m, potenza);
+    const residuoWh = out.carica_residua.valore;
+    out[chiave] = residuoWh == null
+      ? manca('h', ['carica della Bluetti'], 'Serve la carica letta dal cloud.')
+      : w == null || rendInv == null
+        ? manca('h', [potenza, 'rendimento_inverter_bluetti'].filter(k => val(m, k) == null),
+            'Servono i watt della resistenza e il rendimento dell’inverter.')
+        : conto(residuoWh * rendInv / w, 'h', {
+            base: misurato(m, potenza, 'rendimento_inverter_bluetti', 'bluetti_wh') ? 'misurato' : 'stima',
+            perche: `${Math.round(residuoWh)} Wh in Bluetti, ${w} W di resistenza, inverter al ${Math.round(rendInv * 100)} %`,
+            detto: `${dilloInOre(residuoWh * rendInv / w)} di resistenza accesa`,
+          });
+  }
+
   // ---- quanta Bluetti serve per le Ective ----
   // Questo conto si puo' fare anche senza sapere come stanno le Ective: il
   // numero utile e' il cambio, «un punto di Ective quanti punti di Bluetti
