@@ -263,19 +263,30 @@ passa un pomeriggio a controllare fili giusti.
 **Quel reset cancella tutte le impostazioni** — orologio, temporizzatore,
 taratura del sensore di temperatura. Reversibile, ma da rimettere a mano.
 
-### L'effetto collaterale, che è un costo reale
+### La pressione lunga: tre tempi, non due
 
-Dal manuale: finché il CP plus non conosce una iNet Box, la **pressione
-prolungata** della rotella è l'**interruttore generale ON/OFF**. Appena la
-ricerca degli apparecchi trova una iNet Box, quella pressione diventa
-**«modalità APP»**: pannello e apparecchi in stand-by, niente riscaldamento e
-niente acqua calda, in attesa di comandi dall'app. Si esce premendo di nuovo la
-rotella, e i valori restano quelli di prima.
+**Corretto il 16 novembre 2026.** Prima qui c'era scritto che con una iNet Box
+nota al pannello «si perde l'interruttore generale sulla pressione lunga». È
+falso, e il manuale lo dice con i secondi in mano:
 
-Quindi il controllo della stufa non si perde: si perde **l'interruttore generale
-sulla pressione lunga**. È il solo cambiamento visibile che la basetta porta sul
-pannello, e va detto prima di comprare, non dopo: per la sola temperatura in
-cellula bastano i termometri Bluetooth, che non cambiano niente a nessuno.
+| gesto | cosa fa |
+|---|---|
+| pressione **breve** | esce dalla modalità APP e ridà il comando al pannello |
+| tenuta **~2 s** | entra in **modalità APP** (solo se il pannello conosce una iNet Box) |
+| tenuta **oltre 4 s** | **OFF**, l'interruttore generale |
+
+Testuale: «Tenere premuta la manopola per più di 4 secondi. Dopo 2 secondi sul
+display appare APP. Dopo altri 2 secondi appare OFF.»
+
+Quindi **non si perde niente**: la modalità APP è una fermata in mezzo alla
+stessa pressione, e continuando ad arrivare si spegne come prima. Senza iNet Box
+nota, quella fermata non c'è e a oltre 4 secondi si spegne direttamente.
+
+La modalità APP mette pannello e apparecchi in stand-by in attesa dei comandi
+dall'app, e si chiude da sé anche quando l'app manda valori nuovi.
+
+**Il costo vero della basetta è quindi più basso di quanto scritto prima**: una
+fermata in più su un gesto che resta disponibile. Non una funzione perduta.
 
 ### Collegamenti
 
