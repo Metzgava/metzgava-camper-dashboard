@@ -581,8 +581,35 @@ function aggancia() {
   }
 }
 
+// ---------- l'app che si accorge di essere vecchia ----------
+//
+// Un'app aggiunta alla schermata Home di iPhone non si ricarica da sola: iOS
+// la tiene sospesa e riaprendola riprende la pagina di prima. Chi la usa non
+// ha modo di accorgersene, perche' li' dentro non c'e' nemmeno il tasto di
+// ricarica di Safari.
+//
+// Allora chiede lei: a ogni ritorno in primo piano confronta l'impronta del
+// programma con quella che aveva all'avvio. Se e' cambiata, si ricarica.
+let improntaMia = null;
+
+async function controllaVersione() {
+  let v;
+  try { v = (await (await fetch('/api/health', { cache: 'no-store' })).json())?.versione; } catch { return; }
+  if (!v) return;
+  if (improntaMia == null) { improntaMia = v; return; }
+  if (v === improntaMia) return;
+  brindello('Nuova versione: ricarico\u2026');
+  // Un attimo perche' si legga l'avviso, e la ricarica senza la cache
+  setTimeout(() => location.reload(), 900);
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) controllaVersione(); });
+window.addEventListener('focus', controllaVersione);
+setInterval(controllaVersione, 10 * 60 * 1000);
+
 async function avvia() {
   try {
+    await controllaVersione();          // prende l'impronta di partenza
     const r = await api('/io');
     io = r.utente;
     if (!io) return vistaAccesso(r.primoAvvio);

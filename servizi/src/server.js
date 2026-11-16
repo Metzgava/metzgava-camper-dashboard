@@ -9,6 +9,9 @@ import { router as stato } from './routes/stato.js';
 import { router as ingresso } from './routes/ingresso.js';
 import { registra, collegato } from './lib/bluetti.js';
 
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+
 const QUI = path.dirname(fileURLToPath(import.meta.url));
 const PUBBLICA = path.join(QUI, '..', 'public');
 
@@ -27,9 +30,22 @@ app.use(cookieSession({
   secure: process.env.NODE_ENV === 'production',
 }));
 
+// L'impronta del programma della pagina, calcolata all'avvio. Serve a una cosa
+// sola, ma importante: un'app aggiunta alla schermata Home di iPhone **non si
+// ricarica da sola**. Il sistema la tiene sospesa e riaprendola riprende la
+// pagina di prima. Con questa impronta la pagina se ne accorge e si ricarica,
+// invece di mostrare una versione vecchia a chi non sa di averla.
+const IMPRONTA = (() => {
+  try {
+    const h = crypto.createHash('sha1');
+    for (const f of ['app.js', 'stile.css', 'index.html']) h.update(fs.readFileSync(path.join(PUBBLICA, f)));
+    return h.digest('hex').slice(0, 10);
+  } catch { return String(Date.now()); }
+})();
+
 // Un controllo di salute che non interroga l'archivio: se il database e'
 // lento, il servizio non deve risultare morto e farsi riavviare in loop.
-app.get('/api/health', (req, res) => res.json({ ok: true, app: 'camper-servizi' }));
+app.get('/api/health', (req, res) => res.json({ ok: true, app: 'camper-servizi', versione: IMPRONTA }));
 
 app.use('/api', ingresso);
 app.use('/api', auth);
