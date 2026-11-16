@@ -67,6 +67,10 @@ export async function completaAutorizzazione(codice, ritorno) {
   // Quanto dura davvero questo permesso e' il dato che manca per capire
   // perche' muore cosi' in fretta. Nei log, non in chat: non e' un segreto,
   // ma non e' roba da far leggere a nessuno.
+  // La forma del gettone, non il gettone: lunghezza e intestazione JWE, che e'
+  // identica per tutti e non e' un segreto. Serve a confrontarlo con uno che
+  // so funzionare: se le lunghezze differiscono, il guasto e' nel salvataggio.
+  console.log(`Bluetti gettone ricevuto: ${String(g.access_token).length} caratteri, inizia per ${String(g.access_token).slice(0, 10)}, rinnovo ${String(g.refresh_token || '').length} caratteri`);
   console.log(`Bluetti collegato: expires_in=${g.expires_in ?? 'assente'}s, scade ${scadenza ? scadenza.toISOString() : 'mai dichiarato'}, rinnovo ${g.refresh_token ? 'presente' : 'ASSENTE'}`);
   await segna('bluetti', `Collegato al cloud Bluetti (dura ${g.expires_in ? Math.round(g.expires_in / 3600) + ' ore' : 'non dichiarato'})`);
   return { ok: true, scade_fra_giorni: g.expires_in ? Math.round(g.expires_in / 86400) : null };
@@ -260,6 +264,7 @@ export async function statoBluetti({ fresco = false } = {}) {
   // morto, e va buttato in entrambi i casi.
   const rifiutato = x => Number(x.dato?.msgCode) === 805 || x.http === 401;
 
+  console.log(`Bluetti: uso un gettone di ${String(accesso).length} caratteri (inizia per ${String(accesso).slice(0, 10)}), scadenza ${scade || 'ignota'}`);
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   if (rifiutato(r)) {
     console.warn(`Bluetti: lettura rifiutata (msgCode=${r.dato?.msgCode ?? '-'}, http=${r.http}). Provo il rinnovo.`);
