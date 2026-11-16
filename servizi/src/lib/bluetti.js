@@ -26,6 +26,8 @@ const SEGRETO = 'SG9tZUFzc2lzdGFudA==';
 // pagina non devono diventare dieci richieste ai loro server.
 const RESPIRO = 60_000;
 let cache = { quando: 0, dato: null };
+// Quando si e' rinnovato l'ultima volta, per non farlo due volte di fila.
+let ultimoRinnovo = 0;
 
 // Il collegamento si fa dall'app, non da una variabile d'ambiente: si apre la
 // pagina di Bluetti, si dice «Agree», e il gettone torna qui e finisce in
@@ -59,24 +61,29 @@ export async function completaAutorizzazione(codice, ritorno) {
   });
   const g = await r.json().catch(() => null);
   if (!g?.access_token) return { ok: false, errore: g?.error_description || g?.error || `il server ha risposto ${r.status}` };
-  await salva(g.access_token, g.refresh_token || null,
-    g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null);
+  const scadenza = g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null;
+  await salva(g.access_token, g.refresh_token || null, scadenza);
   cache = { quando: 0, dato: null };
-  await segna('bluetti', 'Collegato al cloud Bluetti');
+  // Quanto dura davvero questo permesso e' il dato che manca per capire
+  // perche' muore cosi' in fretta. Nei log, non in chat: non e' un segreto,
+  // ma non e' roba da far leggere a nessuno.
+  console.log(`Bluetti collegato: expires_in=${g.expires_in ?? 'assente'}s, scade ${scadenza ? scadenza.toISOString() : 'mai dichiarato'}, rinnovo ${g.refresh_token ? 'presente' : 'ASSENTE'}`);
+  await segna('bluetti', `Collegato al cloud Bluetti (dura ${g.expires_in ? Math.round(g.expires_in / 3600) + ' ore' : 'non dichiarato'})`);
   return { ok: true, scade_fra_giorni: g.expires_in ? Math.round(g.expires_in / 86400) : null };
 }
 
 // ---------- i gettoni ----------
 
 async function gettoni() {
-  const righe = (await q(`SELECT nome, valore, scade FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`)).rows;
+  const righe = (await q(`SELECT nome, valore, scade, aggiornato FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`)).rows;
   const dentro = Object.fromEntries(righe.map(r => [r.nome, r.valore]));
   const scade = righe.find(r => r.nome === 'bluetti_accesso')?.scade || null;
   if (!dentro.bluetti_accesso && process.env.BLUETTI_ACCESS_TOKEN) {
     await salva(process.env.BLUETTI_ACCESS_TOKEN, process.env.BLUETTI_REFRESH_TOKEN || null, null);
     return { accesso: process.env.BLUETTI_ACCESS_TOKEN, rinnovo: process.env.BLUETTI_REFRESH_TOKEN || null };
   }
-  return { accesso: dentro.bluetti_accesso, rinnovo: dentro.bluetti_rinnovo, scade };
+  const aggiornato = righe.find(r => r.nome === 'bluetti_accesso')?.aggiornato || null;
+  return { accesso: dentro.bluetti_accesso, rinnovo: dentro.bluetti_rinnovo, scade, aggiornato };
 }
 
 async function salva(accesso, rinnovo, scade) {
@@ -128,6 +135,7 @@ async function rinnova(rinnovo) {
   if (r.ok && g?.access_token) {
     await salva(g.access_token, g.refresh_token || rinnovo,
       g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null);
+    console.log(`Bluetti rinnovato: expires_in=${g.expires_in ?? 'assente'}s, rinnovo ${g.refresh_token ? 'nuovo' : 'invariato'}`);
     await segna('gettone', 'Gettone Bluetti rinnovato');
     return { esito: 'ok', accesso: g.access_token };
   }
@@ -135,7 +143,9 @@ async function rinnova(rinnovo) {
   // — 500, 502, risposte non JSON — e' un loro inciampo, non un nostro
   // permesso scaduto.
   if (r.status >= 400 && r.status < 500) {
-    return { esito: 'rifiutato', perche: g?.error_description || g?.error || `HTTP ${r.status}` };
+    const perche = g?.error_description || g?.error || `HTTP ${r.status}`;
+    console.warn(`Bluetti: rinnovo RIFIUTATO (${r.status}): ${perche}`);
+    return { esito: 'rifiutato', perche };
   }
   return { esito: 'irraggiungibile', perche: `HTTP ${r.status}` };
 }
@@ -207,16 +217,28 @@ function traduci(a) {
 export async function statoBluetti({ fresco = false } = {}) {
   if (!fresco && cache.dato && Date.now() - cache.quando < RESPIRO) return cache.dato;
 
-  let { accesso, rinnovo, scade } = await gettoni();
+  let { accesso, rinnovo, scade, aggiornato } = await gettoni();
   if (!accesso) return { collegato: false };
 
-  // Il permesso dura un mese. Rinnovarlo **prima** che scada, invece di
-  // aspettare il rifiuto, serve a due cose: non perdere nemmeno una lettura
-  // nel momento del cambio, e tenere vivo il gettone di rinnovo — che in molti
-  // servizi si spegne se non lo si usa mai. Tre giorni di margine bastano.
-  const MARGINE = 3 * 24 * 3600 * 1000;
-  if (scade && new Date(scade).getTime() - Date.now() < MARGINE && rinnovo) {
+  // Rinnovare **prima** che scada, invece di aspettare il rifiuto, serve a non
+  // perdere letture nel cambio e a tenere vivo il gettone di rinnovo.
+  //
+  // Ma il margine era **fisso a tre giorni**, e quello e' un errore se il loro
+  // permesso dura poco: con un permesso da due ore, «mancano meno di tre
+  // giorni» e' vero dal primo istante, e si rinnoverebbe a ogni singola
+  // lettura. Un margine **relativo** — l'ultimo quinto della vita del
+  // permesso, mai meno di dieci minuti — si comporta bene con durate di
+  // qualunque ordine.
+  const vita = scade && aggiornato ? new Date(scade).getTime() - new Date(aggiornato).getTime() : null;
+  const MARGINE = vita && vita > 0 ? Math.max(10 * 60 * 1000, vita * 0.2) : 3 * 24 * 3600 * 1000;
+  // E non due rinnovi di fila: due richieste contemporanee che usano lo stesso
+  // gettone di rinnovo sono il modo classico di far invalidare la sessione.
+  const DISTANZA = 10 * 60 * 1000;
+  if (scade && new Date(scade).getTime() - Date.now() < MARGINE && rinnovo
+      && Date.now() - ultimoRinnovo > DISTANZA) {
     const n = await rinnova(rinnovo);
+    ultimoRinnovo = Date.now();
+    console.log(`Bluetti: rinnovo preventivo (margine ${Math.round(MARGINE / 60000)} min, vita dichiarata ${vita ? Math.round(vita / 60000) + ' min' : 'ignota'})`);
     if (n.esito === 'ok') accesso = n.accesso;
     else console.warn(`rinnovo preventivo Bluetti non riuscito (${n.esito}): ${n.perche}`);
   }
@@ -239,6 +261,8 @@ export async function statoBluetti({ fresco = false } = {}) {
 
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   if (rifiutato(r)) {
+    console.warn(`Bluetti: lettura rifiutata (msgCode=${r.dato?.msgCode ?? '-'}, http=${r.http}). Provo il rinnovo.`);
+    ultimoRinnovo = Date.now();
     const n = await rinnova(rinnovo);
     if (n.esito === 'ok') {
       accesso = n.accesso;
