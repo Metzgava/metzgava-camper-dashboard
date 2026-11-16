@@ -191,6 +191,11 @@ function vistaAdesso() {
         : `<div class="scheda">
             ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza })}
             <div class="riga" style="margin-top:14px">
+              <div class="cresci"><div class="eti">Col consumo di adesso</div>
+                <div class="cifra" style="font-size:22px">${c.tempo_residuo_bluetti?.detto ? esc(c.tempo_residuo_bluetti.detto) : '<span class="vuoto">—</span>'}</div>
+                <div class="perche">${esc(c.tempo_residuo_bluetti?.perche || '')}</div></div>
+            </div>
+            <div class="riga">
               <div class="cresci"><div class="eti">Autonomia, secondo lei</div>
                 <div class="cifra" style="font-size:22px">${b.autonomia_minuti ? esc(dilloInOre(b.autonomia_minuti / 60)) : '<span class="vuoto">—</span>'}</div></div>
               <div style="text-align:right"><div class="eti">Modalità</div>
@@ -215,6 +220,11 @@ function vistaAdesso() {
       <div class="griglia" style="grid-template-columns:1fr 1fr">
         ${manometro({ pct: null, nome: 'Ective 1', atteso: true, perche: 'con la scatoletta' })}
         ${manometro({ pct: null, nome: 'Ective 2', atteso: true, perche: 'con la scatoletta' })}
+      </div>
+      <div class="riga" style="margin-top:8px">
+        <div class="cresci"><div class="eti">Col consumo di adesso</div>
+          <div class="perche">${esc(dati.conti?.tempo_residuo_ective?.perche || '')}</div></div>
+        <div class="valore"><span class="vuoto">—</span></div>
       </div>
       <div class="perche" style="text-align:center;margin-top:6px">Stesso quadrante della Bluetti, stessa lancetta: appena il Raspberry sarà a bordo si accendono.</div>
     </div>`;
@@ -336,6 +346,11 @@ function vistaEnergia() {
     <div class="scheda">
       ${rigaConto('Il cambio', c.cambio_ective)}
       ${rigaConto('Riempirle da vuote', c.ective_piene_da_vuote)}
+    </div>
+    <div class="titolo">Quanto manca allo scarico</div>
+    <div class="scheda">
+      ${rigaConto('Bluetti, col consumo di adesso', c.tempo_residuo_bluetti)}
+      ${rigaConto('Ective, col consumo di adesso', c.tempo_residuo_ective)}
     </div>
     <div class="titolo">Quanto dura fermo</div>
     <div class="scheda">

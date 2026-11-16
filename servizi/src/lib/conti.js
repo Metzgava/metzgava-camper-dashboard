@@ -18,6 +18,7 @@ export async function impianto() {
   return { righe, mappa };
 }
 
+const num = v => (v == null ? '\u2014' : Math.round(v));
 const val = (m, k) => (m[k] && m[k].valore != null ? Number(m[k].valore) : null);
 const misurato = (m, ...chiavi) => chiavi.every(k => m[k]?.misurato === true);
 
@@ -127,6 +128,42 @@ export async function tuttiIConti(bluetti) {
         detto: `${Math.round(ectiveWh / rendimento / capacita * 100)} % di Bluetti` +
           (ectiveWh / rendimento > capacita ? ' — piu’ di quanto la Bluetti contenga: non ce la fa in un colpo' : ''),
       });
+
+  // ---- quanto manca allo scarico, col consumo di adesso ----
+  //
+  // Non e' la stessa cosa dell'autonomia che dichiara la Bluetti: quella la
+  // calcola lei, sui propri consumi. Questa si fa su quel che **sta uscendo
+  // adesso**, al netto di quel che entra. Quando i due numeri non coincidono,
+  // la differenza e' informazione: vuol dire che sta contando qualcosa che noi
+  // non vediamo (il suo autoconsumo) o che il carico e' appena cambiato.
+  const netto = dentro == null && fuori == null ? null : (dentro || 0) - (fuori || 0);
+  const residuo = out.carica_residua.valore;
+  if (residuo == null || netto == null) {
+    out.tempo_residuo_bluetti = manca('h', ['letture della Bluetti'], 'Servono la carica e i watt in uscita.');
+  } else if (netto >= 0) {
+    out.tempo_residuo_bluetti = conto(null, 'h', {
+      base: 'misurato',
+      perche: (fuori || 0) === 0
+        ? 'non sta erogando niente: finche\u2019 resta cosi\u2019 non si scarica'
+        : `entra piu\u2019 di quanto esce (${num(dentro)} W contro ${num(fuori)} W): si sta caricando`,
+      detto: (fuori || 0) === 0 ? 'non si scarica' : 'si sta caricando',
+    });
+  } else {
+    const ore = residuo / -netto;
+    const suo = b?.autonomia_minuti ? b.autonomia_minuti / 60 : null;
+    out.tempo_residuo_bluetti = conto(ore, 'h', {
+      base: misurato(m, 'bluetti_wh') ? 'misurato' : 'stima',
+      perche: `${residuo} Wh a ${num(-netto)} W netti`
+        + (suo ? ` \u00b7 lei ne dichiara ${dilloInOre(suo)}${Math.abs(suo - ore) / Math.max(suo, ore) > 0.25 ? ', e la differenza vuol dire che conta qualcosa che non vedo' : ''}` : ''),
+      detto: dilloInOre(ore),
+    });
+  }
+
+  // Le Ective: la struttura c'e' gia', il numero arriva con la scatoletta.
+  // Il loro consumo e' gia' al netto del sole, perche' la corrente che si
+  // legge sulle batterie e' quel che resta dopo i pannelli.
+  out.tempo_residuo_ective = manca('h', ['letture delle Ective'],
+    'Le batterie parlano solo via Bluetooth: il numero arriva quando la scatoletta sara\u2019 a bordo.');
 
   // ---- quanto dura il camper fermo ----
   out.giorni_fermo_bluetti = out.carica_residua.valore == null || fermoW == null
