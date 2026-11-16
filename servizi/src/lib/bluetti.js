@@ -1,0 +1,220 @@
+// L'Elite 300, letta dal cloud di Bluetti.
+//
+// E' l'unico apparecchio del camper che si legge da lontano senza niente a
+// bordo: in camper non apre nessuna porta (il Modbus esiste ma il suo server
+// web e' spento di fabbrica) e il Bluetooth vuole uno scambio di chiavi
+// cifrato. Il protocollo e' documentato in docs/telemetria-camper.md.
+//
+// Tre cose controintuitive, scoperte a mani nude il 16/11/2026:
+//
+//  1. l'elenco degli apparecchi restituisce i valori SEMPRE a zero: e' il
+//     catalogo di cosa l'apparecchio sa dire, non i suoi numeri.
+//  2. i numeri arrivano da deviceStates, ma SOLO dopo bindDevices. Senza
+//     quello risponde «spento, lista vuota» e il canale non spinge niente.
+//  3. il loro bindDevices risponde «OK» anche a un seriale inventato. La prova
+//     che e' andata e' che dopo arrivino i numeri, non la risposta.
+import { q, segna } from './db.js';
+
+const SSO = 'https://sso.bluettipower.com';
+const GATEWAY = 'https://gw.bluettipower.com';
+// Credenziali pubbliche dell'integrazione comunitaria: stanno in chiaro nel
+// suo codice, non sono un segreto e non meritano una variabile.
+const CLIENTE = 'HomeAssistant';
+const SEGRETO = 'SG9tZUFzc2lzdGFudA==';
+
+// Lo stesso stato non si chiede due volte in un minuto: dieci aperture di
+// pagina non devono diventare dieci richieste ai loro server.
+const RESPIRO = 60_000;
+let cache = { quando: 0, dato: null };
+
+export const configurato = () =>
+  !!(process.env.BLUETTI_ACCESS_TOKEN || process.env.BLUETTI_REFRESH_TOKEN);
+
+// ---------- i gettoni ----------
+
+async function gettoni() {
+  const righe = (await q(`SELECT nome, valore FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`)).rows;
+  const dentro = Object.fromEntries(righe.map(r => [r.nome, r.valore]));
+  if (!dentro.bluetti_accesso && process.env.BLUETTI_ACCESS_TOKEN) {
+    await salva(process.env.BLUETTI_ACCESS_TOKEN, process.env.BLUETTI_REFRESH_TOKEN || null, null);
+    return { accesso: process.env.BLUETTI_ACCESS_TOKEN, rinnovo: process.env.BLUETTI_REFRESH_TOKEN || null };
+  }
+  return { accesso: dentro.bluetti_accesso, rinnovo: dentro.bluetti_rinnovo };
+}
+
+async function salva(accesso, rinnovo, scade) {
+  for (const [nome, valore] of [['bluetti_accesso', accesso], ['bluetti_rinnovo', rinnovo]]) {
+    if (!valore) continue;
+    await q(`INSERT INTO gettoni_cloud (nome, valore, scade, aggiornato) VALUES ($1,$2,$3,now())
+             ON CONFLICT (nome) DO UPDATE SET valore=$2, scade=$3, aggiornato=now()`, [nome, valore, scade]);
+  }
+}
+
+async function rinnova(rinnovo) {
+  if (!rinnovo) return null;
+  const r = await fetch(`${SSO}/oauth2/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token', refresh_token: rinnovo,
+      client_id: CLIENTE, client_secret: SEGRETO,
+    }),
+    signal: AbortSignal.timeout(20_000),
+  }).catch(() => null);
+  if (!r?.ok) return null;
+  const g = await r.json().catch(() => null);
+  if (!g?.access_token) return null;
+  await salva(g.access_token, g.refresh_token || rinnovo,
+    g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null);
+  await segna('gettone', 'Gettone Bluetti rinnovato');
+  return g.access_token;
+}
+
+// ---------- le chiamate ----------
+
+// Il loro cloud risponde HTTP 200 anche quando rifiuta: il motivo sta in
+// msgCode. 805 e' gettone scaduto.
+async function chiedi(percorso, gettone, { metodo = 'GET', corpo = null } = {}) {
+  const r = await fetch(GATEWAY + percorso, {
+    method: metodo,
+    headers: { Authorization: gettone, ...(corpo ? { 'Content-Type': 'application/json' } : {}) },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+    signal: AbortSignal.timeout(25_000),
+  });
+  const testo = await r.text();
+  let dato = null;
+  try { dato = JSON.parse(testo); } catch { /* non JSON: guasto */ }
+  return { http: r.status, dato, testo };
+}
+
+const NUM = v => (v === undefined || v === null || v === '' ? null : Number(v));
+const SW = v => (v === undefined || v === null || v === '' ? null : String(v) === '1');
+
+export const MODALITA = {
+  workmode_0: 'priorita’ al fotovoltaico',
+  workmode_1: 'continuita’ standard',
+  workmode_2: 'a fasce orarie',
+  workmode_3: 'personalizzata',
+};
+
+// Gli interruttori che il cloud accetta. Nome in italiano, codice loro, e che
+// cosa comporta premerlo: la pagina lo dice prima, non dopo.
+export const COMANDI = {
+  ac: { codice: 'SetCtrlAc', nome: 'Uscita 220 V', avviso: 'Accende o spegne la presa a 220 V della Bluetti. Quello che e’ attaccato si spegne di colpo.' },
+  dc: { codice: 'SetCtrlDc', nome: 'Uscita 12 V', avviso: 'Accende o spegne le uscite a 12 V.' },
+  ac_eco: { codice: 'SetACECO', nome: 'Risparmio sulla 220', avviso: 'Spegne da se’ la 220 quando nessuno assorbe. Comodo, ma un apparecchio a basso consumo puo’ restare al buio.' },
+  dc_eco: { codice: 'SetDCECO', nome: 'Risparmio sulla 12 V', avviso: 'Come sopra, sulle uscite a 12 V.' },
+  sonno: { codice: 'SetSleepMode', nome: 'Modalita’ sonno', avviso: 'Mette la Bluetti a dormire: consuma meno e risponde meno.' },
+};
+
+function traduci(a) {
+  const v = {};
+  for (const s of (a.stateList || [])) v[s.fnCode] = s.fnValue;
+  const autonomia = NUM(v.DsgFullTime);
+  return {
+    nome: a.name || a.sn,
+    sn: a.sn,
+    in_linea: SW(a.online),
+    carica: NUM(v.SOC),
+    autonomia_minuti: autonomia || null,
+    alla_carica_minuti: NUM(v.ChgFullTime) || null,
+    fotovoltaico_w: NUM(v.PVAllTotalPower),
+    rete_w: NUM(v.GridAllTotalPower),
+    uscita_ac_w: NUM(v.ACLoadAllTotalPower),
+    uscita_dc_w: NUM(v.DCLoadAllTotalPower),
+    ac: SW(v.SetCtrlAc),
+    dc: SW(v.SetCtrlDc),
+    ac_eco: SW(v.SetACECO),
+    dc_eco: SW(v.SetDCECO),
+    sonno: SW(v.SetSleepMode),
+    modalita_codice: v.SetCtrlWorkMode || null,
+    modalita: MODALITA[v.SetCtrlWorkMode] || v.SetCtrlWorkMode || null,
+  };
+}
+
+// ---------- quel che serve a chi chiama ----------
+
+export async function statoBluetti({ fresco = false } = {}) {
+  if (!configurato()) return { configurato: false };
+  if (!fresco && cache.dato && Date.now() - cache.quando < RESPIRO) return cache.dato;
+
+  let { accesso, rinnovo } = await gettoni();
+  if (!accesso) return { configurato: false, errore: 'nessun gettone in archivio' };
+
+  let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+  if (r.dato?.msgCode === 805 || r.http === 401) {
+    const nuovo = await rinnova(rinnovo);
+    if (!nuovo) return { configurato: true, errore: 'gettone scaduto e rinnovo fallito: serve una nuova autorizzazione Bluetti' };
+    accesso = nuovo;
+    r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+  }
+  if (!r.dato || r.dato.msgCode !== 0) {
+    return { configurato: true, errore: `il cloud ha risposto ${r.dato?.msgCode ?? r.http}: ${r.dato?.message || r.testo.slice(0, 120)}` };
+  }
+
+  const elenco = r.dato.data || [];
+  if (!elenco.length) return { configurato: true, quando: new Date().toISOString(), apparecchi: [] };
+
+  const sns = elenco.map(x => x.sn).filter(Boolean).join(',');
+  const s = await chiedi(`/api/bluiotdata/ha/v1/deviceStates?sns=${encodeURIComponent(sns)}`, accesso);
+  const stati = new Map((s.dato?.data || []).map(x => [x.sn, x]));
+
+  const apparecchi = elenco.map(a => {
+    const vivo = stati.get(a.sn);
+    const t = traduci(vivo?.stateList?.length ? { ...a, ...vivo } : a);
+    if (!vivo?.stateList?.length) {
+      t.errore = 'nessun valore dal cloud: l’apparecchio non e’ associato, oppure non sta riferendo';
+      for (const k of ['carica', 'autonomia_minuti', 'alla_carica_minuti', 'fotovoltaico_w', 'rete_w', 'uscita_ac_w', 'uscita_dc_w']) t[k] = null;
+    }
+    return t;
+  });
+
+  const dato = { configurato: true, quando: new Date().toISOString(), apparecchi };
+  cache = { quando: Date.now(), dato };
+  return dato;
+}
+
+export async function associa(sns) {
+  const { accesso } = await gettoni();
+  if (!accesso) return { ok: false, errore: 'nessun gettone' };
+  const r = await chiedi('/api/bluiotdata/ha/v1/bindDevices', accesso,
+    { metodo: 'POST', corpo: { bindSnList: sns } });
+  return { ok: r.dato?.msgCode === 0, messaggio: r.dato?.message || r.testo.slice(0, 120) };
+}
+
+// Un comando all'apparecchio. Non si chiama da sola: la rotta lo fa solo
+// quando qualcuno ha confermato, e scrive negli eventi chi e cosa.
+export async function comanda(sn, codice, valore) {
+  const { accesso } = await gettoni();
+  if (!accesso) return { ok: false, errore: 'nessun gettone' };
+  const r = await chiedi('/api/bluiotdata/ha/v1/fulfillment', accesso, {
+    metodo: 'POST',
+    corpo: { sn, fnCode: codice, fnValue: String(valore) },
+  });
+  cache = { quando: 0, dato: null };        // lo stato in cache non vale piu'
+  return { ok: r.dato?.msgCode === 0, messaggio: r.dato?.message || r.testo.slice(0, 160) };
+}
+
+// Mette in archivio quel che si e' letto: l'istantanea per la pagina, e le
+// misure per i grafici. Una grandezza assente non diventa uno zero: si salta.
+export async function registra() {
+  const s = await statoBluetti({ fresco: true });
+  if (!s.configurato || s.errore) return { quante: 0, errore: s.errore };
+  let quante = 0;
+  for (const a of (s.apparecchi || [])) {
+    await q(`INSERT INTO istantanee (apparecchio, fonte, dati, quando) VALUES ($1,'bluetti',$2,now())
+             ON CONFLICT (apparecchio) DO UPDATE SET dati=$2, quando=now(), fonte='bluetti'`,
+      [a.sn, a]);
+    const da_salvare = {
+      carica: a.carica, fotovoltaico_w: a.fotovoltaico_w, rete_w: a.rete_w,
+      uscita_ac_w: a.uscita_ac_w, uscita_dc_w: a.uscita_dc_w,
+      autonomia_minuti: a.autonomia_minuti,
+    };
+    for (const [grandezza, valore] of Object.entries(da_salvare)) {
+      if (valore == null) continue;
+      await q('INSERT INTO misure (apparecchio, grandezza, valore) VALUES ($1,$2,$3)', [a.sn, grandezza, valore]);
+      quante++;
+    }
+  }
+  return { quante };
+}

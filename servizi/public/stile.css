@@ -1,0 +1,179 @@
+/* Camper Servizi.
+   Si legge in piedi, col telefono in una mano, di sera. Da qui tutto il resto:
+   numeri grandi, pochi colori, niente che richieda precisione col pollice.
+   Le tacche di sicurezza dell'iPhone sono rispettate con env(safe-area-*):
+   senza, la barra in basso finisce sotto la riga di scorrimento. */
+
+:root {
+  --notte: #101c2b;
+  --notte-2: #16273a;
+  --carta: #1d3046;
+  --bordo: #2b4762;
+  --testo: #eef3f8;
+  --fioco: #93a9c0;
+  --ambra: #eaa94a;
+  --ambra-cupa: #c9833a;
+  --verde: #5fcf9a;
+  --rosso: #ef7b6b;
+  --azzurro: #7fb3c9;
+  --r: 18px;
+  --barra: calc(62px + env(safe-area-inset-bottom));
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--notte);
+  color: var(--testo);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+a { color: var(--ambra); }
+button, input, select { font: inherit; color: inherit; }
+
+.caricamento { padding: 80px 20px; text-align: center; color: var(--fioco); }
+
+/* ---------- impianto della pagina ---------- */
+.guscio { min-height: 100dvh; }
+main {
+  padding: 16px 16px calc(var(--barra) + 16px);
+  max-width: 980px;
+  margin: 0 auto;
+}
+.testata {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+  background: linear-gradient(180deg, var(--notte) 70%, transparent);
+  backdrop-filter: blur(8px);
+}
+.testata img { width: 34px; height: 34px; border-radius: 9px; display: block; }
+.testata h1 { font-size: 19px; margin: 0; font-weight: 650; letter-spacing: -.2px; }
+.testata .quando { margin-left: auto; color: var(--fioco); font-size: 12px; text-align: right; }
+
+/* la barra delle stanze: in basso sul telefono, a lato sul tablet */
+.barra {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; justify-content: space-around;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  background: rgba(16, 28, 43, .92);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--bordo);
+}
+.barra a {
+  flex: 1; text-align: center; text-decoration: none; color: var(--fioco);
+  font-size: 10.5px; padding: 5px 2px; border-radius: 12px; line-height: 1.25;
+}
+.barra a b { display: block; font-size: 21px; font-weight: 400; }
+.barra a.qui { color: var(--ambra); }
+
+/* Dai 740 px in su c'e' spazio per la colonna a lato: l'iPad in verticale sta
+   a 768 e merita la barra laterale, non quella del telefono. */
+@media (min-width: 740px) {
+  .guscio { display: grid; grid-template-columns: 216px 1fr; }
+  .barra {
+    position: sticky; top: 0; bottom: auto; height: 100dvh;
+    flex-direction: column; justify-content: flex-start; gap: 4px;
+    border-top: 0; border-right: 1px solid var(--bordo); padding: 14px 10px;
+  }
+  .barra a { flex: none; text-align: left; display: flex; align-items: center; gap: 12px; font-size: 15px; padding: 11px 13px; }
+  .barra a.qui { background: rgba(234,169,74,.12); }
+  .barra a b { font-size: 20px; }
+  main { padding-bottom: 40px; }
+  .testata { padding-top: 14px; }
+}
+
+/* ---------- mattoni ---------- */
+.scheda {
+  background: var(--carta); border: 1px solid var(--bordo);
+  border-radius: var(--r); padding: 16px; margin-bottom: 14px;
+}
+.titolo { font-size: 12.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--fioco); margin: 22px 4px 10px; font-weight: 600; }
+.titolo:first-child { margin-top: 4px; }
+
+.griglia { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.cifra { font-size: 30px; font-weight: 640; letter-spacing: -1px; line-height: 1.1; }
+.cifra.grande { font-size: 44px; }
+.eti { color: var(--fioco); font-size: 12.5px; }
+.sotto { color: var(--fioco); font-size: 12.5px; margin-top: 3px; }
+.vuoto { color: var(--fioco); opacity: .6; }
+
+/* la ciambella della carica */
+.ciambella { display: flex; align-items: center; gap: 18px; }
+.ciambella svg { width: 116px; height: 116px; flex: none; }
+.ciambella .dentro { min-width: 0; }
+
+/* le bandierine della provenienza: la cosa piu' importante della pagina */
+.bollo {
+  display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 2.5px 8px; border-radius: 999px; vertical-align: 2px;
+}
+.bollo.misurato { background: rgba(95,207,154,.16); color: var(--verde); }
+.bollo.stima { background: rgba(234,169,74,.16); color: var(--ambra); }
+.bollo.incompleto { background: rgba(147,169,192,.14); color: var(--fioco); }
+
+.riga { display: flex; gap: 14px; align-items: flex-start; padding: 13px 0; border-bottom: 1px solid var(--bordo); }
+.riga:last-child { border-bottom: 0; padding-bottom: 0; }
+.riga:first-child { padding-top: 0; }
+.riga .cresci { flex: 1; min-width: 0; }
+.riga .valore { text-align: right; font-size: 20px; font-weight: 620; max-width: 48%; overflow-wrap: anywhere; }
+.perche { color: var(--fioco); font-size: 12.5px; margin-top: 4px; }
+
+.btn {
+  background: var(--notte-2); border: 1px solid var(--bordo); color: var(--testo);
+  border-radius: 12px; padding: 10px 14px; cursor: pointer; font-size: 14.5px;
+}
+.btn:active { transform: scale(.98); }
+.btn.primario { background: var(--ambra); border-color: var(--ambra); color: #241704; font-weight: 650; }
+.btn.largo { width: 100%; }
+.btn.piccolo { padding: 6px 11px; font-size: 13px; border-radius: 10px; }
+
+input[type=text], input[type=email], input[type=password], input[type=number], select {
+  width: 100%; background: var(--notte-2); border: 1px solid var(--bordo);
+  border-radius: 12px; padding: 11px 13px;
+}
+label.campo { display: block; margin-bottom: 12px; }
+label.campo span { display: block; font-size: 12.5px; color: var(--fioco); margin-bottom: 5px; }
+
+/* un interruttore che si preme col pollice senza mirare */
+.levetta { position: relative; width: 52px; height: 31px; flex: none; }
+.levetta input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.levetta i {
+  position: absolute; inset: 0; background: var(--notte-2); border: 1px solid var(--bordo);
+  border-radius: 999px; transition: background .16s;
+}
+.levetta i::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 23px; height: 23px;
+  border-radius: 50%; background: var(--fioco); transition: transform .16s, background .16s;
+}
+.levetta input:checked + i { background: rgba(95,207,154,.3); border-color: var(--verde); }
+.levetta input:checked + i::after { transform: translateX(21px); background: var(--verde); }
+.levetta input:disabled + i { opacity: .4; }
+
+.avviso { background: rgba(239,123,107,.12); border: 1px solid rgba(239,123,107,.4); color: #ffd9d2;
+  border-radius: 12px; padding: 11px 13px; font-size: 13.5px; }
+.nota { background: rgba(234,169,74,.1); border: 1px solid rgba(234,169,74,.3);
+  border-radius: 12px; padding: 11px 13px; font-size: 13.5px; color: #f6e2c3; }
+
+.atteso { opacity: .62; }
+.atteso .cifra { font-size: 22px; }
+
+/* grafico */
+.grafico { width: 100%; height: 190px; display: block; }
+.grafico .linea { fill: none; stroke: var(--ambra); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.grafico .area { fill: url(#sfuma); }
+.grafico .asse { stroke: var(--bordo); stroke-width: 1; }
+.grafico text { fill: var(--fioco); font-size: 10px; }
+
+/* finestra di conferma */
+.velo { position: fixed; inset: 0; background: rgba(6,12,20,.72); z-index: 50;
+  display: flex; align-items: flex-end; justify-content: center; padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.velo .finestra { background: var(--carta); border: 1px solid var(--bordo); border-radius: 22px;
+  padding: 20px; width: 100%; max-width: 440px; }
+@media (min-width: 560px) { .velo { align-items: center; } }
+
+.brindello { position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--barra) + 14px); background: var(--carta); border: 1px solid var(--bordo);
+  padding: 11px 16px; border-radius: 999px; z-index: 60; font-size: 14px; max-width: 90vw; }

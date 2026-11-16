@@ -1,0 +1,54 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Camper Servizi">
+  <title>Camper Servizi</title>
+  <defs>
+    <!-- Un cielo di sera: il camper e' fermo, il sole e' basso, i pannelli
+         hanno smesso di dare e le batterie cominciano a scendere. E' l'ora in
+         cui si guarda il cruscotto. -->
+    <linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#14263b"/>
+      <stop offset="0.48" stop-color="#2f5068"/>
+      <stop offset="0.78" stop-color="#c97b3c"/>
+      <stop offset="1" stop-color="#eaa94a"/>
+    </linearGradient>
+    <linearGradient id="scocca" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fdf8ec"/>
+      <stop offset="1" stop-color="#ead9bb"/>
+    </linearGradient>
+
+    <!-- La chiocciola non e' disegnata sopra il camper: e' ritagliata dentro.
+         Quindi dal buco si vede il cielo, e il simbolo sta nella fiancata
+         invece di starle appiccicato. -->
+    <mask id="ritaglio">
+      <rect width="512" height="512" fill="#fff"/>
+      <text x="192" y="318" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+            font-size="126" font-weight="600" fill="#000" text-anchor="middle" dominant-baseline="alphabetic">@</text>
+    </mask>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#cielo)"/>
+  <!-- il sole basso: spunta oltre il muso, perche' si veda che e' sera -->
+  <circle cx="452" cy="258" r="44" fill="#ffd792" opacity=".55"/>
+  <!-- la strada -->
+  <path d="M0 392h512v120H0z" fill="#2a1f17" opacity=".6"/>
+  <path d="M0 392h512v6H0z" fill="#ffe0a8" opacity=".55"/>
+
+  <g mask="url(#ritaglio)">
+    <!-- profilo del camper: cellula a sinistra, cabina a destra -->
+    <path d="M60 352V232a18 18 0 0 1 18-18h206a14 14 0 0 1 11 6l44 56h49a16 16 0 0 1 16 16v60z"
+          fill="url(#scocca)"/>
+    <!-- fascia sotto, come la modanatura dei camper -->
+    <path d="M60 330h344v12H60z" fill="#c3a97f" opacity=".5"/>
+  </g>
+
+  <!-- il finestrino della cabina, piccolo, perche' il camper si riconosca -->
+  <path d="M292 226h22l36 46h-58z" fill="#7fb3c9" opacity=".85"/>
+  <!-- le ruote, disegnate sopra -->
+  <g fill="#1c1410">
+    <circle cx="140" cy="356" r="36"/>
+    <circle cx="344" cy="356" r="36"/>
+  </g>
+  <g fill="#e7d6b8">
+    <circle cx="140" cy="356" r="14"/>
+    <circle cx="344" cy="356" r="14"/>
+  </g>
+</svg>
