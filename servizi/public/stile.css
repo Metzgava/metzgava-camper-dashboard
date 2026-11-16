@@ -16,6 +16,13 @@
   --verde: #5fcf9a;
   --rosso: #ef7b6b;
   --azzurro: #7fb3c9;
+  /* Le fonti della carica e il segnale «sta ricevendo». Sono colori di
+     **stato**, tenuti separati da quelli del livello: mescolare «quanto e'
+     piena» con «sta caricando» in un colore solo rende illeggibili tutti e
+     due. */
+  --rete: #5aa9e6;
+  --sole: #e8b64c;
+  --carica: #6fd3e8;
   --r: 18px;
   --barra: calc(62px + env(safe-area-inset-bottom));
 }
@@ -211,3 +218,25 @@ input:-webkit-autofill:active {
    quello che c'e' di fianco. Succedeva coi numeri di serie delle Ective. */
 .griglia > div { min-width: 0; }
 .griglia > div > div { overflow-wrap: anywhere; }
+
+/* ---- quando una batteria sta ricevendo carica ---- */
+/* Un alone che respira attorno al quadrante, piu' una targhetta. L'alone si
+   vede con la coda dell'occhio da lontano; la targhetta lo dice a parole per
+   chi guarda davvero. */
+.alone { animation: respiro 2.4s ease-in-out infinite; }
+@keyframes respiro { 0%, 100% { opacity: .12 } 50% { opacity: .34 } }
+
+.carica-chip {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  color: var(--carica);
+  background: rgba(111, 211, 232, .14);
+  border: 1px solid rgba(111, 211, 232, .38);
+  border-radius: 99px; padding: 2px 9px; white-space: nowrap;
+}
+
+/* Chi ha chiesto meno movimento non deve avere un riquadro che pulsa: l'alone
+   resta, fermo. L'informazione non si perde, l'irritazione si'. */
+@media (prefers-reduced-motion: reduce) {
+  .alone { animation: none; opacity: .24 }
+}

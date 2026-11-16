@@ -79,7 +79,7 @@ const bollo = base => `<span class="bollo ${base}">${BOLLI[base] || base}</span>
 const ANG = p => 180 - 1.8 * Math.max(0, Math.min(100, p));          // gradi
 const PT = (cx, cy, r, g) => [cx + r * Math.cos(g * Math.PI / 180), cy - r * Math.sin(g * Math.PI / 180)];
 
-function manometro({ pct, nome, tendenza = null, atteso = false, perche = '' }) {
+function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null }) {
   const CX = 118, CY = 112, R = 86;
   const colore = atteso || pct == null ? 'var(--fioco)'
     : pct <= 20 ? 'var(--rosso)' : pct <= 45 ? 'var(--ambra)' : 'var(--verde)';
@@ -123,12 +123,14 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '' }) 
   return `<div style="text-align:center">
     <svg viewBox="0 0 236 152" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}">
       <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
+      ${carica && !atteso ? `<path d="${arco(0, 100, R)}" stroke="var(--carica)" stroke-width="20" fill="none" stroke-linecap="round" class="alone"/>` : ''}
       ${pct != null && !atteso ? `<path d="${arco(0, pct, R)}" stroke="${colore}" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
       ${tacche}${scia}${lancetta}
       <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)">${pct == null ? '\u2014' : Math.round(pct)}</text>
       <text x="${CX}" y="${CY + 48}" text-anchor="middle" font-size="11" fill="var(--fioco)">${pct == null ? '' : 'per cento'}</text>
     </svg>
     <div style="font-weight:600;margin-top:2px">${esc(nome)}</div>
+    ${carica ? '<div class="carica-chip">\u26a1 in carica</div>' : ''}
     ${riga}
   </div>`;
 }
@@ -203,7 +205,8 @@ function vistaAdesso() {
       : !b
         ? `<div class="scheda"><div class="nota">Nessun apparecchio sul conto Bluetti.</div></div>`
         : `<div class="scheda">
-            ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza })}
+            ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza,
+              carica: (dati.conti?.ingresso?.valore || 0) > 0 })}
             <div class="riga" style="margin-top:14px">
               <div class="cresci"><div class="eti">Col consumo di adesso</div>
                 <div class="cifra" style="font-size:22px">${c.tempo_residuo_bluetti?.detto ? esc(c.tempo_residuo_bluetti.detto) : '<span class="vuoto">—</span>'}</div>
@@ -242,7 +245,10 @@ function vistaAdesso() {
     // lungo da una parte. Due riquadri sfalsati sembrano un errore.
     return `<div style="display:flex;flex-direction:column;height:100%">
       ${manometro({ pct: d.carica ?? null, nome: `Ective ${i + 1}`,
-        tendenza: r?.tendenza, atteso: !r, perche: 'con la scatoletta' })}
+        tendenza: r?.tendenza, atteso: !r, perche: 'con la scatoletta',
+        // Un filo di corrente positiva e' rumore attorno allo zero, non una
+        // carica: sotto i 50 mA non si annuncia niente.
+        carica: d.ampere != null && d.ampere > 0.05 })}
       <div class="scheda" style="margin:8px 0 0;padding:10px 9px;margin-top:auto">
         <div class="eti">Carica residua</div>
         <div class="cifra" style="font-size:19px">${d.carica == null ? '<span class="vuoto">—</span>' : num(d.carica, 0) + ' %'}</div>
