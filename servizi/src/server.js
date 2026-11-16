@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from './lib/db.js';
 import { router as auth } from './routes/auth.js';
-import { router as stato } from './routes/stato.js';
+import { router as stato, aperte as statoAperte } from './routes/stato.js';
 import { router as ingresso } from './routes/ingresso.js';
 import { registra, collegato } from './lib/bluetti.js';
 
@@ -48,6 +48,7 @@ const IMPRONTA = (() => {
 app.get('/api/health', (req, res) => res.json({ ok: true, app: 'camper-servizi', versione: IMPRONTA }));
 
 app.use('/api', ingresso);
+app.use('/api', statoAperte);
 app.use('/api', auth);
 app.use('/api', stato);
 

@@ -6,13 +6,16 @@
 // e il motivo scritto in chiaro, non con dei valori a zero. Uno zero su una
 // carica vuol dire «scarica», e sarebbe una bugia.
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { q, segna } from '../lib/db.js';
 import { statoBluetti, collegato, associa, comanda, COMANDI,
   indirizzoAutorizza, completaAutorizzazione } from '../lib/bluetti.js';
 import { tuttiIConti, impianto } from '../lib/conti.js';
 import { serveAccesso } from './auth.js';
 
+// Le rotte normali stanno dietro al login. Una sola no, e sotto si dice perche'.
 export const router = Router();
+export const aperte = Router();
 router.use(serveAccesso);
 
 const wrap = f => (req, res, next) => Promise.resolve(f(req, res, next)).catch(next);
@@ -72,7 +75,7 @@ async function tendenza(apparecchio) {
 router.get('/stato', wrap(async (req, res) => {
   const bluetti = await statoBluetti({ fresco: req.query.fresco === '1' });
   const conti = await tuttiIConti(bluetti);
-  const collegamento = { collegato: await collegato(), indirizzo: indirizzoAutorizza(ritornoDi(req)) };
+  const collegamento = { collegato: await collegato(), indirizzo: await conLasciapassare(req) };
   // I dati fissi viaggiano con lo stato: cosi' il calcolatore della pagina
   // rifa' i conti a ogni cifra battuta, invece di interrogare il server a ogni
   // tasto. Sono pochi numeri, e stanno in un soffio di risposta.
@@ -163,24 +166,20 @@ router.post('/comandi/:quale', wrap(async (req, res) => {
 // Bluetti, si dice «Agree», e il gettone torna e finisce in archivio.
 const ritornoDi = req => `${req.protocol}://${req.get('host')}/api/bluetti/ritorno`;
 
-router.get('/bluetti/collegamento', wrap(async (req, res) => {
-  res.json({ collegato: await collegato(), indirizzo: indirizzoAutorizza(ritornoDi(req)) });
-}));
+// Un lasciapassare nuovo a ogni volta che la pagina chiede l'indirizzo. Vale
+// un quarto d'ora e una volta sola: e' quello che impedisce a un estraneo di
+// far atterrare qui un'autorizzazione non tua.
+async function conLasciapassare(req) {
+  const passi = randomUUID();
+  await q(`INSERT INTO gettoni_cloud (nome, valore, scade, aggiornato)
+           VALUES ('bluetti_passi', $1, now() + interval '15 minutes', now())
+           ON CONFLICT (nome) DO UPDATE SET valore=$1, scade=now() + interval '15 minutes', aggiornato=now()`,
+    [passi]);
+  return indirizzoAutorizza(ritornoDi(req), passi);
+}
 
-router.get('/bluetti/ritorno', wrap(async (req, res) => {
-  const codice = String(req.query.code || '');
-  if (!codice) return res.redirect('/#/impianto?bluetti=annullato');
-  const r = await completaAutorizzazione(codice, ritornoDi(req));
-  if (!r.ok) {
-    await segna('bluetti', `Collegamento fallito: ${r.errore}`, req.utente.email);
-    return res.redirect('/#/impianto?bluetti=fallito');
-  }
-  // Appena collegati, gli apparecchi vanno associati: senza quel passaggio il
-  // cloud risponde «spento, lista vuota» e sembra un guasto.
-  const s = await statoBluetti({ fresco: true });
-  const sns = (s.apparecchi || []).map(a => a.sn).filter(Boolean);
-  if (sns.length) await associa(sns);
-  res.redirect('/#/impianto?bluetti=fatto');
+router.get('/bluetti/collegamento', wrap(async (req, res) => {
+  res.json({ collegato: await collegato(), indirizzo: await conLasciapassare(req) });
 }));
 
 router.post('/bluetti/associa', wrap(async (req, res) => {
@@ -195,4 +194,34 @@ router.post('/bluetti/associa', wrap(async (req, res) => {
   const numeri = (dopo.apparecchi || []).some(a => a.carica != null);
   await segna('bluetti', `Associazione di ${sns.join(', ')}: ${numeri ? 'arrivano i numeri' : 'ancora nessun numero'}`, req.utente.email);
   res.json({ ...r, sns, arrivano_i_numeri: numeri });
+}));
+
+aperte.get('/bluetti/ritorno', wrap(async (req, res) => {
+  const codice = String(req.query.code || '');
+  if (!codice) return res.redirect('/#/impianto?bluetti=annullato');
+  // Il ritorno dall'autorizzazione **non puo' pretendere la sessione**: su
+  // iPhone, premendo il tasto dentro l'app in schermata Home, iOS apre la
+  // pagina di Bluetti in Safari, che e' un mondo a parte. Il ritorno atterra
+  // li', e li' potresti non essere collegato: la porta si chiuderebbe in
+  // faccia al gettone. Al suo posto si usa un lasciapassare usa-e-getta,
+  // creato quando hai chiesto il collegamento e valido un quarto d'ora.
+  const passi = String(req.query.state || '');
+  const buono = (await q(`SELECT 1 FROM gettoni_cloud
+      WHERE nome='bluetti_passi' AND valore=$1 AND scade > now()`, [passi])).rowCount;
+  if (!passi || !buono) {
+    await segna('bluetti', 'Ritorno senza lasciapassare valido: ignorato');
+    return res.redirect('/#/impianto?bluetti=scaduto');
+  }
+  await q(`DELETE FROM gettoni_cloud WHERE nome='bluetti_passi'`);   // vale una volta
+  const r = await completaAutorizzazione(codice, ritornoDi(req));
+  if (!r.ok) {
+    await segna('bluetti', `Collegamento fallito: ${r.errore}`);
+    return res.redirect('/#/impianto?bluetti=fallito');
+  }
+  // Appena collegati, gli apparecchi vanno associati: senza quel passaggio il
+  // cloud risponde «spento, lista vuota» e sembra un guasto.
+  const s = await statoBluetti({ fresco: true });
+  const sns = (s.apparecchi || []).map(a => a.sn).filter(Boolean);
+  if (sns.length) await associa(sns);
+  res.redirect('/#/impianto?bluetti=fatto');
 }));

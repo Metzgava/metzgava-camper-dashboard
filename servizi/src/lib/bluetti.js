@@ -37,9 +37,9 @@ export async function collegato() {
   return (await q(`SELECT 1 FROM gettoni_cloud WHERE nome='bluetti_accesso' LIMIT 1`)).rowCount > 0;
 }
 
-export function indirizzoAutorizza(ritorno) {
+export function indirizzoAutorizza(ritorno, passi = 'camper') {
   return `${SSO}/oauth2/grant?response_type=code&client_id=${CLIENTE}`
-    + `&redirect_uri=${encodeURIComponent(ritorno)}&state=camper`;
+    + `&redirect_uri=${encodeURIComponent(ritorno)}&state=${encodeURIComponent(passi)}`;
 }
 
 // La pagina di Bluetti dice «HomeAssistant» e nomina il controllo a voce:
