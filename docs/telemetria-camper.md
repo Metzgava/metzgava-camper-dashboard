@@ -443,3 +443,42 @@ dichiarare **chiusa**.
 annunci in Bluetooth. La scatoletta ascolta già: si verifica quando è a bordo,
 guardando se compare un annuncio col suo nome. Presenza, non filmati — ma «la
 dashcam è accesa» su un camper in sosta non è niente.
+
+## Il collegamento Bluetti, passo per passo (e la trappola)
+
+Ricostruito il 16 novembre 2026 aprendo le loro pagine e leggendole, dopo due
+diagnosi sbagliate di fila.
+
+L'ordine vero è questo, e **non** è quello che sembra:
+
+1. `GET /oauth2/grant?response_type=code&client_id=HomeAssistant&redirect_uri=…&state=…`
+   mostra **«Connect with BLUETTI · Agree · Reject»**. La pagina compare
+   **identica a chi non ha fatto l'accesso**: nessun campo, nessun avviso.
+2. **Agree** è un collegamento a
+   `/oauth2/login?response_type=code&client_id=…&redirect_uri=…&state=…`:
+   e' li' che chiede l'accesso, **dopo** il consenso e non prima.
+3. Fatto l'accesso, si torna al `redirect_uri` col codice.
+
+### La trappola, in cui sono caduto io
+
+`https://sso.bluettipower.com/login` **nudo**, senza i parametri, risponde in
+rosso: **«身份认证的应用key不能为空»** — *la chiave applicativa per
+l'autenticazione non può essere vuota*. Quella pagina esiste ma non sa per
+quale applicazione stai entrando, e rifiuta.
+
+Avevo messo quel link in pagina come «primo passo», convinto che l'accesso
+andasse fatto prima. Era sbagliato due volte: il passo non serve, e
+l'indirizzo era quello che non funziona.
+
+### Perché «prima funzionava»
+
+Il primo collegamento, la mattina del 16, è passato da un ascoltatore locale su
+`127.0.0.1:8765`: il proprietario ha premuto Agree **in un browser del Mac dove
+era già entrato in Bluetti**, quindi il passo 2 non si e' visto. Dal telefono,
+in Safari, quella sessione non c'e': stesso bottone, stessa pagina, ma l'accesso
+viene chiesto — e chi non se l'aspetta pensa che sia rotto.
+
+### Cosa deve dire la pagina
+
+Un tasto solo, e la frase giusta: «si preme Agree, **e poi** chiede l'accesso».
+Mettere l'accesso per primo manda nel posto sbagliato.

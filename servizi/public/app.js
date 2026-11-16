@@ -198,9 +198,8 @@ function vistaAdesso() {
   const capo = !dati.bluetti?.collegato
     ? `<div class="scheda">
         ${manometro({ pct: null, nome: 'Bluetti Elite 300', atteso: true, perche: 'da collegare' })}
-        <div class="nota" style="margin-top:10px">Serve una volta sola, in <b>due passi</b>: prima si entra nel proprio account Bluetti in questo browser, poi si preme il secondo tasto e si dice <b>Agree</b>. La loro pagina mostra «Agree» anche a chi non ha fatto l’accesso, e in quel caso non succede niente: e’ la trappola in cui si cade.</div>
-        <a class="btn largo" style="display:block;text-align:center;text-decoration:none;margin-top:12px" target="_blank" rel="noopener" href="https://sso.bluettipower.com/login">1 · Entra in Bluetti</a>
-        <a class="btn primario largo" style="display:block;text-align:center;text-decoration:none;margin-top:8px" href="${esc(dati.collegamento?.indirizzo || '#')}">2 · Collega la Bluetti</a></div>`
+        <div class="nota" style="margin-top:10px">Serve una volta sola: si apre la pagina di Bluetti, si preme <b>Agree</b>, e a quel punto chiede l’accesso al tuo account. Si entra, e si torna qui da soli.</div>
+        <a class="btn primario largo" style="display:block;text-align:center;text-decoration:none;margin-top:12px" href="${esc(dati.collegamento?.indirizzo || '#')}">Collega la Bluetti</a></div>`
     : err
       ? `<div class="scheda"><div class="avviso">Bluetti: ${esc(err)}</div></div>`
       : !b
@@ -626,11 +625,10 @@ async function vistaImpianto() {
           <div class="perche">La pagina dirà <b>HomeAssistant</b> e parlerà di controllo a voce: è la porta pubblica che Bluetti tiene aperta per quell’integrazione, l’unica che esiste. Il permesso comprende anche il comando, non solo la lettura.</div>
         </div>
       </div>
-      <div class="nota" style="margin-top:10px"><b>Prima entra nel tuo account Bluetti</b>, in <b>questo</b> browser.
-        La loro pagina di consenso mostra «Agree» anche a chi non ha fatto l’accesso: sembra tutto a posto, premi, e resti lì.
-        Su iPhone il tasto qui sotto apre <b>Safari</b>, quindi non basta essere entrato nell’app Bluetti del telefono.</div>
-      <a class="btn largo" style="display:block;text-align:center;text-decoration:none;margin-top:10px" target="_blank" rel="noopener" href="https://sso.bluettipower.com/login">1 · Entra in Bluetti</a>
-      <a class="btn primario largo" style="display:block;text-align:center;text-decoration:none;margin-top:8px" href="${esc(dati.collegamento?.indirizzo || '#')}">2 · ${dati.collegamento?.collegato ? 'Ricollega' : 'Collega la Bluetti'}</a>
+      <div class="nota" style="margin-top:10px">Si apre la loro pagina, si preme <b>Agree</b>, e <b>poi</b> chiede l’accesso al tuo account Bluetti:
+        entra lì e torni qui da solo. Su iPhone tutto questo succede in <b>Safari</b>, quindi l’accesso va fatto lì —
+        essere entrato nell’app Bluetti del telefono non conta.</div>
+      <a class="btn primario largo" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="${esc(dati.collegamento?.indirizzo || '#')}">${dati.collegamento?.collegato ? 'Ricollega' : 'Collega la Bluetti'}</a>
     </div>`;
 }
 
