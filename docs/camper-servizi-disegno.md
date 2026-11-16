@@ -399,6 +399,28 @@ due si parlano.
    è il posto peggiore per dell'elettronica e per un alimentatore. Più il fatto
    che è il punto più scomodo da raggiungere di tutto il camper.
 
+### E l'ethernet al router? No, e non per il costo
+
+Chiesto il 16 novembre 2026. Si potrebbe: il **Pi Zero 2 W non ha la presa
+ethernet**, quindi servirebbe un hub USB OTG piu' un adattatore USB-ethernet —
+una ventina d'euro — perche' l'unica porta USB è già impegnata dall'ESP32.
+
+Ma non conviene, per due ragioni che valgono piu' del prezzo.
+
+1. **L'ethernet inchioda il Raspberry accanto al router**, mentre il suo mestiere
+   è stare dove **sente le batterie**. I due posti non hanno motivo di
+   coincidere, e il wifi è esattamente quel che lo lascia libero di stare dove
+   serve. Si rinuncerebbe al vincolo importante per irrobustire quello debole.
+2. **Irrobustirebbe l'anello sbagliato.** La parte fragile della catena non sono
+   i tre metri fra Raspberry e router: è la **salita 4G** verso il mondo, su cui
+   l'ethernet non fa niente. E quella è già coperta dalla coda offline, che
+   trattiene le letture e le spedisce quando la rete torna — vale per il wifi
+   caduto come per il 4G caduto.
+
+Un caso in cui tornerebbe sensato: se il punto dove si sente meglio il Bluetooth
+fosse **proprio accanto al router**. Lo dirà il misuratore di segnale in pagina;
+se capita, si riapre, e costa venti euro.
+
 ### Cosa serve sapere per decidere
 
 La distanza fra il pannello e il posto dove vivrà il Raspberry: decide se il cavo
