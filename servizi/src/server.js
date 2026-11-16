@@ -57,12 +57,20 @@ app.use('/api', stato);
 app.use(express.static(PUBBLICA, {
   etag: true,
   setHeaders: (res, file) => {
-    if (/\.(html|webmanifest)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+    // «no-store» e non «no-cache»: il primo vieta proprio di tenerne una copia,
+    // il secondo permette di tenerla e chiedere se va ancora bene. Su iPhone
+    // quella differenza si e' vista - una pagina vecchia che restava li'. La
+    // pagina pesa trecento byte: non c'e' niente da risparmiare a conservarla.
+    if (/\.(html|webmanifest)$/.test(file)) res.setHeader('Cache-Control', 'no-store, must-revalidate');
     else res.setHeader('Cache-Control', 'public, max-age=3600');
   },
 }));
 app.get('*splat', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Non trovato' });
+  // Questa strada non passa dalle intestazioni dello static: gliele si rimette
+  // a mano, altrimenti un indirizzo qualunque servirebbe una pagina che il
+  // telefono puo' conservare per sempre.
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.sendFile(path.join(PUBBLICA, 'index.html'));
 });
 
