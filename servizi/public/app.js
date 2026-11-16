@@ -58,19 +58,71 @@ const etichetta = c => ETICHETTE[c] || c;
 const BOLLI = { misurato: 'misurato', stima: 'stima', incompleto: 'incompleto' };
 const bollo = base => `<span class="bollo ${base}">${BOLLI[base] || base}</span>`;
 
-// La ciambella della carica. Non e' decorazione: una percentuale si capisce
-// prima con un arco che con un numero, e di sera si guarda di sfuggita.
-function ciambella(pct) {
-  const r = 50, c = 2 * Math.PI * r;
-  const q = pct == null ? 0 : Math.max(0, Math.min(100, pct));
-  const colore = pct == null ? 'var(--fioco)' : q <= 20 ? 'var(--rosso)' : q <= 45 ? 'var(--ambra)' : 'var(--verde)';
-  return `<svg viewBox="0 0 120 120" aria-hidden="true">
-    <circle cx="60" cy="60" r="${r}" fill="none" stroke="var(--bordo)" stroke-width="11"/>
-    <circle cx="60" cy="60" r="${r}" fill="none" stroke="${colore}" stroke-width="11" stroke-linecap="round"
-      stroke-dasharray="${c}" stroke-dashoffset="${c - c * q / 100}" transform="rotate(-90 60 60)"/>
-    <text x="60" y="58" text-anchor="middle" font-size="28" font-weight="650" fill="var(--testo)">${pct == null ? '—' : Math.round(pct)}</text>
-    <text x="60" y="78" text-anchor="middle" font-size="12" fill="var(--fioco)">${pct == null ? '' : 'per cento'}</text>
-  </svg>`;
+// ---------- il manometro ----------
+//
+// Un quadrante con la lancetta, come quelli veri. Non mostra solo a che punto
+// sta: mostra **dove stava** poco fa (la tacca chiara) e quindi se sta salendo
+// o scendendo. Un numero da solo non lo dice, e il senso di un manometro e'
+// proprio vedere la lancetta muoversi.
+//
+// E' scritto per essere riusato: le Ective useranno questo stesso pezzo
+// quando la scatoletta sara' a bordo. Quelle che ancora non parlano si
+// disegnano smorzate, senza lancetta: non fingono uno zero.
+const ANG = p => 180 - 1.8 * Math.max(0, Math.min(100, p));          // gradi
+const PT = (cx, cy, r, g) => [cx + r * Math.cos(g * Math.PI / 180), cy - r * Math.sin(g * Math.PI / 180)];
+
+function manometro({ pct, nome, tendenza = null, atteso = false, perche = '' }) {
+  const CX = 118, CY = 112, R = 86;
+  const colore = atteso || pct == null ? 'var(--fioco)'
+    : pct <= 20 ? 'var(--rosso)' : pct <= 45 ? 'var(--ambra)' : 'var(--verde)';
+  const arco = (da, a, raggio) => {
+    const [x1, y1] = PT(CX, CY, raggio, ANG(da));
+    const [x2, y2] = PT(CX, CY, raggio, ANG(a));
+    return `M${x1.toFixed(1)},${y1.toFixed(1)} A${raggio},${raggio} 0 0 1 ${x2.toFixed(1)},${y2.toFixed(1)}`;
+  };
+  const tacche = [0, 25, 50, 75, 100].map(v => {
+    const [x1, y1] = PT(CX, CY, R + 4, ANG(v));
+    const [x2, y2] = PT(CX, CY, R - 9, ANG(v));
+    const [tx, ty] = PT(CX, CY, R + 17, ANG(v));
+    return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--bordo)" stroke-width="2"/>
+      <text x="${tx.toFixed(1)}" y="${(ty + 4).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--fioco)">${v}</text>`;
+  }).join('');
+
+  // da dove veniva: la tacca chiara, che e' il «progresso»
+  const partenza = tendenza && tendenza.da != null && Math.abs(tendenza.a - tendenza.da) >= 1 ? tendenza.da : null;
+  const scia = partenza == null ? '' :
+    `<path d="${arco(Math.min(partenza, pct), Math.max(partenza, pct), R - 26)}" stroke="${colore}" stroke-opacity=".32" stroke-width="9" fill="none" stroke-linecap="round"/>`;
+
+  let lancetta = '';
+  if (!atteso && pct != null) {
+    const [nx, ny] = PT(CX, CY, R - 20, ANG(pct));
+    const [bx1, by1] = PT(CX, CY, 9, ANG(pct) + 90);
+    const [bx2, by2] = PT(CX, CY, 9, ANG(pct) - 90);
+    lancetta = `<path d="M${bx1.toFixed(1)},${by1.toFixed(1)} L${nx.toFixed(1)},${ny.toFixed(1)} L${bx2.toFixed(1)},${by2.toFixed(1)} Z" fill="var(--testo)"/>
+      <circle cx="${CX}" cy="${CY}" r="7" fill="var(--testo)"/><circle cx="${CX}" cy="${CY}" r="3" fill="var(--carta)"/>`;
+  }
+
+  const riga = atteso
+    ? `<div class="perche">${esc(perche)}</div>`
+    : !tendenza || tendenza.nota
+      ? `<div class="perche">${esc(tendenza?.nota || '')}</div>`
+      : tendenza.verso === 'fermo'
+        ? `<div class="perche">\u2192 ferma, negli ultimi ${esc(dilloInOre(tendenza.finestra_ore))}</div>`
+        : `<div class="sotto" style="font-weight:600;color:${tendenza.verso === 'sale' ? 'var(--verde)' : 'var(--ambra)'}">
+             ${tendenza.verso === 'sale' ? '\u2191' : '\u2193'} ${tendenza.ritmo > 0 ? '+' : '\u2212'}${num(Math.abs(tendenza.ritmo), 1)} % all\u2019ora</div>
+           <div class="perche">se continua cos\u00ec, ${tendenza.verso === 'sale' ? 'piena' : 'a zero'} fra <b>${esc(dilloInOre(tendenza.ore_alla_meta))}</b> \u00b7 misurato su ${esc(dilloInOre(tendenza.finestra_ore))}</div>`;
+
+  return `<div style="text-align:center">
+    <svg viewBox="0 0 236 152" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}">
+      <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
+      ${pct != null && !atteso ? `<path d="${arco(0, pct, R)}" stroke="${colore}" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
+      ${tacche}${scia}${lancetta}
+      <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)">${pct == null ? '\u2014' : Math.round(pct)}</text>
+      <text x="${CX}" y="${CY + 48}" text-anchor="middle" font-size="11" fill="var(--fioco)">${pct == null ? '' : 'per cento'}</text>
+    </svg>
+    <div style="font-weight:600;margin-top:2px">${esc(nome)}</div>
+    ${riga}
+  </div>`;
 }
 
 function rigaConto(nome, c) {
@@ -137,14 +189,12 @@ function vistaAdesso() {
       : !b
         ? `<div class="scheda"><div class="nota">Nessun apparecchio sul conto Bluetti.</div></div>`
         : `<div class="scheda">
-            <div class="ciambella">
-              ${ciambella(b.carica)}
-              <div class="dentro">
-                <div class="eti">${esc(b.nome)}${b.in_linea === false ? ' · <b>spenta</b>' : ''}</div>
-                <div class="cifra" style="margin-top:2px">${b.autonomia_minuti ? esc(dilloInOre(b.autonomia_minuti / 60)) : '<span class="vuoto">—</span>'}</div>
-                <div class="sotto">di autonomia, secondo lei</div>
-                <div class="sotto" style="margin-top:8px">${esc(b.modalita || '—')}</div>
-              </div>
+            ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza })}
+            <div class="riga" style="margin-top:14px">
+              <div class="cresci"><div class="eti">Autonomia, secondo lei</div>
+                <div class="cifra" style="font-size:22px">${b.autonomia_minuti ? esc(dilloInOre(b.autonomia_minuti / 60)) : '<span class="vuoto">—</span>'}</div></div>
+              <div style="text-align:right"><div class="eti">Modalità</div>
+                <div class="sotto" style="font-size:14px;color:var(--testo)">${esc(b.modalita || '—')}</div></div>
             </div>
             ${b.errore ? `<div class="avviso" style="margin-top:14px">${esc(b.errore)}</div>` : ''}
           </div>
@@ -158,7 +208,18 @@ function vistaAdesso() {
               <div class="sotto">${bollo(c.carica_residua?.base || 'incompleto')}</div></div>
           </div>`;
 
-  const attesi = (dati.attesi || []).map(a => `<div class="scheda atteso">
+  // Le Ective avranno due manometri come quello della Bluetti. Finche' non
+  // parlano si disegnano smorzati e senza lancetta: un quadrante a zero direbbe
+  // «scariche», che e' una bugia diversa dal non sapere.
+  const ective = `<div class="scheda">
+      <div class="griglia" style="grid-template-columns:1fr 1fr">
+        ${manometro({ pct: null, nome: 'Ective 1', atteso: true, perche: 'con la scatoletta' })}
+        ${manometro({ pct: null, nome: 'Ective 2', atteso: true, perche: 'con la scatoletta' })}
+      </div>
+      <div class="perche" style="text-align:center;margin-top:6px">Stesso quadrante della Bluetti, stessa lancetta: appena il Raspberry sarà a bordo si accendono.</div>
+    </div>`;
+
+  const attesi = (dati.attesi || []).filter(a => a.id !== 'ective').map(a => `<div class="scheda atteso">
       <div class="riga" style="border:0;padding:0">
         <div class="cresci"><div class="cifra">${a.icona} ${esc(a.nome)}</div>
           <div class="perche">${esc(a.perche)}</div>
@@ -166,6 +227,8 @@ function vistaAdesso() {
       </div></div>`).join('');
 
   return `${capo}
+    <div class="titolo">Batterie di servizio</div>
+    ${ective}
     <div class="titolo">Non ancora collegati</div>
     <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono e sono già stati letti una volta, il 16 novembre, col computer dentro al camper. Parlano solo da vicino: arriveranno qui quando la scatoletta sarà a bordo. Finché non ci sono, <b>non mostro numeri</b>: sarebbero vecchi di settimane.</div>
     ${attesi}`;

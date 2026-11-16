@@ -37,6 +37,38 @@ const ATTESI = [
     cosa: 'watt istantanei e un quarto d’ora di storia al secondo' },
 ];
 
+
+// Il ritmo della carica: non basta sapere che e' al 62 %, serve sapere se sta
+// salendo e quanto in fretta. Si guarda la fila delle letture nelle ultime ore
+// e si misura la pendenza fra la piu' vecchia e l'ultima.
+//
+// Con meno di un quarto d'ora di storia **non si dichiara niente**: due
+// letture vicine fanno pendenze assurde, e una previsione sbagliata e' peggio
+// di nessuna previsione.
+async function tendenza(apparecchio) {
+  const righe = (await q(`SELECT quando, valore FROM misure
+    WHERE apparecchio=$1 AND grandezza='carica' AND quando > now() - interval '8 hours'
+    ORDER BY quando`, [apparecchio])).rows;
+  if (righe.length < 2) return { nota: 'non ho ancora abbastanza letture' };
+  const primo = righe[0], ultimo = righe[righe.length - 1];
+  const ore = (new Date(ultimo.quando) - new Date(primo.quando)) / 3.6e6;
+  if (ore < 0.25) return { nota: 'non ho ancora abbastanza letture' };
+
+  const ritmo = (ultimo.valore - primo.valore) / ore;        // punti all'ora
+  const fermo = Math.abs(ritmo) < 0.5;
+  const verso = fermo ? 'fermo' : ritmo > 0 ? 'sale' : 'scende';
+  // Dove arriva, se continua cosi'. «Se continua cosi'» e' un'ipotesi, e la
+  // pagina la scrive: una carica rallenta verso il pieno, e un consumo cambia
+  // appena si accende qualcosa.
+  const meta = fermo ? null : ritmo > 0 ? 100 : 0;
+  const oreAllaMeta = fermo ? null : Math.abs((meta - ultimo.valore) / ritmo);
+  return {
+    ritmo, verso, finestra_ore: ore, letture: righe.length,
+    da: primo.valore, a: ultimo.valore,
+    meta, ore_alla_meta: oreAllaMeta,
+  };
+}
+
 router.get('/stato', wrap(async (req, res) => {
   const bluetti = await statoBluetti({ fresco: req.query.fresco === '1' });
   const conti = await tuttiIConti(bluetti);
@@ -48,6 +80,10 @@ router.get('/stato', wrap(async (req, res) => {
   const fissi = Object.fromEntries(Object.entries(mappa).map(([k, v]) =>
     [k, { valore: v.valore == null ? null : Number(v.valore), unita: v.unita, misurato: v.misurato }]));
   const ultimi = (await q(`SELECT apparecchio, fonte, dati, quando FROM istantanee ORDER BY quando DESC`)).rows;
+  // A ogni apparecchio con una carica si attacca il suo ritmo
+  for (const a of (bluetti.apparecchi || [])) {
+    if (a.carica != null) a.tendenza = await tendenza(a.sn);
+  }
   res.json({
     letto_il: new Date().toISOString(),
     bluetti,
