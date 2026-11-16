@@ -286,3 +286,60 @@ Una sola cosa, e va chiesta al proprietario: **i 230 V del camper, quando non
 c'è colonnina, li fa la Bluetti?** Se sì, la regola 2 è la più utile di tutta
 l'app. Se no, la stufa elettrica funziona solo attaccati alla rete e la regola
 non ha occasione di scattare.
+
+## Dove va montato l'ESP32, e una correzione al disegno
+
+Chiesto il 16 novembre 2026: «l'ESP lo devo collegare al pannello o vicino alla
+Truma?». Elettricamente è indifferente — il TIN è un **bus**, i tre apparecchi
+stanno sugli stessi due fili e chi si attacca lo sente da qualunque punto. La
+scelta è quindi tutta pratica, e cambia il disegno.
+
+### Correzione: l'ESP32 non va in wifi, va in USB al Raspberry
+
+Prima qui c'era scritto che l'ESP32 «espone i suoi valori sulla rete del camper
+e la scatoletta li raccoglie». Funziona, ma è la variante peggiore. Meglio:
+**l'ESP32 infilato nella USB del Raspberry**, con un cavo RJ12 che corre fino al
+bus della Truma.
+
+Cosa si guadagna:
+
+- **un'alimentazione sola.** L'ESP32 la prende dal Raspberry, che è già
+  alimentato. Via un alimentatore, via un punto 12 V da trovare.
+- **niente wifi per l'ESP32.** Niente secondo cliente sulla rete, niente
+  indirizzo da ritrovare, niente da riconfigurare se la rete cambia. La radio
+  del camper e' una cosa che cade: togliere una dipendenza è guadagno netto.
+- **la coda offline gratis.** Le letture della Truma entrano nello stesso pacco
+  delle altre e seguono la stessa strada: se la rete non c'è finiscono in
+  `coda.jsonl` e partono dopo. Con il wifi avrei dovuto rifare quel pezzo
+  sull'ESP32.
+- **la chiave resta in un posto solo.** L'ESP32 non sa niente del server.
+- **si aggiorna senza smontare niente**: si riflasha dal Raspberry o dal Mac.
+
+Cosa si perde: il cavo RJ12 deve arrivare dal Raspberry al bus. A 9600 baud su un
+bus nato per i veicoli, qualche metro non è niente — un RJ12 6P6C da 2 o 5 m
+costa dieci euro. Serve in più un adattatore **micro-USB OTG** per il Pi Zero
+(~5 €), e vale ricordare che l'ESP32 chiede un centinaio di milliampere al
+Raspberry.
+
+Resta in piedi la ragione per cui l'ESP32 esiste: lo schiavo LIN deve rispondere
+entro millesimi e non può vivere nello stesso processo che passa venti secondi
+per giro in ascolto Bluetooth. Quella separazione non cambia; cambia solo come i
+due si parlano.
+
+### L'ordine dei posti, dal migliore al peggiore
+
+1. **Dove sta la predisposizione**, se la si trova. Knaus ha già risolto tutto:
+   posto, accesso, corrente, e lontano dal caldo. Era pensato per una scatoletta
+   come questa.
+2. **Accanto al Raspberry**, col cavo RJ12 che va al bus. Un posto solo da
+   raggiungere quando qualcosa non va.
+3. **Dietro al pannello.** Elettricamente il più comodo, ma è un vano stretto e
+   la corrente va trovata lì — e non si prende dal cavo del pannello.
+4. **Vicino alla Truma: ultima scelta.** Attorno a una stufa accesa fa caldo, ed
+   è il posto peggiore per dell'elettronica e per un alimentatore. Più il fatto
+   che è il punto più scomodo da raggiungere di tutto il camper.
+
+### Cosa serve sapere per decidere
+
+La distanza fra il pannello e il posto dove vivrà il Raspberry: decide se il cavo
+RJ12 è da 2 o da 5 metri. Si misura quando si fanno le foto.
