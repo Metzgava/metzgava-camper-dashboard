@@ -20,6 +20,8 @@ serve qualcosa di acceso che faccia da tramite.
 | Bluetti Elite 300 | **cloud Bluetti**, OAuth2 + REST | **sì** |
 | Bluetti Charger | niente | no |
 | CarLock | esportazione CSV/XLS a mano da `my.carlock.co` | sì |
+| Truma Combi (CP plus) | bus LIN, fingendosi una iNet Box | sì, col tramite |
+| Frigo Dometic da incasso | **niente**: non ha radio | no |
 
 ## Ective: il formato, ricostruito
 
@@ -139,3 +141,95 @@ quaranta connessioni insieme esauriscono i socket di quel chip, che smette di
 rispondere a tutto. Rifatta a una porta alla volta, la stessa macchina
 **rifiutava** regolarmente. *Muta* e *rifiutata* sono due risposte diverse, e
 confonderle fa concludere il contrario del vero.
+
+## Truma: il connettore c'è già
+
+Verificato il 16 novembre 2026, a parole dal proprietario: **la iNet Box non è
+installata, ma il camper è predisposto**. È la notizia buona, perché
+«predisposto per iNet Box» vuol dire due cose insieme:
+
+1. il pannello è un **CP plus** *inet ready* — la iNet Box non si attacca a un
+   CP classic, quindi la predisposizione lo esclude;
+2. **il connettore RJ12 del bus LIN esiste ed è libero.** Non c'è da tagliare,
+   spellare o derivare niente: ci si infila dentro, ed è esattamente il tipo di
+   intervento che il vincolo «non si mette mano all'impianto» permette.
+
+Chi si attacca a quel bus **finge di essere la iNet Box** e il CP plus comincia
+a raccontargli tutto. Due realizzazioni libere fanno questo da anni:
+[`esphome-truma_inetbox`](https://github.com/Fabian-Schmidt/esphome-truma_inetbox)
+per ESP32 e [`inetbox.py`](https://github.com/juvander/inetbox.py) per Raspberry.
+
+Si leggono: **temperatura ambiente**, **temperatura dell'acqua**, le due
+**temperature impostate**, il **modo di riscaldamento** e, sui Combi E, la
+mescola gas/elettrico e il livello di potenza elettrica. C'è anche un
+*CP plus alive*, che dice se il pannello sta rispondendo — e un apparecchio che
+dichiara di essere morto è meglio di uno che tace.
+
+**Si può anche comandare**: temperatura ambiente `0` (spento) oppure `5–30`,
+acqua `0 | 40 | 60 | 200`, modo `off | eco | high`. Ambiente e modo vanno
+impostati **insieme**, altrimenti non scalda. Questo però è un comando che
+accende una stufa a gas in un veicolo: non entra in questa app senza una
+decisione esplicita, e per ora resta scritto qui e non implementato.
+
+### Un passaggio che si dimentica
+
+Perché il CP plus riconosca la finta iNet Box bisogna scegliere **«PR SET»** nel
+suo menù impostazioni. Senza quello il bus resta zitto e si passa un pomeriggio
+a controllare i fili.
+
+### Collegamenti
+
+Serve un **ricetrasmettitore LIN→UART** (MCP2003 o TJA1021 su basetta), che si
+alimenta a 12 V dalla stessa linea del Combi:
+
+| del ricetrasmettitore | va a |
+|---|---|
+| `LIN` | piedino **3** dell'RJ12 (6P6C) |
+| `GND` | piedino **5** dell'RJ12, e la massa della basetta |
+| `TX` / `RX` | seriale del microcontrollore (9600 baud, **2 bit di stop**) |
+| `INH`, `SLP` | non si usano |
+
+L'RJ12 va sulla porta libera del Combi, oppure su uno sdoppiatore inserito nel
+cavo che già collega Combi e pannello.
+
+### Perché non sul Raspberry
+
+Sembrerebbe naturale: il Raspberry c'è già e `inetbox.py` è scritto per lui.
+Non va, per tre ragioni che si sommano.
+
+- Sul **Pi Zero 2 W** la seriale buona (PL011) **è occupata dal Bluetooth**, che
+  è esattamente ciò per cui la scatoletta esiste. Spostare il Bluetooth sulla
+  mini-seriale (`dtoverlay=miniuart-bt`) si può, ma peggiora proprio la radio da
+  cui dipendono Victron, Ective e termometri.
+- La **mini-seriale** ha una velocità che dipende dal clock della CPU. Un
+  apparecchio che su un bus LIN deve rispondere entro pochi millesimi non si
+  regge su una velocità che balla col carico.
+- L'agente passa **venti secondi per giro in ascolto Bluetooth**. Uno schiavo
+  LIN in quei venti secondi perde ogni richiesta del master.
+
+Quindi: **una basetta dedicata** (ESP32 + ricetrasmettitore LIN) che sta sul bus
+a tempo pieno e non fa altro. Espone i suoi valori sulla rete del camper; la
+scatoletta li raccoglie nel giro e li spedisce con gli altri, così la chiave
+della porta resta in un posto solo. `inetbox.py` sul Raspberry vorrebbe anche un
+broker MQTT a bordo: una cosa in più da tenere viva, per niente.
+
+## Frigo: non c'è la porta
+
+Il frigo è un **Dometic da incasso** (tipico su Knaus BoxLife 540). Non si
+collega, e la ragione non è una porta chiusa: **non c'è la porta.** I frigo da
+incasso Dometic — a compressore o ad assorbimento — non hanno radio. Niente
+Bluetooth, niente wifi, niente bus. Non c'è un formato da ricostruire: non c'è
+nulla che parli. Il modello esatto si legge sulla targhetta dati dentro il vano,
+e serve solo a confermarlo.
+
+Due cose si ottengono comunque, e insieme bastano:
+
+- **la temperatura dentro**, con un termometro Bluetooth da pochi euro appoggiato
+  in un cestello. L'agente li legge già: BTHome v2 (servizio `0xFCD2`) e ATC
+  (`0x181A`) trasmettono **in chiaro e senza accoppiamento**, basta ascoltare;
+- **il consumo**, di riflesso: il compressore parte e si ferma, e quei gradini
+  nella corrente delle Ective sono il frigo. Non è una misura diretta, e la
+  pagina lo dirà col suo bollino: una stima resta una stima.
+
+Lo stesso vale per la temperatura in cellula, in gavone e in frigo: tre
+termometri da dieci euro, zero fili, zero interventi.

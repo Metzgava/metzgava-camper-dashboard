@@ -1,0 +1,156 @@
+# La scatoletta
+
+Il pezzo che sta in camper. Legge gli apparecchi che parlano solo da vicino —
+Bluetooth, e l'allarme sulla rete locale — e manda le misure a Camper Servizi,
+che le mostra da qualunque parte del mondo.
+
+È un Raspberry Pi Zero 2 W attaccato a una presa da 12 V. Non ha schermo, non
+ha tastiera, non ha bottoni: si accende e lavora.
+
+## Le tre regole
+
+Sono le stesse della pagina, e valgono più di qualsiasi funzione:
+
+1. **Un valore che non si sa non si inventa.** Un apparecchio che non risponde
+   viene saltato. Non manda zeri: uno zero sembra una misura.
+2. **Una lettura fuori scala non si spedisce.** Quasi sempre vuol dire che un
+   decodificatore ha perso un byte. Il server la rifiuterebbe comunque, e lo
+   scrive nel diario invece di ingoiarla.
+3. **Quel che non si riesce a spedire si tiene in tasca.** Il 4G del camper
+   cade. Le letture restano in `coda.jsonl` e partono appena la rete torna.
+
+## Cosa legge
+
+| Apparecchio | Come | Serve altro? |
+|---|---|---|
+| Orion XS (carica dal motore) | annunci Bluetooth cifrati | la chiave da VictronConnect, una volta |
+| Pannelli solari Victron | annunci Bluetooth cifrati | idem |
+| Ective 1 e 2 (le batterie) | connessione Bluetooth, testo su FFE4 | no |
+| Termometri BTHome / ATC | annunci Bluetooth in chiaro | i termometri, da comprare |
+| Allarme Tuya | rete locale, protocollo 3.5 | la sua chiave locale |
+| Bluetti Elite 300 V2 | **non passa da qui**: la legge il server dal cloud | no |
+| Truma Combi | **non ancora**: vedi sotto | una basetta in più |
+| Frigo | **non si collega**: vedi sotto | un termometro dentro |
+
+## Metterla in piedi
+
+### 1. Il sistema, con Raspberry Pi Imager
+
+Scheda da 16 o 32 GB. In Imager:
+
+- sistema: **Raspberry Pi OS Lite (64 bit)** — senza interfaccia grafica, il
+  Pi Zero non ne ha bisogno e consuma meno;
+- l'**ingranaggio** delle impostazioni: nome `bergava-scatoletta`, utente e
+  password tuoi, **SSH acceso**, e la rete del camper (`bergamobile`) con la
+  sua password.
+
+Quell'ingranaggio fa metà del lavoro. Senza, il Raspberry parte muto e non lo
+raggiungi.
+
+### 2. Il config
+
+```bash
+cp config.json.esempio config.json
+```
+
+Poi riempilo. Le voci che contano:
+
+| Voce | Cos'è |
+|---|---|
+| `server` | `https://bergava-bait-servizi.up.railway.app` |
+| `chiave` | la chiave della porta d'ingresso (la stessa che sta su Railway come `INGEST_TOKEN`) |
+| `minuti` | ogni quanto fa un giro. 5 è un buon compromesso fra freschezza e corrente |
+| `victron` | per ogni apparecchio: indirizzo MAC → chiave di cifratura |
+| `termometri` | per ogni termometro: indirizzo MAC → come lo vuoi chiamare |
+| `allarme` | id e chiave locale della centrale. Lasciali vuoti e l'allarme si salta |
+
+`config.json` **non va in git**: contiene chiavi. Le chiavi vere stanno in
+`segreti/` sul Mac.
+
+### 3. La scheda
+
+Con la scheda infilata nel Mac:
+
+```bash
+bash prepara-scheda.sh
+```
+
+Copia `agente.py`, `installa.sh` e il tuo `config.json` sulla partizione di
+avvio, e ti stampa l'ultima riga da incollare. Lo script controlla di stare
+scrivendo davvero su una scheda del Raspberry (cerca `config.txt`) e si rifiuta
+di partire se la chiave è ancora da riempire.
+
+### 4. L'accensione
+
+Infila la scheda, dai corrente, aspetta due minuti. Poi, dal Mac sulla stessa
+rete, **una riga una volta sola**:
+
+```bash
+ssh TUOUTENTE@bergava-scatoletta.local 'cp -r /boot/firmware/scatoletta ~/ && bash ~/scatoletta/installa.sh'
+```
+
+La riga esatta, col tuo nome utente già dentro, la stampa `prepara-scheda.sh`
+e resta scritta sulla scheda in `scatoletta/COME-SI-FINISCE.txt`.
+
+Da quel momento parte da sola a ogni accensione, si rialza se cade, e non
+chiede più niente.
+
+**Perché una riga e non zero.** Mi piacerebbe dire «dai corrente e basta». Non
+è onesto: la partizione grande del Raspberry è `ext4` e un Mac non la sa
+scrivere, e l'unico gancio che resta sulla partizione di avvio
+(`systemd.run=` in `cmdline.txt`) è esattamente quello che usa Imager per
+configurare rete e utente. Rubarglielo vorrebbe dire una scheda che parte
+senza wifi — cioè un Raspberry irraggiungibile, che è il guasto peggiore di
+tutti. Meglio una riga.
+
+### Come sta
+
+```bash
+ssh TUOUTENTE@bergava-scatoletta.local 'systemctl status scatoletta'
+```
+
+```bash
+ssh TUOUTENTE@bergava-scatoletta.local 'journalctl -u scatoletta -f'
+```
+
+Il diario di sistema sta in memoria e non sulla scheda: le schede di memoria
+si consumano a forza di scritture, ed è il guasto più comune di un Raspberry
+montato su un veicolo.
+
+## Due cose che non ci sono ancora
+
+### La Truma
+
+Si può leggere, e anche comandare. Il pannello CP plus parla su un bus LIN, e
+sul camper la **predisposizione per la iNet Box c'è**: cioè il connettore
+libero esiste già. Chi si attacca a quel bus fingendosi una iNet Box legge
+temperatura ambiente, temperatura dell'acqua, le due temperature impostate e
+il modo di funzionamento.
+
+Ma non lo può fare questo Raspberry, e il motivo è hardware: sul Pi Zero 2 W
+la seriale buona (PL011) è occupata dal Bluetooth, che a noi serve per
+Victron, Ective e termometri. Resta la mini-seriale, la cui velocità dipende
+dal clock della CPU — e un apparecchio che su un bus LIN deve rispondere entro
+pochi millesimi di secondo non si regge su una velocità che balla. A peggiorare
+le cose, questo agente passa venti secondi per giro in ascolto Bluetooth: in
+quei venti secondi perderebbe ogni richiesta del bus.
+
+Quindi la Truma vuole una basetta sua — un ESP32 con un ricetrasmettitore
+LIN — che sta sul bus a tempo pieno e non fa altro. Costa poco e non si tocca
+niente dell'impianto: si infila nel connettore predisposto. Dettagli e
+collegamenti in [`../docs/telemetria-camper.md`](../docs/telemetria-camper.md).
+
+### Il frigo
+
+Il frigo non si collega: i frigo da incasso Dometic non hanno radio, né
+Bluetooth né altro. Non c'è niente da decodificare, non c'è una porta chiusa:
+non c'è la porta.
+
+Due cose si ottengono comunque, e insieme bastano:
+
+- **la temperatura dentro**, con un termometro Bluetooth da pochi euro appoggiato
+  in un cestello. Questo agente li legge già (BTHome o ATC, in chiaro, senza
+  accoppiamento);
+- **il consumo**, che si vede di riflesso sulla corrente delle Ective: il
+  compressore parte e si ferma, e quei gradini nella corrente sono il frigo.
+  Non è una misura diretta, e la pagina lo dirà: una stima è una stima.

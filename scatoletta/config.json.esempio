@@ -1,0 +1,35 @@
+{
+  "_leggimi": "Copia questo file in config.json e riempilo. Ogni riga e' spiegata nel README. Le chiavi vere non stanno qui dentro: stanno in segreti/ sul Mac e ci arrivano con prepara-scheda.sh.",
+
+  "nome": "scatoletta",
+  "server": "https://bergava-bait-servizi.up.railway.app",
+  "chiave": "METTI-QUI-LA-CHIAVE-DELLA-PORTA",
+
+  "minuti": 5,
+  "secondi_ricerca": 8,
+  "secondi_annunci": 12,
+  "secondi_ective": 20,
+
+  "ective_prefissi": ["NWJ"],
+
+  "victron": {
+    "_nota": "indirizzo MAC in minuscolo : chiave di cifratura letta una volta da VictronConnect",
+    "aa:bb:cc:dd:ee:ff": "00112233445566778899aabbccddeeff"
+  },
+
+  "termometri": {
+    "_nota": "indirizzo MAC : come lo vuoi chiamare nella pagina",
+    "a4:c1:38:00:00:01": "dentro",
+    "a4:c1:38:00:00:02": "frigo",
+    "a4:c1:38:00:00:03": "gavone"
+  },
+
+  "allarme": {
+    "_nota": "la centrale Tuya. Se lasci id o chiave vuoti, l'allarme si salta e non da' errore.",
+    "id": "",
+    "chiave": "",
+    "mac": "",
+    "ip": "",
+    "protocollo": 3.5
+  }
+}

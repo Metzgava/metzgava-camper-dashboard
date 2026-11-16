@@ -5,3 +5,8 @@ node_modules/
 uploads/
 segreti/
 misure/
+
+# La scatoletta: config con le chiavi, coda delle letture, ambiente Python
+scatoletta/config.json
+scatoletta/coda.jsonl
+scatoletta/ambiente/

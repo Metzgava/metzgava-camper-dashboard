@@ -55,6 +55,9 @@ Sono conti, non ricordi. Per questo sta a parte.
 | Starlink | solo dalla rete del piatto | serve la scatoletta |
 | Bluetti Charger 2 | non è nel cloud; da verificare se ha wi-fi | — |
 | CarLock | esportazione a mano | sì, come oggi |
+| Truma Combi (CP plus) | bus LIN, connettore iNet Box **predisposto e libero** | serve una basetta sua |
+| Frigo Dometic da incasso | **non ha radio**: niente da leggere | mai direttamente |
+| Temperature in cellula | termometri Bluetooth BTHome/ATC, in chiaro | serve la scatoletta |
 
 Sette apparecchi su otto parlano solo a chi è dentro il camper. **Questo non è
 un dettaglio tecnico: è la ragione per cui esiste la scatoletta.**
@@ -186,3 +189,29 @@ in Bluetooth?** Sulla rete del camper restano due apparecchi senza nome: se uno
 - Quanto tenere la storia prima di assottigliarla.
 - La forma della pagina, finché rispetta la regola del «—» e quella della
   provenienza di ogni numero.
+
+## Due cose possibili che restano fuori dalla v1
+
+Accertate il 16 novembre 2026, scritte qui perché non si riscopra la ruota.
+
+**La Truma si legge.** La iNet Box non c'è, ma la predisposizione sì: il
+connettore del bus LIN è libero e il pannello è un CP plus *inet ready*. Chi si
+attacca fingendosi una iNet Box legge temperatura ambiente e dell'acqua, le
+temperature impostate e il modo. Non entra nella v1 per una ragione hardware,
+non di voglia: sul Pi Zero 2 W la seriale buona è occupata dal Bluetooth, e un
+bus LIN non convive con venti secondi di ascolto radio per giro. Vuole una
+basetta sua (ESP32 + ricetrasmettitore LIN), che costa poco e si infila nel
+connettore senza toccare l'impianto. Collegamenti e trappole —  fra cui il
+«PR SET» da scegliere sul pannello — in `telemetria-camper.md`.
+
+**Comandare la Truma si potrebbe, e per ora no.** Accendere una stufa a gas in
+un veicolo da remoto è un comando di natura diversa da «accendi l'uscita in
+alternata». Resta documentato e non implementato: è una decisione da prendere
+apposta, non un effetto collaterale di una funzione.
+
+**Il frigo no, e non è un limite da superare.** I Dometic da incasso non hanno
+radio: non c'è un protocollo da aprire, non c'è nulla che parli. Quel che si
+ottiene — e basta — è la temperatura dentro con un termometro Bluetooth da
+pochi euro, e il consumo di riflesso dai gradini di corrente delle Ective
+quando il compressore parte e si ferma. Il secondo è una stima, e in pagina
+porterà il bollino della stima.
