@@ -24,10 +24,17 @@ export const q = (testo, parametri) => pool.query(testo, parametri);
 // «misurato = false» vuol dire che il valore viene da un catalogo. Ogni conto
 // che lo usa lo dichiara, e quando una ricarica vera permette di misurarlo, il
 // valore viene sostituito e la bandierina diventa vera.
+// Riferito il 16/11/2026: il Charger 2 non supera i 700 W sulla Elite 300.
+// E' un'osservazione sull'impianto vero, quindi vale piu' di un dato di
+// catalogo — ma vale al regime a cui e' stata fatta: al minimo l'alternatore
+// puo' darne meno, e allora i tempi veri si allungano.
+const NOTA_CHARGER = 'Riferito il 16/11/2026: il Charger 2 non supera i 700 W sulla Elite 300. '
+  + 'Al minimo l’alternatore potrebbe darne meno, quindi i tempi veri possono allungarsi.';
+
 const IMPIANTO = [
   ['bluetti_wh', 2764, 'Wh', 'Capacita’ dell’Elite 300. Da catalogo: da correggere se il tuo modello differisce.', false],
   ['bluetti_carica_ac_w', 1800, 'W', 'Potenza di carica da presa 220 V (colonnina o casa).', false],
-  ['charger_w', null, 'W', 'Potenza del Bluetti Charger 2 dall’alternatore. DA COMPILARE: senza questo le ore di motore non si calcolano.', false],
+  ['charger_w', 700, 'W', NOTA_CHARGER, true],
   ['ective_ah', 190, 'Ah', 'Capacita’ totale delle due Ective (95 + 95). Letta dalle batterie stesse.', true],
   ['ective_v', 12.8, 'V', 'Tensione nominale del pacco LiFePO4, per passare da Ah a Wh.', true],
   ['ective_carica_a', null, 'A', 'Ampere del caricabatterie che alimenta le Ective dalla 220. DA COMPILARE.', false],
@@ -109,6 +116,12 @@ export async function migrate() {
              VALUES ($1,$2,$3,$4,$5) ON CONFLICT (chiave) DO NOTHING`,
       [chiave, valore, unita, nota, misurato]);
   }
+
+  // Il Charger 2 era nato vuoto: se e' ancora cosi', ci si mette il valore
+  // riferito. **Solo se e' vuoto**: un numero scritto a mano dall'utente vale
+  // piu' di uno scritto dal codice, e non si sovrascrive mai dall'alto.
+  await q(`UPDATE impianto SET valore=$1, misurato=true, nota=$2, aggiornato=now()
+           WHERE chiave='charger_w' AND valore IS NULL`, [700, NOTA_CHARGER]);
 }
 
 export async function segna(tipo, testo, chi = null) {
