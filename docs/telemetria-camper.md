@@ -522,3 +522,57 @@ collegando. Il collegamento dura due minuti; il deploy puo' aspettarli.
 Collegato alle 22:24 senza deploy in corso: manometro e comandi tornati,
 nessun errore nei log. Il permesso scade il **17 dicembre 2026** e da li' in
 poi si rinnova da solo.
+
+## Il guasto vero: una contesa sul gettone di rinnovo
+
+Chiuso nella notte fra il 16 e il 17 novembre 2026, dopo **cinque** diagnosi
+sbagliate. Vale la pena scrivere sia il meccanismo sia come si e' trovato.
+
+### Cosa succedeva
+
+1. una lettura trova il gettone rifiutato (805) e lancia il rinnovo;
+2. **nello stesso momento** ne parte un'altra — il giro periodico ogni quindici
+   minuti e una pagina che si apre — che trova lo stesso gettone rifiutato e
+   lancia un **secondo** rinnovo;
+3. ma il gettone di rinnovo **si consuma**: il primo lo usa e ne riceve uno
+   nuovo, il secondo si sente rispondere `invalid_grant`;
+4. il codice scambiava quell'`invalid_grant` per «permesso morto» e **buttava
+   via i gettoni buoni** che il primo aveva appena salvato.
+
+Bastava quindi una lettura rifiutata **piu'** due richieste contemporanee, e il
+collegamento spariva. Tre volte in una sera.
+
+### Come si e' trovato
+
+Non ragionando: provando. Il codice vero di `bluetti.js` fatto girare con un
+**database finto in memoria** (solo la riga di import cambiata) e un gettone
+verificato funzionante due minuti prima. La catena si e' rotta sotto gli occhi,
+e il `rinnovo RIFIUTATO (400): invalid_grant` ha detto il resto — quel gettone
+di rinnovo l'aveva gia' consumato la prova precedente.
+
+### Le due correzioni
+
+- **una lettura per volta**: chi arriva mentre un'altra e' in corso aspetta
+  quella, invece di partirne una seconda che si pestera' i piedi sul rinnovo;
+- **si rilegge prima di buttare**: se in archivio c'e' un gettone **diverso** da
+  quello provato, vuol dire che qualcun altro ha gia' rimediato, e si riprova
+  con quello invece di dichiarare morto tutto.
+
+Provato: tre letture lanciate insieme fanno partire **una** catena invece di
+tre, buttano i gettoni **una volta sola** invece di tre, e restituiscono lo
+stesso oggetto.
+
+### Quel che si era creduto, e non era
+
+Scritto perche' non torni, e perche' quattro di queste sembravano ragionevoli:
+
+| ipotesi | com'e' caduta |
+|---|---|
+| il permesso dura poco | misurato: **31 giorni** |
+| il rinnovo preventivo lo brucia | col margine vero non scattava mai |
+| un nuovo accesso spegne i precedenti | il gettone del mattino funzionava ancora a notte fonda |
+| il gateway o l'intestazione sbagliati | provati dal Mac: `msgCode 0`, tutto a posto |
+| il gettone troncato in archivio | la colonna e' `TEXT`, 1835 caratteri ci stanno |
+
+Tutte e cinque cadute **guardando**, non ragionando. E ogni volta che ho
+corretto prima di guardare, ho corretto il ramo sbagliato.
