@@ -294,7 +294,19 @@ Truma?». Elettricamente è indifferente — il TIN è un **bus**, i tre apparec
 stanno sugli stessi due fili e chi si attacca lo sente da qualunque punto. La
 scelta è quindi tutta pratica, e cambia il disegno.
 
-### USB o wifi: la scelta non è ancora chiusa
+### USB o wifi: chiusa, si va in USB
+
+**Deciso il 16 novembre 2026.** Il proprietario ha verificato il punto che
+decideva: **vicino al CP plus non c'è nessuna presa a 12 V**. Quindi il cavo va
+tirato in ogni caso, e fra i due conviene tirare quello che porta anche i dati —
+l'RJ12 — invece di una linea a 12 V che poi lascia il collegamento in mano al
+wifi.
+
+Il seguito di questa sezione resta come documentazione del confronto: serve
+perché la stessa domanda tornerà quando si monterà qualcos'altro sul camper, e
+la risposta non è «USB è meglio», è «guarda prima dove sono le prese».
+
+### Il confronto, come era
 
 **Riaperta il 16 novembre 2026**, e per un buon motivo: scoperto che il modulo
 LIN **vuole 12 V** (su un bus LIN il riposo è la tensione di batteria, e il
