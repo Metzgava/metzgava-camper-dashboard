@@ -132,6 +132,53 @@ export async function tuttiIConti(bluetti) {
           });
   }
 
+  // ---- da dove arriva la carica, e quando sara' piena ----
+  //
+  // La Bluetti lo dice da sola: due ingressi distinti, la 220 e la continua, e
+  // i minuti che le restano per arrivare piena. Quei minuti sono una sua stima
+  // sul ritmo **vero** di adesso: meglio di qualunque divisione che potremmo
+  // fare noi coi watt di catalogo, ed e' il motivo per cui si preferisce il suo
+  // numero al nostro quando c'e'.
+  //
+  // Un'avvertenza che la pagina deve ripetere: sulla Bluetti il Charger del
+  // motore entra dalla **stessa porta** dei pannelli. Il numero non distingue
+  // i due, e attribuirlo a occhio sarebbe peggio che dire che non si sa.
+  const rete = b?.rete_w ?? null;
+  const continua = b?.fotovoltaico_w ?? null;
+  const entra = rete == null && continua == null ? null : (rete || 0) + (continua || 0);
+
+  out.ingresso = entra == null
+    ? manca('W', ['letture della Bluetti'], 'Serve il collegamento al cloud.')
+    : conto(entra, 'W', {
+        base: 'misurato',
+        perche: `${Math.round(rete || 0)} W dalla 220, ${Math.round(continua || 0)} W in continua`,
+        detto: entra === 0 ? 'non sta caricando'
+          : [rete ? `${Math.round(rete)} W dalla 220` : null,
+             continua ? `${Math.round(continua)} W in continua` : null].filter(Boolean).join(' + '),
+      });
+  // I due pezzi viaggiano insieme al totale: servono a disegnare la barra, e
+  // un conto che porta con se' i suoi addendi si verifica a occhio.
+  out.ingresso.rete_w = rete;
+  out.ingresso.continua_w = continua;
+
+  const minutiPiena = b?.alla_carica_minuti ?? null;
+  const nostraStima = out.manca_alla_piena.valore != null && entra ? out.manca_alla_piena.valore / entra : null;
+  out.alla_piena = minutiPiena
+    ? conto(minutiPiena / 60, 'h', {
+        base: 'misurato',
+        perche: 'lo dice la Bluetti stessa, sul ritmo di adesso',
+        detto: dilloInOre(minutiPiena / 60),
+      })
+    : nostraStima != null
+      ? conto(nostraStima, 'h', {
+          base: misurato(m, 'bluetti_wh') ? 'misurato' : 'stima',
+          perche: `${out.manca_alla_piena.valore} Wh da rimettere, a ${Math.round(entra)} W in ingresso`,
+          detto: dilloInOre(nostraStima),
+        })
+      : manca('h', ['letture della Bluetti'],
+          entra === 0 ? 'Non sta caricando: non c\u2019e\u2019 nessun ritmo da cui partire.'
+            : 'Serve il collegamento al cloud.');
+
   // ---- quanta Bluetti serve per le Ective ----
   // Questo conto si puo' fare anche senza sapere come stanno le Ective: il
   // numero utile e' il cambio, «un punto di Ective quanti punti di Bluetti

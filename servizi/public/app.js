@@ -271,12 +271,66 @@ function vistaAdesso() {
 
   return `<div class="titolo">Stazione di accumulo</div>
     ${capo}
+    ${barraCarica()}
     <div class="titolo">Batterie di servizio</div>
     ${ective}
 ${vistaSegnale()}
         <div class="titolo">Non ancora collegati</div>
     <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono e sono già stati letti una volta, il 16 novembre, col computer dentro al camper. Parlano solo da vicino: arriveranno qui quando la scatoletta sarà a bordo. Finché non ci sono, <b>non mostro numeri</b>: sarebbero vecchi di settimane.</div>
     ${attesi}`;
+}
+
+// ---------- la barra della carica ----------
+//
+// Mostra tre cose in una: a che punto sta la carica, **da dove** sta arrivando
+// quella che entra, e quando sara' piena. Il colore del riempimento dice la
+// provenienza, cosi' lo si capisce senza leggere.
+//
+// Quando non entra niente la barra resta, ma grigia e muta: dire «non sta
+// caricando» e' un'informazione, far sparire il riquadro no.
+const FONTI = {
+  rete: { nome: 'dalla 220', colore: 'var(--rete, #5aa9e6)' },
+  continua: { nome: 'in continua', colore: 'var(--sole, #e8b64c)' },
+};
+
+function barraCarica() {
+  const c = dati.conti || {};
+  const i = c.ingresso || {};
+  const pct = Math.max(0, Math.min(100, Number(c.carica_residua?.valore != null && dati.bluetti?.apparecchi?.[0]?.carica) || dati.bluetti?.apparecchi?.[0]?.carica || 0));
+  const rete = Number(i.rete_w) || 0;
+  const continua = Number(i.continua_w) || 0;
+  const entra = rete + continua;
+
+  // Le due fette dentro la parte piena, in proporzione a chi sta spingendo.
+  const fette = entra > 0
+    ? [['rete', rete], ['continua', continua]].filter(([, w]) => w > 0)
+      .map(([k, w]) => `<span style="flex:${w};background:${FONTI[k].colore}"></span>`).join('')
+    : '<span style="flex:1;background:var(--filo,#3a4150)"></span>';
+
+  const legenda = entra > 0
+    ? [['rete', rete], ['continua', continua]].filter(([, w]) => w > 0)
+      .map(([k, w]) => `<span class="perche" style="margin-right:12px">
+          <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${FONTI[k].colore};margin-right:4px"></span>
+          ${FONTI[k].nome} <b>${num(w, 0)} W</b></span>`).join('')
+    : '<span class="perche">Non sta caricando</span>';
+
+  return `<div class="scheda">
+    <div class="eti">Carica e provenienza</div>
+    <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,.08);margin:8px 0 6px">
+      <div style="display:flex;width:${pct}%;min-width:2px">${fette}</div>
+    </div>
+    <div class="riga" style="border:0;padding:0;align-items:baseline">
+      <div class="cresci">${legenda}</div>
+      <div class="valore" style="font-size:15px">${pct ? num(pct, 0) + ' %' : '<span class="vuoto">—</span>'}</div>
+    </div>
+    ${entra > 0 ? `<div class="riga" style="margin-top:8px">
+      <div class="cresci"><div class="eti">Piena</div>
+        <div class="perche">${esc(c.alla_piena?.perche || '')}</div></div>
+      <div class="valore">${esc(c.alla_piena?.detto || '—')} ${bollo(c.alla_piena?.base || 'incompleto')}</div>
+    </div>` : ''}
+    <div class="nota" style="margin-top:8px">Sulla Bluetti il Charger del motore entra dalla <b>stessa porta</b> dei pannelli:
+      «in continua» sono i due insieme e il numero non li distingue. Dirlo e' meglio che indovinare.</div>
+  </div>`;
 }
 
 // ---------- quanto si sente ----------
