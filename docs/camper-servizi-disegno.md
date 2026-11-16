@@ -403,3 +403,57 @@ due si parlano.
 
 La distanza fra il pannello e il posto dove vivrà il Raspberry: decide se il cavo
 RJ12 è da 2 o da 5 metri. Si misura quando si fanno le foto.
+
+## Cosa si apre dopo, e dove sta il muro
+
+Chiesto il 16 novembre 2026: «tutto ciò mi permetterebbe di collegare altri
+accessori da comandare da remoto?». La risposta utile separa due cose.
+
+### Il Raspberry è l'investimento; il modulo LIN no
+
+Il modulo LIN parla LIN e nient'altro: è un pezzo dedicato alla Truma. Con una
+eccezione che val la pena sapere: **sullo stesso bus TIN viaggia anche un
+condizionatore Truma** (Aventa, Saphir), perché lo comanda lo stesso CP plus. Se
+un giorno ne monta uno, si legge e si comanda **senza comprare niente**.
+
+Il Raspberry invece è una piattaforma, e quello che apre è molto piu' largo:
+
+| via | cosa ci si attacca |
+|---|---|
+| **Bluetooth** | qualunque cosa trasmetta in chiaro: Victron, Ective, termometri BTHome/ATC, sensori di pressione gomme, bilance per bombole |
+| **wifi** | tutto quel che sta sulla rete del camper: la centrale Tuya (già), Starlink, prese comandate |
+| **USB** | adattatori seriali: VE.Direct a filo, RS485, CAN, ricevitori GPS, chiavette OBD |
+| **GPIO** | 40 piedini: sensori 1-Wire, contatori a impulsi (contalitri dell'acqua), contatti di livello |
+
+E soprattutto: **la strada per i dati esiste già.** Porta d'ingresso, coda
+offline, archivio storico, pagina. Un apparecchio nuovo costa il suo prezzo piu'
+un pezzo di codice, non un'infrastruttura.
+
+Il secondo ESP32 non è quindi solo un ricambio: è il cervello del prossimo
+apparecchio. Non va caricato di altri compiti **quello** della Truma, perché uno
+schiavo LIN non convive con altro — ma un secondo ESP32 fa quel che serve.
+
+### Si legge quasi tutto. Comandare è un'altra faccenda
+
+Il muro non è tecnico, è il vincolo che ci siamo dati: **all'impianto a 12 V non
+si mette mano.**
+
+- **Leggere**: aperto quasi senza limiti. Chi trasmette si ascolta, chi ha un
+  connettore si infila. Nessun intervento.
+- **Comandare un carico a 12 V** (luci, ventole, pompa, una resistenza): serve un
+  relè *dentro* il circuito. Quello è mettere mano all'impianto, ed è una
+  decisione separata da prendere apposta, non un effetto collaterale.
+- **Comandare senza toccare niente**: la Bluetti (già, dal cloud), la centrale
+  Tuya (il campo `master_mode` è scrivibile, già individuato), la Truma col bus,
+  un eventuale condizionatore Truma sullo stesso bus, e le prese comandate sulla
+  230 V — che però sulla 230 V del camper vivono solo quando l'inverter della
+  Bluetti è accesso.
+
+### Candidati da verificare, non promesse
+
+Scritti qui per non riscoprirli: **sensori di pressione gomme Bluetooth** (molti
+trasmettono in chiaro e i formati di diversi modelli sono noti), **Truma
+LevelControl** per il livello della bombola (è un sensore Bluetooth del sistema
+iNet: da verificare se si legge passivamente), **VE.Direct a filo** con un cavo
+USB da una trentina di euro, che darebbe più dati dei Victron rispetto agli
+annunci radio e permetterebbe di scriverne le impostazioni.
