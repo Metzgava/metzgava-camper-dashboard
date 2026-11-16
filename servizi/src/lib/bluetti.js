@@ -199,16 +199,34 @@ export async function statoBluetti({ fresco = false } = {}) {
     if (nuovo) accesso = nuovo;
   }
 
+  // Due trappole che i log hanno scoperto, e che la prima correzione aveva
+  // mancato entrambe.
+  //
+  // La prima: `msgCode === 805` e' un confronto con un **numero**, e il loro
+  // cloud puo' mandarlo come stringa. In quel caso il ramo del rinnovo non
+  // veniva nemmeno sfiorato, e per sei ore il programma ha detto «il cloud ha
+  // risposto 805» senza mai provare a rimediare. `Number()` chiude la
+  // questione, e non costa niente nel caso sia gia' un numero.
+  //
+  // La seconda: il rinnovo puo' **riuscire** e il gettone nuovo valere lo
+  // stesso niente, perche' il loro SSO ha spento tutta la sessione. Allora non
+  // basta guardare se il rinnovo e' partito: va guardato com'e' andata la
+  // richiesta **dopo**. Un permesso rifiutato anche col gettone fresco e'
+  // morto, e va buttato in entrambi i casi.
+  const rifiutato = x => Number(x.dato?.msgCode) === 805 || x.http === 401;
+
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
-  if (r.dato?.msgCode === 805 || r.http === 401) {
+  if (rifiutato(r)) {
     const nuovo = await rinnova(rinnovo);
-    if (!nuovo) {
-      await scorda('scaduto e il rinnovo non e\u2019 riuscito');
-      cache = { quando: 0, dato: null };
-      return { collegato: false, errore: 'il permesso Bluetti e\u2019 scaduto: ricollega dall\u2019Impianto' };
+    if (nuovo) {
+      accesso = nuovo;
+      r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
     }
-    accesso = nuovo;
-    r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+  }
+  if (rifiutato(r)) {
+    await scorda('rifiutato dal cloud anche dopo il rinnovo');
+    cache = { quando: 0, dato: null };
+    return { collegato: false, errore: 'il permesso Bluetti e\u2019 scaduto: ricollega dall\u2019Impianto' };
   }
   if (!r.dato || r.dato.msgCode !== 0) {
     return { collegato: true, errore: `il cloud ha risposto ${r.dato?.msgCode ?? r.http}: ${r.dato?.message || r.testo.slice(0, 120)}` };
