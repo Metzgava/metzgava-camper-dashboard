@@ -482,3 +482,43 @@ viene chiesto — e chi non se l'aspetta pensa che sia rotto.
 
 Un tasto solo, e la frase giusta: «si preme Agree, **e poi** chiede l'accesso».
 Mettere l'accesso per primo manda nel posto sbagliato.
+
+## Quanto dura il permesso Bluetti, misurato
+
+Dalla strumentazione, 16 novembre 2026 alle 22:24:
+
+```
+Bluetti collegato: expires_in=2678400s, scade 2026-12-17T22:24:39Z, rinnovo presente
+```
+
+**2 678 400 secondi = 31 giorni esatti**, col gettone di rinnovo. Non e' un
+permesso corto: dura un mese.
+
+### Un'ipotesi smontata, scritta perche' non torni
+
+Avevo sospettato che il permesso durasse pochissimo e che il **rinnovo
+preventivo** — allora con margine fisso a tre giorni — scattasse a ogni lettura
+bruciando la sessione. Con trentun giorni di vita quel margine non si avvicina
+nemmeno: **l'ipotesi e' falsa**.
+
+Le due guardie messe quella sera restano, perche' sono giuste a prescindere: il
+margine ora e' **relativo** (l'ultimo quinto della vita, mai meno di dieci
+minuti) e non si fanno **due rinnovi a meno di dieci minuti**. Ma non erano la
+cura di quel guasto.
+
+### Il sospetto che resta
+
+Il permesso creato alle 22:10 fu rifiutato alle 22:16. In quei minuti erano in
+corso **tre pubblicazioni di fila**, e per qualche secondo giravano **due
+contenitori insieme**: due processi che leggono lo stesso permesso e possono
+pestarsi i piedi sul rinnovo. Se e' cosi', la causa era il deploy durante il
+collegamento, non il loro cloud.
+
+**Regola che ne segue:** non si pubblica mentre il proprietario sta
+collegando. Il collegamento dura due minuti; il deploy puo' aspettarli.
+
+### Com'e' andata a finire
+
+Collegato alle 22:24 senza deploy in corso: manometro e comandi tornati,
+nessun errore nei log. Il permesso scade il **17 dicembre 2026** e da li' in
+poi si rinnova da solo.
