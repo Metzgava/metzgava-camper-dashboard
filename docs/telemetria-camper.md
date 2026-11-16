@@ -171,11 +171,52 @@ impostati **insieme**, altrimenti non scalda. Questo però è un comando che
 accende una stufa a gas in un veicolo: non entra in questa app senza una
 decisione esplicita, e per ora resta scritto qui e non implementato.
 
-### Un passaggio che si dimentica
+### Il pannello, accertato
 
-Perché il CP plus riconosca la finta iNet Box bisogna scegliere **«PR SET»** nel
-suo menù impostazioni. Senza quello il bus resta zitto e si passa un pomeriggio
-a controllare i fili.
+Confermato il 16 novembre 2026 dal proprietario: la rotella **si gira e si preme
+per selezionare**. È un menù, quindi c'è un display, quindi è un CP plus — il CP
+classic ha manopole fisse e niente da selezionare.
+
+### Dove si leggono le versioni
+
+Dal manuale italiano del CP plus, **menu di servizio, voce 8 «Indicazione del
+numero di versione»**. Mostra lettera + numero, es. `H 1.20.01`. La lettera dice
+l'apparecchio:
+
+| lettera | apparecchio |
+|---|---|
+| `C` | unità di comando CP plus |
+| `F` | CP plus CI-BUS |
+| `A` | sistema di condizionamento |
+| `H` | stufa |
+| `T` | Truma iNet Box |
+
+**Serve la `C`, e almeno `C 3.00.00`**: è il requisito che Truma mette per la
+iNet Box nella tabella delle combinazioni di collegamento.
+
+### I due passaggi che si dimenticano
+
+**«PR SET»** sta nel **menu di servizio, voce 9 «Preimpostazione (RESET)»**: si
+seleziona RESET, appare `PR SET`, si conferma, e il display mostra `INIT ..`
+mentre rifà la ricerca degli apparecchi. Senza quello il bus resta zitto e si
+passa un pomeriggio a controllare fili giusti.
+
+**Quel reset cancella tutte le impostazioni** — orologio, temporizzatore,
+taratura del sensore di temperatura. Reversibile, ma da rimettere a mano.
+
+### L'effetto collaterale, che è un costo reale
+
+Dal manuale: finché il CP plus non conosce una iNet Box, la **pressione
+prolungata** della rotella è l'**interruttore generale ON/OFF**. Appena la
+ricerca degli apparecchi trova una iNet Box, quella pressione diventa
+**«modalità APP»**: pannello e apparecchi in stand-by, niente riscaldamento e
+niente acqua calda, in attesa di comandi dall'app. Si esce premendo di nuovo la
+rotella, e i valori restano quelli di prima.
+
+Quindi il controllo della stufa non si perde: si perde **l'interruttore generale
+sulla pressione lunga**. È il solo cambiamento visibile che la basetta porta sul
+pannello, e va detto prima di comprare, non dopo: per la sola temperatura in
+cellula bastano i termometri Bluetooth, che non cambiano niente a nessuno.
 
 ### Collegamenti
 
