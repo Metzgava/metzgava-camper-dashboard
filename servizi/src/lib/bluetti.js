@@ -28,6 +28,17 @@ const RESPIRO = 60_000;
 let cache = { quando: 0, dato: null };
 // Quando si e' rinnovato l'ultima volta, per non farlo due volte di fila.
 let ultimoRinnovo = 0;
+// Una lettura per volta, e le altre aspettano quella in corso.
+//
+// Senza questo, due richieste contemporanee — il giro periodico e una pagina
+// che si apre — trovano lo stesso gettone rifiutato e **rinnovano tutte e
+// due**. Il gettone di rinnovo pero' si consuma: il primo lo usa, il secondo
+// si sente rispondere `invalid_grant`, lo scambia per «permesso morto» e
+// butta via i gettoni buoni che il primo aveva appena salvato.
+//
+// E' il guasto che ha fatto perdere il collegamento tutta la sera del
+// 16/11/2026, tre volte di fila.
+let inCorso = null;
 
 // Il collegamento si fa dall'app, non da una variabile d'ambiente: si apre la
 // pagina di Bluetti, si dice «Agree», e il gettone torna qui e finisce in
@@ -219,7 +230,15 @@ function traduci(a) {
 
 // ---------- quel che serve a chi chiama ----------
 
-export async function statoBluetti({ fresco = false } = {}) {
+export async function statoBluetti(opzioni = {}) {
+  // Chi arriva mentre un'altra lettura e' in corso aspetta quella, invece di
+  // partirne una seconda che si pestera' i piedi con la prima sul rinnovo.
+  if (inCorso) return inCorso;
+  inCorso = leggiDavvero(opzioni).finally(() => { inCorso = null; });
+  return inCorso;
+}
+
+async function leggiDavvero({ fresco = false } = {}) {
   if (!fresco && cache.dato && Date.now() - cache.quando < RESPIRO) return cache.dato;
 
   let { accesso, rinnovo, scade, aggiornato } = await gettoni();
@@ -279,6 +298,18 @@ export async function statoBluetti({ fresco = false } = {}) {
       // Si riprova al giro dopo: una lettura persa costa molto meno di un
       // collegamento da rifare a mano.
       return { collegato: true, errore: `non sono riuscito a rinnovare il permesso (${n.perche}): riprovo al prossimo giro` };
+    }
+  }
+  if (rifiutato(r)) {
+    // Ultima verifica prima di buttare: qualcun altro potrebbe avere rinnovato
+    // mentre eravamo qui. Se in archivio c'e' un gettone **diverso** da quello
+    // che ho provato, il mio era solo vecchio di qualche secondo: si riprova
+    // col nuovo invece di dichiarare morto tutto.
+    const ora = await gettoni();
+    if (ora.accesso && ora.accesso !== accesso) {
+      console.log('Bluetti: in archivio c\u2019e\u2019 un gettone piu\u2019 nuovo, riprovo con quello');
+      r = await chiedi('/api/bluiotdata/ha/v1/devices', ora.accesso);
+      accesso = ora.accesso;
     }
   }
   if (rifiutato(r)) {
