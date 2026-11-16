@@ -47,7 +47,7 @@ const IMPRONTA = (() => {
 // lento, il servizio non deve risultare morto e farsi riavviare in loop.
 app.get('/api/health', (req, res) => res.json({ ok: true, app: 'camper-servizi', versione: IMPRONTA }));
 
-app.use('/api', ingresso);
+app.use('/api/ingresso', ingresso);
 app.use('/api', statoAperte);
 app.use('/api', auth);
 app.use('/api', stato);

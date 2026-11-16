@@ -32,6 +32,10 @@ const AMMESSE = {
 
 export const chiave = () => process.env.INGEST_TOKEN || null;
 
+// Questo controllo vale per le rotte di QUESTO router, e il router si monta
+// sul proprio indirizzo. Montato su /api si metteva davanti a tutto, accesso
+// compreso: l'app rispondeva «porta non configurata» a chiunque. Una riga, e
+// il servizio era morto per tutti.
 router.use((req, res, next) => {
   const atteso = chiave();
   if (!atteso) return res.status(503).json({ error: 'La porta della scatoletta non e’ configurata' });
@@ -46,7 +50,7 @@ router.use((req, res, next) => {
 });
 
 // Il corpo: { fonte, apparecchi: [ { id, nome, tipo, dati: {...}, misure: {grandezza: valore} } ] }
-router.post('/ingresso', wrap(async (req, res) => {
+router.post('/', wrap(async (req, res) => {
   const apparecchi = Array.isArray(req.body?.apparecchi) ? req.body.apparecchi : [];
   if (!apparecchi.length) return res.status(400).json({ error: 'Nessun apparecchio' });
 
@@ -75,4 +79,4 @@ router.post('/ingresso', wrap(async (req, res) => {
 
 // La scatoletta chiede «ci sei?» prima di mettersi a leggere, cosi' non
 // raccoglie dati per mezz'ora e poi scopre che non puo' spedirli.
-router.get('/ingresso/prova', (req, res) => res.json({ ok: true }));
+router.get('/prova', (req, res) => res.json({ ok: true }));
