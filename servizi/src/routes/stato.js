@@ -7,7 +7,8 @@
 // carica vuol dire «scarica», e sarebbe una bugia.
 import { Router } from 'express';
 import { q, segna } from '../lib/db.js';
-import { statoBluetti, configurato, associa, comanda, COMANDI } from '../lib/bluetti.js';
+import { statoBluetti, collegato, associa, comanda, COMANDI,
+  indirizzoAutorizza, completaAutorizzazione } from '../lib/bluetti.js';
 import { tuttiIConti, impianto } from '../lib/conti.js';
 import { serveAccesso } from './auth.js';
 
@@ -39,12 +40,14 @@ const ATTESI = [
 router.get('/stato', wrap(async (req, res) => {
   const bluetti = await statoBluetti({ fresco: req.query.fresco === '1' });
   const conti = await tuttiIConti(bluetti);
+  const collegamento = { collegato: await collegato(), indirizzo: indirizzoAutorizza(ritornoDi(req)) };
   const ultimi = (await q(`SELECT apparecchio, fonte, dati, quando FROM istantanee ORDER BY quando DESC`)).rows;
   res.json({
     letto_il: new Date().toISOString(),
     bluetti,
     conti,
     comandi: COMANDI,
+    collegamento,
     attesi: ATTESI,
     istantanee: ultimi,
   });
@@ -107,8 +110,33 @@ router.post('/comandi/:quale', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Il collegamento al cloud Bluetti si fa da qui: nessun gettone passa da una
+// variabile, da una ripubblicazione o da una chat. Si apre la pagina di
+// Bluetti, si dice «Agree», e il gettone torna e finisce in archivio.
+const ritornoDi = req => `${req.protocol}://${req.get('host')}/api/bluetti/ritorno`;
+
+router.get('/bluetti/collegamento', wrap(async (req, res) => {
+  res.json({ collegato: await collegato(), indirizzo: indirizzoAutorizza(ritornoDi(req)) });
+}));
+
+router.get('/bluetti/ritorno', wrap(async (req, res) => {
+  const codice = String(req.query.code || '');
+  if (!codice) return res.redirect('/#/impianto?bluetti=annullato');
+  const r = await completaAutorizzazione(codice, ritornoDi(req));
+  if (!r.ok) {
+    await segna('bluetti', `Collegamento fallito: ${r.errore}`, req.utente.email);
+    return res.redirect('/#/impianto?bluetti=fallito');
+  }
+  // Appena collegati, gli apparecchi vanno associati: senza quel passaggio il
+  // cloud risponde «spento, lista vuota» e sembra un guasto.
+  const s = await statoBluetti({ fresco: true });
+  const sns = (s.apparecchi || []).map(a => a.sn).filter(Boolean);
+  if (sns.length) await associa(sns);
+  res.redirect('/#/impianto?bluetti=fatto');
+}));
+
 router.post('/bluetti/associa', wrap(async (req, res) => {
-  if (!configurato()) return res.status(400).json({ error: 'Il cloud Bluetti non e’ configurato' });
+  if (!await collegato()) return res.status(400).json({ error: 'Il cloud Bluetti non e’ collegato' });
   const s = await statoBluetti({ fresco: true });
   const sns = (s.apparecchi || []).map(a => a.sn).filter(Boolean);
   if (!sns.length) return res.status(400).json({ error: 'Nessun apparecchio da associare' });

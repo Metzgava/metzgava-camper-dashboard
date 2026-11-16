@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from './lib/db.js';
 import { router as auth } from './routes/auth.js';
 import { router as stato } from './routes/stato.js';
-import { registra, configurato as bluettiConfigurato } from './lib/bluetti.js';
+import { registra, collegato } from './lib/bluetti.js';
 
 const QUI = path.dirname(fileURLToPath(import.meta.url));
 const PUBBLICA = path.join(QUI, '..', 'public');
@@ -61,14 +61,17 @@ migrate().then(() => {
   // aprendo la pagina — ma a costruire la fila storica: un numero dice com'e'
   // adesso, solo una fila dice se sta scendendo e quanto in fretta.
   const passo = Number(process.env.LETTURE_MINUTI || 15);
-  if (passo > 0 && bluettiConfigurato()) {
-    const leggi = () => registra()
-      .then(r => { if (r.errore) console.warn('lettura Bluetti:', r.errore); })
-      .catch(e => console.warn('lettura Bluetti:', e.message));
-    setTimeout(leggi, 20_000);
-    setInterval(leggi, passo * 60 * 1000);
-  } else {
-    console.log(bluettiConfigurato() ? 'letture periodiche spente' : 'cloud Bluetti non configurato: nessuna lettura');
+  if (passo > 0) {
+    // Non si decide all'avvio se leggere: il collegamento Bluetti puo' nascere
+    // dopo, da un tasto nella pagina, e il giro deve accorgersene da solo.
+    const leggi = async () => {
+      if (!await collegato()) return;
+      const r = await registra();
+      if (r.errore) console.warn('lettura Bluetti:', r.errore);
+    };
+    const giro = () => leggi().catch(e => console.warn('lettura Bluetti:', e.message));
+    setTimeout(giro, 20_000);
+    setInterval(giro, passo * 60 * 1000);
   }
 }).catch(e => { console.error('Migrazione fallita', e); process.exit(1); });
 

@@ -129,8 +129,9 @@ function vistaAdesso() {
   const dentro = b ? (b.fotovoltaico_w || 0) + (b.rete_w || 0) : null;
   const fuori = b ? (b.uscita_ac_w || 0) + (b.uscita_dc_w || 0) : null;
 
-  const capo = !dati.bluetti?.configurato
-    ? `<div class="scheda"><div class="nota">Il cloud Bluetti non è collegato: mancano i gettoni fra le variabili del servizio.</div></div>`
+  const capo = !dati.bluetti?.collegato
+    ? `<div class="scheda"><div class="nota">La Bluetti non è ancora collegata. Serve una volta sola: si apre la pagina di Bluetti, si entra col tuo account e si preme <b>Agree</b>.</div>
+        <a class="btn primario largo" style="display:block;text-align:center;text-decoration:none;margin-top:12px" href="${esc(dati.collegamento?.indirizzo || '#')}">Collega la Bluetti</a></div>`
     : err
       ? `<div class="scheda"><div class="avviso">Bluetti: ${esc(err)}</div></div>`
       : !b
@@ -261,7 +262,19 @@ async function vistaImpianto() {
     </div>`).join('');
   return `<div class="nota">Questi sono i dati fissi del <b>tuo</b> camper: non stanno nel codice perché cambiano quando cambi un pezzo. Un valore che scrivi qui diventa <span class="bollo misurato">misurato</span>, e i conti che lo usano smettono di chiamarsi stime.</div>
     <div class="scheda">${righe}</div>
-    <button class="btn primario largo" id="salva">Salva</button>`;
+    <button class="btn primario largo" id="salva">Salva</button>
+    <div class="titolo">Collegamenti</div>
+    <div class="scheda">
+      <div class="riga" style="padding-top:0">
+        <div class="cresci"><div>Cloud Bluetti ${bollo(dati.collegamento?.collegato ? 'misurato' : 'incompleto')}</div>
+          <div class="perche">${dati.collegamento?.collegato
+            ? 'Collegato. Il permesso dura un mese e si rinnova da sé; se un giorno scade, ricollega da qui.'
+            : 'Non collegato. Si apre la pagina di Bluetti, si entra col tuo account e si preme Agree.'}</div>
+          <div class="perche">La pagina dirà <b>HomeAssistant</b> e parlerà di controllo a voce: è la porta pubblica che Bluetti tiene aperta per quell’integrazione, l’unica che esiste. Il permesso comprende anche il comando, non solo la lettura.</div>
+        </div>
+      </div>
+      <a class="btn largo" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="${esc(dati.collegamento?.indirizzo || '#')}">${dati.collegamento?.collegato ? 'Ricollega' : 'Collega la Bluetti'}</a>
+    </div>`;
 }
 
 function vistaComandi() {
@@ -342,6 +355,15 @@ async function disegna() {
   else dentro = vistaAdesso();
   $('#app').innerHTML = guscio(dentro);
   aggancia();
+  // Di ritorno dalla pagina di Bluetti: si dice com'è andata e si pulisce
+  // l'indirizzo, che quel segnale non deve restare appeso a un ricaricamento.
+  const esito = (location.hash.match(/[?&]bluetti=([a-z]+)/) || [])[1];
+  if (esito) {
+    history.replaceState(null, '', location.hash.replace(/[?&]bluetti=[a-z]+/, ''));
+    brindello(esito === 'fatto' ? 'Bluetti collegata'
+      : esito === 'annullato' ? 'Collegamento annullato'
+      : 'Il collegamento non è riuscito: riprova');
+  }
 }
 
 function aggancia() {

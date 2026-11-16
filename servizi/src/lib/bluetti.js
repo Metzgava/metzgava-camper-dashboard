@@ -27,8 +27,44 @@ const SEGRETO = 'SG9tZUFzc2lzdGFudA==';
 const RESPIRO = 60_000;
 let cache = { quando: 0, dato: null };
 
-export const configurato = () =>
-  !!(process.env.BLUETTI_ACCESS_TOKEN || process.env.BLUETTI_REFRESH_TOKEN);
+// Il collegamento si fa dall'app, non da una variabile d'ambiente: si apre la
+// pagina di Bluetti, si dice «Agree», e il gettone torna qui e finisce in
+// archivio. Cosi' nessun segreto passa da una configurazione, da una
+// ripubblicazione o da una conversazione — e il giorno che scade si rinnova
+// con un tasto invece che con un deploy.
+export async function collegato() {
+  if (process.env.BLUETTI_ACCESS_TOKEN) return true;
+  return (await q(`SELECT 1 FROM gettoni_cloud WHERE nome='bluetti_accesso' LIMIT 1`)).rowCount > 0;
+}
+
+export function indirizzoAutorizza(ritorno) {
+  return `${SSO}/oauth2/grant?response_type=code&client_id=${CLIENTE}`
+    + `&redirect_uri=${encodeURIComponent(ritorno)}&state=camper`;
+}
+
+// La pagina di Bluetti dice «HomeAssistant» e nomina il controllo a voce:
+// e' la porta pubblica che Bluetti tiene aperta per quell'integrazione, ed e'
+// l'unica che esiste. Il permesso comprende anche il comando, non solo la
+// lettura: la pagina lo dice prima di mandarti li'.
+export async function completaAutorizzazione(codice, ritorno) {
+  const corpo = new URLSearchParams({
+    grant_type: 'authorization_code', code: codice,
+    redirect_uri: ritorno, client_id: CLIENTE, client_secret: SEGRETO,
+  });
+  const r = await fetch(`${SSO}/oauth2/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: corpo,
+    signal: AbortSignal.timeout(25_000),
+  });
+  const g = await r.json().catch(() => null);
+  if (!g?.access_token) return { ok: false, errore: g?.error_description || g?.error || `il server ha risposto ${r.status}` };
+  await salva(g.access_token, g.refresh_token || null,
+    g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null);
+  cache = { quando: 0, dato: null };
+  await segna('bluetti', 'Collegato al cloud Bluetti');
+  return { ok: true, scade_fra_giorni: g.expires_in ? Math.round(g.expires_in / 86400) : null };
+}
 
 // ---------- i gettoni ----------
 
@@ -135,25 +171,24 @@ function traduci(a) {
 // ---------- quel che serve a chi chiama ----------
 
 export async function statoBluetti({ fresco = false } = {}) {
-  if (!configurato()) return { configurato: false };
   if (!fresco && cache.dato && Date.now() - cache.quando < RESPIRO) return cache.dato;
 
   let { accesso, rinnovo } = await gettoni();
-  if (!accesso) return { configurato: false, errore: 'nessun gettone in archivio' };
+  if (!accesso) return { collegato: false };
 
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   if (r.dato?.msgCode === 805 || r.http === 401) {
     const nuovo = await rinnova(rinnovo);
-    if (!nuovo) return { configurato: true, errore: 'gettone scaduto e rinnovo fallito: serve una nuova autorizzazione Bluetti' };
+    if (!nuovo) return { collegato: true, errore: 'il permesso Bluetti e\u2019 scaduto e il rinnovo non e\u2019 riuscito: ricollega dall\u2019Impianto' };
     accesso = nuovo;
     r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   }
   if (!r.dato || r.dato.msgCode !== 0) {
-    return { configurato: true, errore: `il cloud ha risposto ${r.dato?.msgCode ?? r.http}: ${r.dato?.message || r.testo.slice(0, 120)}` };
+    return { collegato: true, errore: `il cloud ha risposto ${r.dato?.msgCode ?? r.http}: ${r.dato?.message || r.testo.slice(0, 120)}` };
   }
 
   const elenco = r.dato.data || [];
-  if (!elenco.length) return { configurato: true, quando: new Date().toISOString(), apparecchi: [] };
+  if (!elenco.length) return { collegato: true, quando: new Date().toISOString(), apparecchi: [] };
 
   const sns = elenco.map(x => x.sn).filter(Boolean).join(',');
   const s = await chiedi(`/api/bluiotdata/ha/v1/deviceStates?sns=${encodeURIComponent(sns)}`, accesso);
@@ -169,7 +204,7 @@ export async function statoBluetti({ fresco = false } = {}) {
     return t;
   });
 
-  const dato = { configurato: true, quando: new Date().toISOString(), apparecchi };
+  const dato = { collegato: true, quando: new Date().toISOString(), apparecchi };
   cache = { quando: Date.now(), dato };
   return dato;
 }
@@ -199,7 +234,7 @@ export async function comanda(sn, codice, valore) {
 // misure per i grafici. Una grandezza assente non diventa uno zero: si salta.
 export async function registra() {
   const s = await statoBluetti({ fresco: true });
-  if (!s.configurato || s.errore) return { quante: 0, errore: s.errore };
+  if (!s.collegato || s.errore) return { quante: 0, errore: s.errore };
   let quante = 0;
   for (const a of (s.apparecchi || [])) {
     await q(`INSERT INTO istantanee (apparecchio, fonte, dati, quando) VALUES ($1,'bluetti',$2,now())
