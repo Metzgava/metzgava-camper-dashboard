@@ -84,6 +84,11 @@ router.get('/stato', wrap(async (req, res) => {
   for (const a of (bluetti.apparecchi || [])) {
     if (a.carica != null) a.tendenza = await tendenza(a.sn);
   }
+  // E lo stesso per quelli che manda la scatoletta: il manometro e' uno solo,
+  // e vuole lo stesso corredo da chiunque arrivino i numeri.
+  for (const r of ultimi) {
+    if (r.dati?.carica != null) r.tendenza = await tendenza(r.apparecchio);
+  }
   res.json({
     letto_il: new Date().toISOString(),
     bluetti,

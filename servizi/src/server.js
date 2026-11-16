@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from './lib/db.js';
 import { router as auth } from './routes/auth.js';
 import { router as stato } from './routes/stato.js';
+import { router as ingresso } from './routes/ingresso.js';
 import { registra, collegato } from './lib/bluetti.js';
 
 const QUI = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +31,7 @@ app.use(cookieSession({
 // lento, il servizio non deve risultare morto e farsi riavviare in loop.
 app.get('/api/health', (req, res) => res.json({ ok: true, app: 'camper-servizi' }));
 
+app.use('/api', ingresso);
 app.use('/api', auth);
 app.use('/api', stato);
 
