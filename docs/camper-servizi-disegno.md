@@ -215,3 +215,74 @@ ottiene — e basta — è la temperatura dentro con un termometro Bluetooth da
 pochi euro, e il consumo di riflesso dai gradini di corrente delle Ective
 quando il compressore parte e si ferma. Il secondo è una stima, e in pagina
 porterà il bollino della stima.
+
+## La regola automatica sulla stufa: da quale corrente viene il caldo
+
+Chiesto dal proprietario il 16 novembre 2026: «imposto MIX e se le batterie
+scendono sotto una certa percentuale passo a gasolio». Si può fare, ma la regola
+così com'è detta è giusta in un caso e rovesciata nell'altro, perché **MIX non
+prende corrente dalle batterie**.
+
+### Chi consuma cosa
+
+| modo | 230 V | 12 V dalle batterie |
+|---|---|---|
+| Gasolio | niente | ventola aria calda **+ ventola di combustione + pompa gasolio + candeletta** |
+| MIX | 900 o 1800 W | come il gasolio (il bruciatore lavora comunque) |
+| EL | 900 o 1800 W | solo la ventola aria calda |
+
+Quindi, a 12 V, **il gasolio costa più dell'elettrico**, non meno: accende una
+pompa e una seconda ventola. Se il problema sono le Ective, passare a gasolio le
+scarica di più.
+
+### Dove la regola del proprietario è giusta
+
+Dipende da **chi fa i 230 V**:
+
+- **colonnina o rete di casa** — l'elettrico non tocca le batterie. Se la rete
+  cade, MIX ripiega da sé sul gasolio (vedi `telemetria-camper.md`): non serve
+  nessuna automazione, il pannello lo fa già.
+- **l'inverter della Bluetti** — allora la regola è esattamente giusta, e pesa:
+  1800 W su una Elite 300 sono poco più di un'ora e mezza di autonomia. Qui
+  togliere il carico elettrico e passare al gasolio è la cosa che salva la
+  serata.
+
+**L'app sa distinguere i due casi senza chiederlo**: se la Bluetti sta *ricevendo*
+in alternata c'è rete esterna; se sta *erogando* in alternata mentre la stufa
+scalda, il caldo lo sta pagando lei.
+
+### La regola, come va scritta
+
+1. Rete esterna presente → resta in MIX, non fare niente.
+2. 230 V dalla Bluetti e carica sotto soglia → passa a **Gasolio**: toglie
+   900 o 1800 W dall'inverter.
+3. Ective sotto una soglia bassa → **non** passare a gasolio: avvisa, e proponi
+   di spegnere. In gasolio il consumo a 12 V sale, e sotto una certa carica
+   accendere è peggio che stare al freddo.
+
+Il manuale della stufa ha già il suo pavimento: errore `#170`, sottotensione
+sotto 11,5 V. Le nostre soglie stanno molto più in alto, perché 11,5 V su
+LiFePO4 e' una batteria già maltrattata.
+
+### Quattro condizioni, perché un'automazione non è un bottone
+
+Un bottone lo premi e guardi. Una regola agisce mentre dormi.
+
+1. **La regola vive sulla scatoletta, non sul server.** Se cade il 4G la regola
+   deve funzionare comunque: è proprio quando nessuno guarda che serve. Il
+   server tiene la soglia, il Raspberry la applica.
+2. **Isteresi e tempo minimo.** Si scende a gasolio al 25 % e si torna a MIX al
+   40 %, con un minimo di permanenza. Senza margine la stufa sfarfalla fra i due
+   modi intorno alla soglia.
+3. **Due letture d'accordo prima di agire.** Una lettura singola può essere
+   sbagliata, e un cambio di modo deciso da un byte perso è un guasto nostro.
+4. **Ogni azione automatica si scrive e si vede in pagina**: «alle 03:12 passata
+   a gasolio, la Bluetti era al 24 %». Un'automazione che non racconta cosa ha
+   fatto è indistinguibile da un guasto.
+
+### Cosa manca per decidere
+
+Una sola cosa, e va chiesta al proprietario: **i 230 V del camper, quando non
+c'è colonnina, li fa la Bluetti?** Se sì, la regola 2 è la più utile di tutta
+l'app. Se no, la stufa elettrica funziona solo attaccati alla rete e la regola
+non ha occasione di scattare.
