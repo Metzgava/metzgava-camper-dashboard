@@ -87,6 +87,18 @@ async function salva(accesso, rinnovo, scade) {
   }
 }
 
+// Un gettone rifiutato con 805 e un rinnovo che non riesce non tornano buoni
+// da soli: quel permesso e' morto. Si butta, per tre motivi. Primo, cosi'
+// `collegato()` dice la verita' invece di rispondere «si» perche' in archivio
+// c'e' una riga. Secondo, il giro periodico smette di bussare ogni quarto
+// d'ora a una porta chiusa — nei log ne ho trovate sei ore di fila, tutte
+// identiche. Terzo, in pagina compare il tasto «Collega la Bluetti», che e'
+// esattamente la cosa da fare.
+async function scorda(perche) {
+  await q(`DELETE FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`);
+  await segna('gettone', 'Permesso Bluetti scartato: ' + perche);
+}
+
 async function rinnova(rinnovo) {
   if (!rinnovo) return null;
   const r = await fetch(`${SSO}/oauth2/token`, {
@@ -190,7 +202,11 @@ export async function statoBluetti({ fresco = false } = {}) {
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   if (r.dato?.msgCode === 805 || r.http === 401) {
     const nuovo = await rinnova(rinnovo);
-    if (!nuovo) return { collegato: true, errore: 'il permesso Bluetti e\u2019 scaduto e il rinnovo non e\u2019 riuscito: ricollega dall\u2019Impianto' };
+    if (!nuovo) {
+      await scorda('scaduto e il rinnovo non e\u2019 riuscito');
+      cache = { quando: 0, dato: null };
+      return { collegato: false, errore: 'il permesso Bluetti e\u2019 scaduto: ricollega dall\u2019Impianto' };
+    }
     accesso = nuovo;
     r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   }
