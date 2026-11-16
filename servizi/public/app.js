@@ -280,7 +280,8 @@ function vistaAdesso() {
     ${barraCarica()}
     <div class="titolo">Batterie di servizio</div>
     ${ective}
-${vistaSegnale()}
+${catena()}
+    ${vistaSegnale()}
         <div class="titolo">Non ancora collegati</div>
     <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono e sono già stati letti una volta, il 16 novembre, col computer dentro al camper. Parlano solo da vicino: arriveranno qui quando la scatoletta sarà a bordo. Finché non ci sono, <b>non mostro numeri</b>: sarebbero vecchi di settimane.</div>
     ${attesi}`;
@@ -337,6 +338,35 @@ function barraCarica() {
     <div class="nota" style="margin-top:8px">Sulla Bluetti il Charger del motore entra dalla <b>stessa porta</b> dei pannelli:
       «in continua» sono i due insieme e il numero non li distingue. Dirlo e' meglio che indovinare.</div>
   </div>`;
+}
+
+// ---------- dalla Bluetti alle Ective ----------
+//
+// Si disegna solo quando c'e' qualcosa da dire: o la Bluetti sta erogando, o
+// le Ective stanno ricevendo. Un riquadro che ripete «zero» tutto il giorno
+// insegna a non guardarlo, e il giorno che conta non lo guardi.
+function catena() {
+  const c = dati.conti || {};
+  const k = c.catena || {};
+  const f = c.fonti_ective || {};
+  if (!(Number(k.esce_w) > 0 || Number(f.valore) > 0)) return '';
+
+  const riga = (eti, val, sotto) => `<div class="riga">
+      <div class="cresci"><div class="eti">${eti}</div>${sotto ? `<div class="perche">${sotto}</div>` : ''}</div>
+      <div class="valore">${val}</div>
+    </div>`;
+
+  return `<div class="titolo">Dalla Bluetti alle Ective</div>
+    <div class="scheda">
+      ${riga('Esce dalla Bluetti', k.esce_w == null ? '<span class="vuoto">—</span>' : num(k.esce_w, 0) + ' W', 'uscita in alternata')}
+      ${riga('Arriva alle Ective', f.rete_w == null ? '<span class="vuoto">—</span>' : num(f.rete_w, 0) + ' W', 'solo la parte che viene dalla 220')}
+      ${riga('Ne arriva', (k.valore == null ? '<span class="vuoto">—</span>' : num(k.valore, 0) + ' %') + ' ' + bollo(k.base || 'incompleto'), esc(k.perche || ''))}
+      ${f.valore != null ? `<div class="perche" style="margin-top:8px">Nelle Ective entrano <b>${num(f.valore, 0)} W</b> in tutto:
+        ${num(f.sole_w || 0, 0)} dal sole, ${num(f.motore_w || 0, 0)} dall’alternatore, ${num(f.rete_w || 0, 0)} dalla 220.</div>` : ''}
+      <div class="nota" style="margin-top:8px">La differenza fra quel che esce e quel che arriva <b>non è solo perdita del caricabatterie</b>:
+        sulla 220 c’è attaccato anche il resto del camper. E la parte «dalla 220» si ottiene <b>per differenza</b>,
+        togliendo sole e alternatore che si misurano: per questo porta il bollino della stima quando conta davvero.</div>
+    </div>`;
 }
 
 // ---------- quanto si sente ----------

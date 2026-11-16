@@ -179,6 +179,66 @@ export async function tuttiIConti(bluetti) {
           entra === 0 ? 'Non sta caricando: non c\u2019e\u2019 nessun ritmo da cui partire.'
             : 'Serve il collegamento al cloud.');
 
+  // ---- la catena: quanto esce dalla Bluetti, quanto arriva alle Ective ----
+  //
+  // Accesa l'uscita in alternata, la Bluetti serve i 220 del camper: le prese,
+  // e il caricabatterie che riempie le Ective. Il conto e' «di quello che esce
+  // da una parte, quanto arriva dall'altra».
+  //
+  // Ma **non tutto quello che entra nelle Ective viene dalla Bluetti**: ci
+  // entrano anche il sole e l'alternatore. In una giornata di sole, senza
+  // separarli, il conto direbbe che il caricabatterie fa miracoli. Quindi si
+  // tolgono prima le due fonti che si misurano, e quel che resta e' la 220.
+  //
+  // E la differenza fra uscita e arrivo non e' solo perdita del
+  // caricabatterie: sulla 220 c'e' attaccato anche il resto del camper. La
+  // pagina lo dice, perche' chiamarla «rendimento» sarebbe falso.
+  const vive = (await q('SELECT apparecchio, dati FROM istantanee')).rows;
+  const pot = (d, v = 'volt', a = 'ampere') =>
+    d && d[v] != null && d[a] != null ? Number(d[v]) * Number(d[a]) : null;
+  const sommaPos = (righe, f) => {
+    const n = righe.map(f).filter(x => x != null && x > 0);
+    return n.length ? n.reduce((s, x) => s + x, 0) : null;
+  };
+  const batterie = vive.filter(r => r.dati?.celle_mv);
+  const entraEctive = sommaPos(batterie, r => pot(r.dati));
+  const dalSole = sommaPos(vive.filter(r => r.dati?.pannelli_w != null), r => pot(r.dati));
+  const dalMotore = sommaPos(vive.filter(r => r.dati?.uscita_ampere != null),
+    r => pot(r.dati, 'uscita_volt', 'uscita_ampere'));
+  const dalla220 = entraEctive == null ? null
+    : Math.max(0, entraEctive - (dalSole || 0) - (dalMotore || 0));
+
+  out.fonti_ective = entraEctive == null
+    ? manca('W', ['letture delle Ective'], 'Arriva con la scatoletta: oggi nessuno misura la loro corrente.')
+    : conto(entraEctive, 'W', {
+        base: 'misurato',
+        perche: `${Math.round(dalSole || 0)} W dal sole, ${Math.round(dalMotore || 0)} W dall\u2019alternatore, `
+          + `${Math.round(dalla220)} W dalla 220 \u2014 l\u2019ultimo per differenza`,
+        detto: `${Math.round(entraEctive)} W in ingresso`,
+      });
+  out.fonti_ective.sole_w = dalSole;
+  out.fonti_ective.motore_w = dalMotore;
+  out.fonti_ective.rete_w = dalla220;
+
+  const esceAc = b?.uscita_ac_w ?? null;
+  out.catena = esceAc == null
+    ? manca('%', ['letture della Bluetti'], 'Serve il collegamento al cloud.')
+    : dalla220 == null
+      ? manca('%', ['letture delle Ective'],
+          `Dalla Bluetti escono ${Math.round(esceAc)} W in alternata. Quanti ne arrivino alle Ective si sapr\u00e0 con la scatoletta.`)
+      : esceAc <= 0
+        ? conto(null, '%', { base: 'incompleto', perche: 'la Bluetti non sta erogando in alternata', detto: 'ferma' })
+        : conto(dalla220 / esceAc * 100, '%', {
+            // Non «misurato»: i watt lo sono, l'**attribuzione** no. Che quei
+            // 335 W vengano dal caricabatterie e non da una terza fonte che
+            // non vediamo e' una deduzione, e va detto.
+            base: 'stima',
+            perche: `${Math.round(esceAc)} W escono dalla Bluetti, ${Math.round(dalla220)} W arrivano alle Ective`,
+            detto: `${Math.round(dalla220 / esceAc * 100)} % arriva alle batterie`,
+          });
+  out.catena.esce_w = esceAc;
+  out.catena.entra_w = dalla220;
+
   // ---- quanta Bluetti serve per le Ective ----
   // Questo conto si puo' fare anche senza sapere come stanno le Ective: il
   // numero utile e' il cambio, «un punto di Ective quanti punti di Bluetti
