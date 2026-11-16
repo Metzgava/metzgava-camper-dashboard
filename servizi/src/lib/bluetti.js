@@ -99,24 +99,45 @@ async function scorda(perche) {
   await segna('gettone', 'Permesso Bluetti scartato: ' + perche);
 }
 
+// Tre esiti, non due, e la differenza vale il collegamento.
+//
+// «rifiutato» vuol dire che il loro server ha detto di no: quel permesso e'
+// morto e va buttato. «irraggiungibile» vuol dire che non siamo riusciti a
+// chiederglielo — un timeout, la rete che balla, un loro guasto. In quel caso
+// il gettone **non c'entra niente**, e buttarlo vorrebbe dire far rifare
+// l'Agree a mano per un'intermittenza di dieci secondi.
+//
+// Era questo il modo rimasto di perdere il collegamento per niente.
 async function rinnova(rinnovo) {
-  if (!rinnovo) return null;
-  const r = await fetch(`${SSO}/oauth2/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token', refresh_token: rinnovo,
-      client_id: CLIENTE, client_secret: SEGRETO,
-    }),
-    signal: AbortSignal.timeout(20_000),
-  }).catch(() => null);
-  if (!r?.ok) return null;
+  if (!rinnovo) return { esito: 'rifiutato', perche: 'non c’e’ nessun gettone di rinnovo' };
+  let r;
+  try {
+    r = await fetch(`${SSO}/oauth2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token', refresh_token: rinnovo,
+        client_id: CLIENTE, client_secret: SEGRETO,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (e) {
+    return { esito: 'irraggiungibile', perche: String(e?.message || e).slice(0, 80) };
+  }
   const g = await r.json().catch(() => null);
-  if (!g?.access_token) return null;
-  await salva(g.access_token, g.refresh_token || rinnovo,
-    g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null);
-  await segna('gettone', 'Gettone Bluetti rinnovato');
-  return g.access_token;
+  if (r.ok && g?.access_token) {
+    await salva(g.access_token, g.refresh_token || rinnovo,
+      g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null);
+    await segna('gettone', 'Gettone Bluetti rinnovato');
+    return { esito: 'ok', accesso: g.access_token };
+  }
+  // Un 4xx con una risposta leggibile e' un no detto da loro. Tutto il resto
+  // — 500, 502, risposte non JSON — e' un loro inciampo, non un nostro
+  // permesso scaduto.
+  if (r.status >= 400 && r.status < 500) {
+    return { esito: 'rifiutato', perche: g?.error_description || g?.error || `HTTP ${r.status}` };
+  }
+  return { esito: 'irraggiungibile', perche: `HTTP ${r.status}` };
 }
 
 // ---------- le chiamate ----------
@@ -195,8 +216,9 @@ export async function statoBluetti({ fresco = false } = {}) {
   // servizi si spegne se non lo si usa mai. Tre giorni di margine bastano.
   const MARGINE = 3 * 24 * 3600 * 1000;
   if (scade && new Date(scade).getTime() - Date.now() < MARGINE && rinnovo) {
-    const nuovo = await rinnova(rinnovo);
-    if (nuovo) accesso = nuovo;
+    const n = await rinnova(rinnovo);
+    if (n.esito === 'ok') accesso = n.accesso;
+    else console.warn(`rinnovo preventivo Bluetti non riuscito (${n.esito}): ${n.perche}`);
   }
 
   // Due trappole che i log hanno scoperto, e che la prima correzione aveva
@@ -217,10 +239,15 @@ export async function statoBluetti({ fresco = false } = {}) {
 
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   if (rifiutato(r)) {
-    const nuovo = await rinnova(rinnovo);
-    if (nuovo) {
-      accesso = nuovo;
+    const n = await rinnova(rinnovo);
+    if (n.esito === 'ok') {
+      accesso = n.accesso;
       r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+    } else if (n.esito === 'irraggiungibile') {
+      // Non si sa se il permesso sia ancora buono, e nel dubbio **si tiene**.
+      // Si riprova al giro dopo: una lettura persa costa molto meno di un
+      // collegamento da rifare a mano.
+      return { collegato: true, errore: `non sono riuscito a rinnovare il permesso (${n.perche}): riprovo al prossimo giro` };
     }
   }
   if (rifiutato(r)) {
