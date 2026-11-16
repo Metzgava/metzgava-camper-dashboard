@@ -179,19 +179,95 @@ function dilloInOre(ore) {
   return `${Math.round(ore / 24)} giorni`;
 }
 
+
+// ---------- il calcolatore ----------
+//
+// «Se la Bluetti e' al 30 %, quante ore di motore?» e' la domanda vera, e non
+// si risponde con un numero fisso: dipende da dove parti, dove vuoi arrivare e
+// da cosa la attacchi.
+//
+// La finezza che conta: una colonnina da 16 A non carica il doppio di una da
+// 8 A, se la Bluetti ne accetta al massimo 1800 W. **Il limite e' il piu'
+// piccolo dei due**, e questo va detto, non nascosto dentro il risultato.
+const RETE_V = 230;
+const leggiCalc = () => { try { return JSON.parse(localStorage.getItem('calc') || '{}'); } catch { return {}; } };
+const scriviCalc = o => { try { localStorage.setItem('calc', JSON.stringify(o)); } catch { /* finestra privata */ } };
+
+function calcolo() {
+  const imp = dati.impianto || {};
+  const b = (dati.bluetti?.apparecchi || [])[0];
+  const c = leggiCalc();
+  const da = c.da != null ? c.da : (b?.carica != null ? Math.round(b.carica) : 30);
+  const a = c.a != null ? c.a : 100;
+  const ampere = c.ampere != null ? c.ampere : 16;
+
+  const capacita = imp.bluetti_wh?.valore ?? null;
+  const mancaWh = capacita == null ? null : Math.max(0, capacita * (a - da) / 100);
+
+  const sorgenti = [
+    { id: 'motore', nome: '🔑 Col motore acceso', w: imp.charger_w?.valore ?? null,
+      misurato: imp.charger_w?.misurato, manca: 'Potenza del Charger 2',
+      nota: 'Il motore deve girare davvero: a quadro acceso e motore spento l\u2019alternatore non da\u2019 niente.' },
+    { id: 'casa', nome: '🏠 Da casa, presa 220 V', w: imp.bluetti_carica_ac_w?.valore ?? null,
+      misurato: imp.bluetti_carica_ac_w?.misurato, manca: 'Carica dalla 220',
+      nota: 'Una presa di casa regge piu\u2019 di quanto la Bluetti chieda: comanda lei.' },
+    { id: 'colonnina', nome: '🔌 Da colonnina', colonnina: true,
+      w: imp.bluetti_carica_ac_w?.valore == null ? null
+        : Math.min(imp.bluetti_carica_ac_w.valore, ampere * RETE_V),
+      misurato: imp.bluetti_carica_ac_w?.misurato, manca: 'Carica dalla 220' },
+  ];
+
+  const righe = sorgenti.map(s => {
+    if (s.w == null) return `<div class="riga">
+      <div class="cresci"><div>${s.nome} ${bollo('incompleto')}</div>
+        <div class="perche">manca: <b>${esc(s.manca)}</b> \u2014 mettilo in Impianto e il conto compare</div></div>
+      <div class="valore"><span class="vuoto">\u2014</span></div></div>`;
+    const ore = mancaWh == null ? null : mancaWh / s.w;
+    const perOra = capacita == null ? null : s.w / capacita * 100;
+    const tetto = s.colonnina && imp.bluetti_carica_ac_w?.valore != null && ampere * RETE_V > imp.bluetti_carica_ac_w.valore;
+    return `<div class="riga">
+      <div class="cresci">
+        <div>${s.nome} ${bollo(s.misurato ? 'misurato' : 'stima')}</div>
+        ${s.colonnina ? `<div class="perche">${num(ampere, 0)} A \u00d7 ${RETE_V} V = ${num(ampere * RETE_V, 0)} W${tetto
+          ? ` \u2014 ma la Bluetti ne accetta <b>${num(imp.bluetti_carica_ac_w.valore, 0)}</b>: <b>comanda lei</b>`
+          : ', e la Bluetti sta sotto il suo tetto'}</div>` : ''}
+        <div class="perche">a ${num(s.w, 0)} W \u00b7 ogni ora aggiunge <b>${perOra == null ? '\u2014' : '+' + num(perOra, 1) + ' %'}</b>${s.nota ? ' \u00b7 ' + esc(s.nota) : ''}</div>
+      </div>
+      <div class="valore">${ore == null ? '<span class="vuoto">\u2014</span>' : esc(dilloInOre(ore))}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="scheda">
+    <div style="display:flex;gap:12px;align-items:flex-end;padding-bottom:14px;border-bottom:1px solid var(--bordo)">
+      <div style="flex:1;min-width:0"><div class="eti">Dalla carica</div>
+        <input type="number" id="c-da" min="0" max="100" step="1" value="${da}" style="font-size:22px;font-weight:650;text-align:center"></div>
+      <div style="flex:none;padding-bottom:12px;color:var(--fioco);font-size:18px">\u2192</div>
+      <div style="flex:1;min-width:0"><div class="eti">fino a</div>
+        <input type="number" id="c-a" min="0" max="100" step="1" value="${a}" style="font-size:22px;font-weight:650;text-align:center"></div>
+    </div>
+    <div class="riga" style="align-items:baseline">
+      <div class="cresci"><div class="eti">Da rimettere dentro</div></div>
+      <div class="cifra">${mancaWh == null ? '\u2014' : (mancaWh / 1000).toFixed(2).replace('.', ',') + ' kWh'}</div>
+    </div>
+    ${righe}
+    <div class="riga">
+      <div class="cresci"><div class="eti">Quanti ampere d\u00e0 la colonnina</div>
+        <div class="perche">Le colonnine dichiarano gli ampere: 6, 8, 16. I watt sono quelli per ${RETE_V} V.</div></div>
+      <div style="flex:none"><input type="number" id="c-a-amp" min="1" max="32" step="1" value="${ampere}" style="width:92px"></div>
+    </div>
+  </div>`;
+}
+
 function vistaEnergia() {
   const c = dati.conti || {};
-  return `<div class="nota">Ogni riga dice <b>su cosa si basa</b>. <span class="bollo misurato">misurato</span> vuol dire che i numeri vengono dal tuo impianto; <span class="bollo stima">stima</span> che almeno uno viene da un catalogo. Quando un dato manca, il conto non si fa: si dice quale manca.</div>
+  return `<div class="titolo">Quanto ci vuole a caricarla</div>
+    ${calcolo()}
+    <div class="nota">Ogni riga dice <b>su cosa si basa</b>. <span class="bollo misurato">misurato</span> vuol dire che i numeri vengono dal tuo impianto; <span class="bollo stima">stima</span> che almeno uno viene da un catalogo. Quando un dato manca, il conto non si fa: si dice quale manca.</div>
     <div class="titolo">Quanta corrente c'è</div>
     <div class="scheda">
       ${rigaConto('Carica residua', c.carica_residua)}
       ${rigaConto('Manca alla piena', c.manca_alla_piena)}
       ${rigaConto('Saldo adesso', c.saldo_adesso)}
-    </div>
-    <div class="titolo">Quanto ci vuole a ricaricarla</div>
-    <div class="scheda">
-      ${rigaConto('Ore di motore col Charger', c.ore_motore)}
-      ${rigaConto('Tempo da colonnina', c.ore_colonnina)}
     </div>
     <div class="titolo">Bluetti e batterie di servizio</div>
     <div class="scheda">
@@ -369,6 +445,30 @@ async function disegna() {
 function aggancia() {
   const r = $('#rileggi');
   if (r) r.onclick = sicuro(async () => { r.textContent = '…'; await api('/stato?fresco=1'); await disegna(); brindello('Riletto'); });
+
+  for (const id of ['c-da', 'c-a', 'c-a-amp']) {
+    const e = document.getElementById(id);
+    if (!e) continue;
+    // Si ricalcola mentre scrive, ma solo il riquadro: ridisegnare tutta la
+    // pagina a ogni cifra farebbe perdere il fuoco dal campo.
+    e.oninput = () => {
+      const c = leggiCalc();
+      const v = e.value === '' ? null : Number(e.value);
+      if (id === 'c-da') c.da = v; else if (id === 'c-a') c.a = v; else c.ampere = v;
+      scriviCalc(c);
+      const vecchio = e.closest('.scheda');
+      const nuovo = document.createRange().createContextualFragment(calcolo()).firstElementChild;
+      vecchio.replaceWith(nuovo);
+      const rimesso = document.getElementById(id);
+      // Su un <input type=number> spostare il cursore lancia InvalidStateError:
+      // il fuoco serve, la posizione e' un di piu' che non vale un errore.
+      if (rimesso) {
+        rimesso.focus();
+        try { rimesso.setSelectionRange(rimesso.value.length, rimesso.value.length); } catch { /* i campi numerici non lo permettono */ }
+      }
+      aggancia();
+    };
+  }
 
   const g = $('#giorni');
   if (g) g.onchange = sicuro(async () => { localStorage.setItem('giorni', g.value); await disegna(); });

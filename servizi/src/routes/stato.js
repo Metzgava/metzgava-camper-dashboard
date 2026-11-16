@@ -41,6 +41,12 @@ router.get('/stato', wrap(async (req, res) => {
   const bluetti = await statoBluetti({ fresco: req.query.fresco === '1' });
   const conti = await tuttiIConti(bluetti);
   const collegamento = { collegato: await collegato(), indirizzo: indirizzoAutorizza(ritornoDi(req)) };
+  // I dati fissi viaggiano con lo stato: cosi' il calcolatore della pagina
+  // rifa' i conti a ogni cifra battuta, invece di interrogare il server a ogni
+  // tasto. Sono pochi numeri, e stanno in un soffio di risposta.
+  const { mappa } = await impianto();
+  const fissi = Object.fromEntries(Object.entries(mappa).map(([k, v]) =>
+    [k, { valore: v.valore == null ? null : Number(v.valore), unita: v.unita, misurato: v.misurato }]));
   const ultimi = (await q(`SELECT apparecchio, fonte, dati, quando FROM istantanee ORDER BY quando DESC`)).rows;
   res.json({
     letto_il: new Date().toISOString(),
@@ -48,6 +54,7 @@ router.get('/stato', wrap(async (req, res) => {
     conti,
     comandi: COMANDI,
     collegamento,
+    impianto: fissi,
     attesi: ATTESI,
     istantanee: ultimi,
   });
