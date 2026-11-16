@@ -380,3 +380,66 @@ Due cose si ottengono comunque, e insieme bastano:
 
 Lo stesso vale per la temperatura in cellula, in gavone e in frigo: tre
 termometri da dieci euro, zero fili, zero interventi.
+
+## Blink: si collega, ed è più utile di quanto sembri
+
+Accertato il 16 novembre 2026. Blink non ha niente in locale — né ONVIF né
+RTSP: è un prodotto tutto cloud. Ma la sua API cloud è quella che usa
+`blinkpy`, la libreria su cui si appoggia l'integrazione di Home Assistant, ed
+è viva e mantenuta (Python 3.10+).
+
+Cosa se ne ricava, dalla documentazione della libreria:
+
+| cosa | nota |
+|---|---|
+| armato / disarmato | **e si può scrivere**: `async_arm(True/False)`, per sistema o per singola telecamera |
+| batteria | uno stato a parole, piu' `battery_voltage` col valore grezzo |
+| segnale wifi | dall'endpoint `/signals` |
+| **temperatura** | le Blink hanno un sensore: sono termometri che lui ha già |
+| ultimo movimento | ora, piu' i riferimenti a immagine e video |
+| notifiche non lette | un contatore |
+
+### Il vincolo che resta, e come si rispetta
+
+Blink non ha un consenso tipo quello di Bluetti: `blinkpy` fa il login diretto
+con email e password, piu' un PIN che arriva per email. **La password non passa
+da me.** Il modo giusto: il login lo fa il proprietario **una volta**, con un
+comando sul Raspberry — digita lui la password e il codice — e resta a bordo un
+file col gettone. L'agente legge il gettone, non la password.
+
+### Due avvertenze da rispettare nel codice
+
+- **Sono telecamere a batteria.** L'integrazione di Home Assistant avverte di
+  non interrogarle troppo spesso: si scarica la batteria e si martella il loro
+  server. Il giro da cinque minuti va bene; la **modalità taratura non deve
+  toccarle** — va esclusa esplicitamente, altrimenti un giro da dieci secondi
+  per mezz'ora le massacra.
+- **Il video resta nell'app Blink.** Ritrasmetterlo dal loro cloud attraverso il
+  nostro server sarebbe lavoro grosso per fare peggio della loro app. La pagina
+  mostra stato, batteria, temperatura ed eventi, e rimanda là per il filmato.
+
+### Da chiedere prima di scrivere il codice
+
+Quali modelli, e se il Sync Module è a bordo sulla rete del camper.
+
+## Garmin dashcam: no, e il motivo è strutturale
+
+Cercato il 16 novembre 2026, e questa è la prima cosa del progetto da
+dichiarare **chiusa**.
+
+- **Nessuna interfaccia locale documentata.** L'app Garmin Drive parla col
+  Bluetooth e con la rete wifi che la telecamera crea da sé, con un protocollo
+  suo. L'unica traccia trovata e' una libreria per le Garmin **Virb** (action
+  cam) il cui autore scrive che «dovrebbe funzionare anche con alcuni modelli
+  di dashcam»: non verificato, e resta il punto seguente.
+- **Il blocco vero: la telecamera fa rete propria.** Per parlarle il Raspberry
+  dovrebbe lasciare la rete del camper, cioè smettere di fare il suo mestiere.
+  Ha una radio sola. Non è una questione di protocollo da aprire: è che i due
+  compiti si escludono.
+- Il cloud Garmin (Vault) è dentro la loro app e vuole un abbonamento. Non c'è
+  una porta come quella di Bluetti.
+
+**Quel che forse si può, e costa zero**: sapere **se è accesa**, nel caso
+annunci in Bluetooth. La scatoletta ascolta già: si verifica quando è a bordo,
+guardando se compare un annuncio col suo nome. Presenza, non filmati — ma «la
+dashcam è accesa» su un camper in sosta non è niente.
