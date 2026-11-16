@@ -165,11 +165,70 @@ mescola gas/elettrico e il livello di potenza elettrica. C'è anche un
 *CP plus alive*, che dice se il pannello sta rispondendo — e un apparecchio che
 dichiara di essere morto è meglio di uno che tace.
 
-**Si può anche comandare**: temperatura ambiente `0` (spento) oppure `5–30`,
-acqua `0 | 40 | 60 | 200`, modo `off | eco | high`. Ambiente e modo vanno
-impostati **insieme**, altrimenti non scalda. Questo però è un comando che
-accende una stufa a gas in un veicolo: non entra in questa app senza una
-decisione esplicita, e per ora resta scritto qui e non implementato.
+### Si può anche comandare
+
+Accertato il 16 novembre 2026: il proprietario vuole i comandi, quindi entrano
+nei piani. Quel che si scrive sul bus:
+
+| campo | valori |
+|---|---|
+| temperatura ambiente | `0` (spento) oppure `5–30` |
+| acqua calda | `0` · `40` · `60` · `200` |
+| modo | `off` · `eco` · `high` |
+| tipo di alimentazione | `gasolio` · `mix` · `elettrico` |
+| livello elettrico | `900` · `1800` W |
+
+**Ambiente e modo vanno impostati insieme**, altrimenti non scalda: è l'errore
+classico di chi manda un comando solo.
+
+### La stufa è una Combi diesel con resistenze elettriche
+
+Riferito dal proprietario. Quindi una **Combi D ... E**, e il menù del tipo di
+alimentazione esiste (dal manuale: compare solo sulle stufe con resistenze
+elettriche). Le cinque voci del pannello, e come si ottengono coi due campi:
+
+| pannello | brucia | dalla 230 V | sul bus |
+|---|---|---|---|
+| Gasolio | solo gasolio | — | `gasolio` |
+| MIX 1 | gasolio + elettrico | 900 W | `mix` + `900` |
+| MIX 2 | gasolio + elettrico | 1800 W | `mix` + `1800` |
+| EL 1 | solo elettrico | 900 W | `elettrico` + `900` |
+| EL 2 | solo elettrico | 1800 W | `elettrico` + `1800` |
+
+Preimpostazione di fabbrica: gasolio.
+
+### MIX e EL si comportano in modo opposto se la 230 V salta
+
+Dal manuale, ed è il dato che decide come si usa da remoto:
+
+- in **MIX**, se la 230 V si interrompe la stufa **passa automaticamente al
+  gasolio** e continua a scaldare;
+- in **EL**, se la 230 V si interrompe (con i 12 V attivi) la stufa **si ferma e
+  mostra un codice di errore**. Non ripiega sul gasolio.
+
+Quindi per un'accensione da remoto il modo giusto è **MIX**: costa un po' di
+gasolio e non dipende dall'umore della colonnina. EL va bene a bordo, dove
+l'errore lo si vede.
+
+### I paletti per i comandi, quando si faranno
+
+Nessuno di questi lo chiede un manuale: sono scelte di progetto, da tenere.
+
+1. **Conferma** prima di ogni comando, come già per la Bluetti.
+2. **Blocco sulla carica**: la ventola della Combi mangia 12 V per ore. Sotto
+   soglia il comando non parte. È il guasto più probabile — camper caldo,
+   batterie a terra — e questa app è l'unica cosa che sa quanta carica c'è.
+3. **Spegnimento automatico** dopo una durata massima: se la rete cade, la stufa
+   non resta accesa perché non si riesce più a spegnerla.
+4. **Controllo sugli ampere della colonnina**: 1800 W sono quasi 8 A. Il valore
+   dichiarato nel calcolo c'è già in `conti.js`; se non ci sta, il comando si
+   rifiuta e lo dice.
+5. **Riscontro**: dopo il comando si rilegge dal bus cosa è successo —
+   temperatura che sale, o codice di errore. Un comando che non si verifica è un
+   comando che non si sa se è arrivato.
+
+Restano fuori dalla portata di qualunque programma, e vanno dette in pagina: il
+livello del gasolio e che camino e presa d'aria siano liberi.
 
 ### Il pannello, accertato
 
