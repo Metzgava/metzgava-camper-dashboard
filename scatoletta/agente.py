@@ -21,6 +21,7 @@ corrente e meno occasioni di impuntarsi.
 """
 
 import asyncio
+import datetime
 import json
 import logging
 import os
@@ -411,7 +412,7 @@ def in_coda(pacco):
     CODA.write_text("\n".join(righe[-CODA_MAX:]) + "\n")
     log.info("in tasca: %d pacchi in attesa", min(len(righe), CODA_MAX))
 
-def spedisci(conf, pacco) -> bool:
+def spedisci(conf, pacco):
     import urllib.request
     dati = json.dumps(pacco).encode()
     richiesta = urllib.request.Request(
@@ -423,10 +424,13 @@ def spedisci(conf, pacco) -> bool:
             esito = json.loads(r.read())
         if esito.get("scartate"):
             log.warning("il server ne ha scartate %d", esito["scartate"])
-        return True
+        # Si restituisce la risposta intera, non un si/no: il server ci parla
+        # da dentro la risposta alla nostra bussata. Resta vera anche come
+        # condizione, perche' un dizionario pieno vale True e None vale False.
+        return esito
     except Exception as e:                            # noqa: BLE001
         log.warning("non spedito: %s", e)
-        return False
+        return None
 
 def svuota_coda(conf) -> int:
     if not CODA.exists():
@@ -472,12 +476,52 @@ async def un_giro(conf):
              "quando": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
              "apparecchi": apparecchi}
     log.info("letti %d apparecchi: %s", len(apparecchi), ", ".join(a["nome"] for a in apparecchi))
-    if not spedisci(conf, pacco):
+    risposta = spedisci(conf, pacco)
+    if not risposta:
         in_coda(pacco)
-    else:
-        n = svuota_coda(conf)
-        if n:
-            log.info("recuperati %d pacchi dalla tasca", n)
+        return None
+    n = svuota_coda(conf)
+    if n:
+        log.info("recuperati %d pacchi dalla tasca", n)
+    return risposta
+
+
+# ----------------------------------------------------------------------------
+# La taratura: leggere piu' spesso, per poco
+# ----------------------------------------------------------------------------
+#
+# Durante una serata di taratura si accende un carico per volta e si guarda lo
+# scalino nella corrente. Con un giro ogni cinque minuti non si vede: il
+# campione arriva quando la luce e' gia' spenta. Il server, rispondendo alla
+# nostra spedizione, puo' chiedere di stringere il passo.
+#
+# Si obbedisce, ma con due paletti nostri: **mai sotto cinque secondi** e **mai
+# una scadenza piu' lontana di un'ora e mezza**. Un comando sbagliato dall'altra
+# parte non deve poter tenere la radio accesa per giorni: consuma corrente dalle
+# batterie e scrive sulla scheda di memoria, che e' il pezzo che si consuma.
+
+TARATURA_MINIMO = 5
+TARATURA_ORIZZONTE = 90 * 60
+
+def passo_taratura(risposta):
+    """I secondi fra un giro e l'altro chiesti dal server, o None."""
+    t = (risposta or {}).get("taratura") or {}
+    if not t.get("attiva"):
+        return None
+    try:
+        scade = datetime.datetime.fromisoformat(str(t["scade"]).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        log.warning("taratura: scadenza illeggibile, la ignoro")
+        return None
+    resta = (scade - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+    if resta <= 0:
+        return None
+    if resta > TARATURA_ORIZZONTE:
+        log.warning("taratura: scadenza troppo lontana (%.0f min), la ignoro", resta / 60)
+        return None
+    secondi = max(TARATURA_MINIMO, min(int(t.get("secondi") or 10), 60))
+    log.info("taratura attiva: giro ogni %ds, ancora %.0f minuti", secondi, resta / 60)
+    return secondi
 
 
 async def main():
@@ -490,13 +534,15 @@ async def main():
     log.info("scatoletta avviata, un giro ogni %d minuti verso %s", passo // 60, conf["server"])
     while True:
         inizio = time.time()
+        risposta = None
         try:
-            await un_giro(conf)
+            risposta = await un_giro(conf)
         except Exception as e:                        # noqa: BLE001
             log.exception("giro fallito: %s", e)
         # Il passo e' fra un inizio e l'altro, non fra una fine e l'altra:
         # cosi' un giro lento non sposta in avanti tutti quelli dopo.
-        await asyncio.sleep(max(20, passo - (time.time() - inizio)))
+        adesso = passo_taratura(risposta) or passo
+        await asyncio.sleep(max(TARATURA_MINIMO, adesso - (time.time() - inizio)))
 
 
 if __name__ == "__main__":

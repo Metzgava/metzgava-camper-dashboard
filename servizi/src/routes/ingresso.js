@@ -9,6 +9,7 @@
 // false. Spiacevole, non grave, e si cambia in un minuto.
 import { Router } from 'express';
 import { q, segna } from '../lib/db.js';
+import { sessioneAttiva } from './taratura.js';
 
 export const router = Router();
 const wrap = f => (req, res, next) => Promise.resolve(f(req, res, next)).catch(next);
@@ -77,7 +78,11 @@ router.post('/', wrap(async (req, res) => {
   // Le letture scartate si dicono, non si ingoiano: sono il primo segnale che
   // un decodificatore ha perso un byte.
   if (scartate.length) await segna('ingresso', `Scartate ${scartate.length}: ${scartate.slice(0, 5).join('; ')}`, 'scatoletta');
-  res.json({ ok: true, scritte, scartate: scartate.length });
+  // La risposta e' anche il canale per dire qualcosa alla scatoletta: lei
+  // bussa, noi rispondiamo. Nessuna porta da aprire verso il camper, nessuna
+  // interrogazione periodica a vuoto — e durante la taratura, siccome il giro
+  // e' da dieci secondi, un cambio arriva in dieci secondi.
+  res.json({ ok: true, scritte, scartate: scartate.length, taratura: await sessioneAttiva() });
 }));
 
 // La scatoletta chiede «ci sei?» prima di mettersi a leggere, cosi' non

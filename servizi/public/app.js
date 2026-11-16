@@ -56,7 +56,12 @@ const ETICHETTE = {
   starlink_w: 'Consumo di Starlink',
   scatoletta_w: 'Consumo della scatoletta',
 };
-const etichetta = c => ETICHETTE[c] || c;
+// I carichi misurati in taratura non hanno un'etichetta scritta a mano: la
+// chiave la genera la taratura stessa, e qui si rimette in italiano.
+const etichetta = c => ETICHETTE[c]
+  || (/^carico_.+_a$/.test(c)
+    ? c.slice(7, -2).replace(/_/g, ' ').replace(/^./, s => s.toUpperCase()) + ' — consumo'
+    : c);
 
 const BOLLI = { misurato: 'misurato', stima: 'stima', incompleto: 'incompleto' };
 const bollo = base => `<span class="bollo ${base}">${BOLLI[base] || base}</span>`;
@@ -468,6 +473,70 @@ async function vistaStoria() {
       : '<div class="vuoto">Ancora niente da raccontare.</div>'}</div>`;
 }
 
+// ---------- la taratura ----------
+//
+// La serata in cui si accende un carico per volta e si guarda lo scalino nella
+// corrente. Sta dentro «Impianto» perche' e' esattamente questo: il modo di
+// **misurare** l'impianto invece di stimarlo.
+//
+// Due cose che l'interfaccia deve dire, altrimenti sembra rotta:
+//   - la scatoletta si accorge della sessione al giro dopo, quindi fino a
+//     cinque minuti;
+//   - lo scalino non compare subito: servono tre minuti di letture dopo
+//     l'accensione prima che il numero sia credibile.
+const CARICHI = ['Luci cucina', 'Luci dinette', 'Pompa acqua', 'Frigo', 'Truma', 'Prese 12 V'];
+
+async function bloccoTaratura() {
+  let d;
+  try { d = await api('/taratura'); } catch { return ''; }
+  const s = d.sessione || {};
+
+  const segni = (d.segni || []).map(g => {
+    const m = g.misura || {};
+    return `<div class="riga">
+      <div class="cresci">
+        <div>${esc(g.nome)} ${bollo(m.base || 'incompleto')}</div>
+        <div class="perche">${ora(g.quando)} · ${esc(m.perche || '')}</div>
+      </div>
+      <div style="flex:none;text-align:right">
+        <div class="valore">${m.ampere == null ? '<span class="vuoto">—</span>' : num(m.ampere, 2) + ' A'}</div>
+        ${m.base === 'misurato'
+          ? `<button class="btn piccolo" data-accetta="${g.id}" style="margin-top:4px">accetta</button>`
+          : `<button class="btn piccolo" data-scorda="${g.id}" style="margin-top:4px">scorda</button>`}
+      </div>
+    </div>`;
+  }).join('');
+
+  const dentro = s.attiva
+    ? `<div class="riga" style="padding-top:0">
+        <div class="cresci"><div>Sessione aperta</div>
+          <div class="perche">Scade alle ${ora(s.scade)}. La scatoletta legge ogni ${s.secondi || 10} secondi
+            finche' dura, poi torna da sola al passo normale.</div></div>
+        <button class="btn piccolo" id="taratura-chiudi">chiudi</button>
+      </div>
+      <div class="griglia stretta" style="margin-top:10px">
+        ${CARICHI.map(c => `<button class="btn" data-carico="${esc(c)}">${esc(c)}</button>`).join('')}
+      </div>
+      <div class="riga" style="margin-top:10px">
+        <div class="cresci"><input id="taratura-nome" placeholder="un altro carico…"></div>
+        <button class="btn" id="taratura-segna">segna</button>
+      </div>
+      <div class="nota" style="margin-top:10px">Accendi il carico <b>e subito</b> premi il suo tasto. Lo scalino
+        compare dopo circa tre minuti: tanto serve per avere letture stabili dopo l'accensione.</div>`
+    : `<div class="riga" style="padding-top:0">
+        <div class="cresci"><div>Nessuna sessione aperta</div>
+          <div class="perche">Spegni tutto, apri la sessione, e accendi un carico per volta premendo il suo tasto.
+            Ne esce il consumo del <b>tuo</b> camper invece di numeri da catalogo.</div></div>
+        <button class="btn primario" id="taratura-apri">apri</button>
+      </div>
+      <div class="nota" style="margin-top:10px">La scatoletta se ne accorge al giro dopo, quindi fino a cinque minuti:
+        comincia quando l'ora in alto a destra diventa fresca di meno di un minuto.</div>`;
+
+  return `<div class="titolo">Taratura dei consumi</div>
+    <div class="scheda">${dentro}</div>
+    ${segni ? `<div class="scheda" style="margin-top:10px">${segni}</div>` : ''}`;
+}
+
 async function vistaImpianto() {
   const d = await api('/impianto');
   const righe = (d.righe || []).map(r => `<div class="riga">
@@ -480,7 +549,10 @@ async function vistaImpianto() {
         <div class="perche" style="text-align:right">${esc(r.unita || '')}</div>
       </div>
     </div>`).join('');
-  return `<div class="nota">Questi sono i dati fissi del <b>tuo</b> camper: non stanno nel codice perché cambiano quando cambi un pezzo. Un valore che scrivi qui diventa <span class="bollo misurato">misurato</span>, e i conti che lo usano smettono di chiamarsi stime.</div>
+  const taratura = await bloccoTaratura();
+  return `${taratura}
+    <div class="titolo">I dati fissi</div>
+    <div class="nota">Questi sono i dati fissi del <b>tuo</b> camper: non stanno nel codice perché cambiano quando cambi un pezzo. Un valore che scrivi qui diventa <span class="bollo misurato">misurato</span>, e i conti che lo usano smettono di chiamarsi stime.</div>
     <div class="scheda">${righe}</div>
     <button class="btn primario largo" id="salva">Salva</button>
     <div class="titolo">Collegamenti</div>
@@ -625,6 +697,53 @@ function aggancia() {
     brindello('Impianto aggiornato');
     await disegna();
   });
+
+  const ta = $('#taratura-apri');
+  if (ta) ta.onclick = sicuro(async () => {
+    await api('/taratura/apri', { method: 'POST', body: { minuti: 30 } });
+    brindello('Taratura aperta per 30 minuti');
+    await disegna();
+  });
+
+  const tc = $('#taratura-chiudi');
+  if (tc) tc.onclick = sicuro(async () => {
+    await api('/taratura/chiudi', { method: 'POST', body: {} });
+    brindello('Taratura chiusa');
+    await disegna();
+  });
+
+  // Segnare e' l'unica cosa che si fa col carico in mano: deve costare un tocco
+  // e non deve ridisegnare la pagina sotto le dita, altrimenti si perde il
+  // tasto successivo. Si avvisa e si ridisegna dopo.
+  const segnaCarico = async (nome) => {
+    await api('/taratura/segna', { method: 'POST', body: { nome } });
+    brindello(`Segnato: ${nome}`);
+    await disegna();
+  };
+  for (const b of document.querySelectorAll('[data-carico]')) {
+    b.onclick = sicuro(() => segnaCarico(b.dataset.carico));
+  }
+  const ts = $('#taratura-segna');
+  if (ts) ts.onclick = sicuro(async () => {
+    const campo = $('#taratura-nome');
+    const nome = (campo?.value || '').trim();
+    if (!nome) { brindello('Scrivi come si chiama il carico'); return; }
+    await segnaCarico(nome);
+  });
+
+  for (const b of document.querySelectorAll('[data-accetta]')) {
+    b.onclick = sicuro(async () => {
+      const r = await api('/taratura/accetta/' + b.dataset.accetta, { method: 'POST', body: {} });
+      brindello(`Salvato in impianto: ${num(r.ampere, 2)} A`);
+      await disegna();
+    });
+  }
+  for (const b of document.querySelectorAll('[data-scorda]')) {
+    b.onclick = sicuro(async () => {
+      await api('/taratura/segni/' + b.dataset.scorda, { method: 'DELETE' });
+      await disegna();
+    });
+  }
 
   for (const l of document.querySelectorAll('[data-comando]')) {
     l.onchange = sicuro(async () => {

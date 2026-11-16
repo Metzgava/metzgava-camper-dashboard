@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from './lib/db.js';
 import { router as auth } from './routes/auth.js';
 import { router as stato, aperte as statoAperte } from './routes/stato.js';
+import { router as taratura } from './routes/taratura.js';
 import { router as ingresso } from './routes/ingresso.js';
 import { registra, collegato } from './lib/bluetti.js';
 
@@ -51,6 +52,7 @@ app.use('/api/ingresso', ingresso);
 app.use('/api', statoAperte);
 app.use('/api', auth);
 app.use('/api', stato);
+app.use('/api', taratura);
 
 // La pagina e il suo codice cambiano a ogni pubblicazione: vanno riconvalidati
 // a ogni visita, altrimenti dopo un aggiornamento il telefono continua a

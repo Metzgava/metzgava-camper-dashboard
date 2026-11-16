@@ -104,6 +104,32 @@ export async function migrate() {
 
   -- Quel che e' successo: un comando mandato, un allarme scattato, un gettone
   -- rinnovato. Serve a rispondere a «perche' ieri sera era spento?».
+  -- La taratura: la serata in cui si accende un carico per volta e si guarda
+  -- lo scalino nella corrente. Serve per avere i consumi di QUESTO camper
+  -- invece di numeri da catalogo.
+  --
+  -- La sessione ha una scadenza e non un interruttore: mentre e' aperta la
+  -- scatoletta legge ogni dieci secondi invece di ogni cinque minuti, e una
+  -- modalita' veloce dimenticata accesa consuma corrente e logora la scheda.
+  -- Con la scadenza, il caso peggiore e' mezz'ora.
+  CREATE TABLE IF NOT EXISTS taratura_sessione (
+    id SERIAL PRIMARY KEY,
+    aperta TIMESTAMPTZ NOT NULL DEFAULT now(),
+    scade TIMESTAMPTZ NOT NULL,
+    chiusa TIMESTAMPTZ
+  );
+
+  -- Un segno per ogni carico acceso: il nome e l'istante. Lo scalino **non**
+  -- si scrive qui: si ricalcola dalle misure quando serve. Cosi' se domani il
+  -- modo di calcolarlo migliora, i segni di ieri valgono ancora; un numero
+  -- congelato invece resterebbe sbagliato per sempre.
+  CREATE TABLE IF NOT EXISTS taratura_segni (
+    id SERIAL PRIMARY KEY,
+    sessione INT REFERENCES taratura_sessione(id) ON DELETE CASCADE,
+    nome TEXT NOT NULL,
+    quando TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
   CREATE TABLE IF NOT EXISTS eventi (
     id BIGSERIAL PRIMARY KEY,
     quando TIMESTAMPTZ NOT NULL DEFAULT now(),
