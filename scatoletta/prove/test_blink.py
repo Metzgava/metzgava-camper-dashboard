@@ -5,6 +5,7 @@ funzione che ne ha bisogno, non in cima al file. Serve perche' queste prove
 devono poter girare sul Mac mentre la scatoletta e' ancora in viaggio.
 """
 import datetime
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -155,3 +156,52 @@ class ProveLettura(unittest.TestCase):
 
     def test_niente_blink_nella_configurazione_non_e_un_guasto(self):
         self.assertEqual(asyncio.run(leggi_blink({}, fabbrica=None, ora=ORA)), [])
+
+
+# ---------------------------------------------------------------------------
+# L'accesso una volta sola: la password non si scrive da nessuna parte
+# ---------------------------------------------------------------------------
+class ProvePassword(unittest.TestCase):
+    """Review Focus 4.
+
+    Una prova sul sorgente e' debole, e si sa: non dimostra la correttezza,
+    impedisce la ricaduta. Quel che la dimostra e' leggere lo script, che
+    resta corto per questo.
+
+    Controlla la **variabile** che tiene la password, non la parola: la prima
+    stesura cercava "password" e inciampava nella frase che dice all'utente
+    che la password non viene salvata. Una prova che si fa ingannare da un
+    commento non prova niente.
+    """
+
+    SEGRETO = "segreta"          # il nome della variabile in blink-accedi.py
+
+    def setUp(self):
+        self.righe = (QUI.parent / "blink-accedi.py").read_text().splitlines()
+
+    def _righe_con(self, modello):
+        rx = re.compile(modello)
+        return [f"{n}: {r.strip()}" for n, r in enumerate(self.righe, 1) if rx.search(r)]
+
+    def test_la_password_si_chiede_con_getpass(self):
+        self.assertTrue(self._righe_con(r"getpass\.getpass\("),
+                        "la password va chiesta con getpass, non con input()")
+        self.assertEqual(self._righe_con(r"input\([^)]*[Pp]assword"), [],
+                         "input() mostrerebbe la password a schermo")
+
+    def test_la_variabile_della_password_non_si_stampa_ne_si_registra(self):
+        colpevoli = self._righe_con(r"(print|log\.\w+)\([^)]*\b" + self.SEGRETO + r"\b")
+        self.assertEqual(colpevoli, [], "la password finisce a schermo o nel log")
+
+    def test_la_variabile_della_password_non_si_scrive_su_disco(self):
+        colpevoli = self._righe_con(
+            r"(write_text|write|json\.dump\w*|open\()[^\n]*\b" + self.SEGRETO + r"\b")
+        self.assertEqual(colpevoli, [], "la password finisce su un file")
+
+    def test_la_password_si_dimentica_appena_consegnata(self):
+        self.assertTrue(self._righe_con(r"del " + self.SEGRETO + r"\b"),
+                        "dopo averla data a blinkpy, la variabile va cancellata")
+
+    def test_il_gettone_non_si_stampa(self):
+        colpevoli = self._righe_con(r"print\([^)]*\bauth\.token\b|print\([^)]*\.token\b")
+        self.assertEqual(colpevoli, [], "il gettone non va mostrato")

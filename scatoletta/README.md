@@ -117,6 +117,50 @@ Il diario di sistema sta in memoria e non sulla scheda: le schede di memoria
 si consumano a forza di scritture, ed è il guasto più comune di un Raspberry
 montato su un veicolo.
 
+### 5. Le webcam Blink, se le vuoi in pagina
+
+Serve una volta sola, e poi mai più: dopo questo, l'app mostra sempre lo stato
+delle batterie delle telecamere, aggiornato **una volta la settimana**.
+
+Perché settimanale e non più spesso: le telecamere sono a batteria, e ogni
+interrogazione costa carica. Una volta la settimana basta per accorgersi che
+una batteria sta finendo, prima che finisca.
+
+Perché si fa qui e non dal server: Blink ha chiuso l'accesso con utente e
+password, e quel che resta lo sa fare `blinkpy`, che è Python e quindi gira
+qui. La conseguenza buona è che **la tua password non arriva mai al server**.
+Su Railway non va messo niente.
+
+```bash
+pip3 install blinkpy
+```
+
+```bash
+python3 blink-accedi.py
+```
+
+Chiede l'email e la password — che **non si vede mentre la digiti e non viene
+salvata da nessuna parte**. Poi Blink ti manda un codice usa-e-getta per email
+o per SMS: scrivilo lì. Se è andata, elenca le telecamere che ha trovato e
+salva un gettone in `segreti/blink.json`.
+
+Controlla che l'elenco sia quello giusto: se mancasse una telecamera, è il
+momento di accorgersene.
+
+Ultimo passo, in `config.json`:
+
+```json
+"blink": { "attivo": true, "giorni": 7 }
+```
+
+Al primo giro dopo questo, le telecamere compaiono nella pagina. Se vuoi
+smettere, basta rimettere `"attivo": false`: il gettone resta dov'è.
+
+Una cosa che viene gratis, e che vale la pena sapere: la tensione di ogni
+batteria finisce anche nello storico, come le altre misure. Quindi fra un mese
+non vedrai solo **com'è**, ma **come sta scendendo** — che è il dato che dice
+quando conviene ricaricarle.
+
 ## Due cose che non ci sono ancora
 
 ### La Truma
