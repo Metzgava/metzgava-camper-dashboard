@@ -205,3 +205,58 @@ class ProvePassword(unittest.TestCase):
     def test_il_gettone_non_si_stampa(self):
         colpevoli = self._righe_con(r"print\([^)]*\bauth\.token\b|print\([^)]*\.token\b")
         self.assertEqual(colpevoli, [], "il gettone non va mostrato")
+
+
+# ---------------------------------------------------------------------------
+# Il giro dell'agente: Blink e' la terza sorgente, e non deve portarsi via le altre
+# ---------------------------------------------------------------------------
+class ProveGiro(unittest.IsolatedAsyncioTestCase):
+    """Review Focus 1.
+
+    Il Bluetooth e' la ragione per cui la scatoletta esiste: le batterie
+    Ective, il solare, l'allarme. Blink e' un extra settimanale. Se un guasto
+    di Blink facesse saltare il giro, un extra avrebbe portato via l'essenziale
+    — e lo farebbe per una settimana intera senza che nessuno se ne accorga,
+    perche' un giro che non manda niente non si vede.
+    """
+
+    async def test_un_guasto_blink_non_fa_perdere_le_letture_bluetooth(self):
+        import agente
+
+        spediti = []
+        async def finto_bluetooth(conf):
+            return [{"id": "NWJ-1", "nome": "Ective 1", "dati": {"carica": 61}, "misure": {"carica": 61}}]
+        async def blink_che_spacca(conf, **k):
+            raise RuntimeError("Blink non risponde")
+
+        agente.giro_bluetooth = finto_bluetooth
+        agente.giro_allarme = lambda conf: []
+        agente.leggi_blink = blink_che_spacca
+        agente.spedisci = lambda conf, pacco: (spediti.append(pacco), {"ok": True})[1]
+
+        with self.assertLogs("scatoletta", level="ERROR") as registrato:
+            await agente.un_giro({"nome": "prova"})
+
+        self.assertEqual(len(spediti), 1, "il pacco deve partire comunque")
+        nomi = [a["nome"] for a in spediti[0]["apparecchi"]]
+        self.assertIn("Ective 1", nomi)
+        self.assertTrue(any("Blink" in r for r in registrato.output),
+                        f"l'errore Blink va scritto: {registrato.output}")
+
+    async def test_le_telecamere_entrano_nel_pacco_insieme_alle_altre(self):
+        import agente
+
+        spediti = []
+        async def finto_bluetooth(conf):
+            return [{"id": "NWJ-1", "nome": "Ective 1", "dati": {}, "misure": {}}]
+        async def blink_con_due(conf, **k):
+            return in_forma_ingresso([pulisci_telecamera(t) for t in DUE])
+
+        agente.giro_bluetooth = finto_bluetooth
+        agente.giro_allarme = lambda conf: []
+        agente.leggi_blink = blink_con_due
+        agente.spedisci = lambda conf, pacco: (spediti.append(pacco), {"ok": True})[1]
+
+        await agente.un_giro({"nome": "prova"})
+        nomi = [a["nome"] for a in spediti[0]["apparecchi"]]
+        self.assertEqual(nomi, ["Ective 1", "Ingresso", "Garage"])

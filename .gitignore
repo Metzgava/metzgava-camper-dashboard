@@ -10,3 +10,7 @@ misure/
 scatoletta/config.json
 scatoletta/coda.jsonl
 scatoletta/ambiente/
+
+# Python: le cartelle che il compilatore si crea da solo
+__pycache__/
+*.pyc

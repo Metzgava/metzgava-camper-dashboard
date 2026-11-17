@@ -32,6 +32,8 @@ from pathlib import Path
 
 QUI = Path(__file__).resolve().parent
 CONFIG = Path(os.environ.get("AGENTE_CONFIG", QUI / "config.json"))
+
+from blink import leggi_blink  # noqa: E402  (dopo QUI, che gli serve)
 CODA = Path(os.environ.get("AGENTE_CODA", QUI / "coda.jsonl"))
 CODA_MAX = 5000                      # righe: oltre, si buttano le piu' vecchie
 
@@ -467,6 +469,22 @@ async def un_giro(conf):
         apparecchi += giro_allarme(conf)
     except Exception as e:                            # noqa: BLE001
         log.error("l'allarme e' andato storto: %s", e)
+    # Le webcam Blink: una volta la settimana, e `leggi_blink` decide da se' se
+    # e' ora — il piu' delle volte risponde con una lista vuota e non tocca la
+    # rete. Sta nel suo `try` come le altre due, e il motivo qui conta piu'
+    # che altrove: il Bluetooth e' la ragione per cui la scatoletta esiste,
+    # Blink e' un extra. Un extra che facesse saltare il giro si porterebbe
+    # via l'essenziale — e lo farebbe in silenzio, perche' un giro che non
+    # manda niente non si vede.
+    #
+    # E le Blink non entrano nella taratura: quella stringe il passo fino a
+    # cinque secondi, e una telecamera a batteria interrogata cosi' si scarica.
+    # Non serve un paletto in piu': il freno dei sette giorni sta dentro
+    # `leggi_blink`.
+    try:
+        apparecchi += await leggi_blink(conf)
+    except Exception as e:                            # noqa: BLE001
+        log.error("Blink e' andato storto: %s", e)
 
     if not apparecchi:
         log.info("niente da mandare in questo giro")

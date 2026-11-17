@@ -24,6 +24,14 @@
     "a4:c1:38:00:00:03": "gavone"
   },
 
+  "blink": {
+    "_nota": "le webcam Blink, lette una volta la settimana. Lascia attivo a false finche' non hai lanciato blink-accedi.py: cosi' chi non ha le Blink non si ritrova un errore a ogni giro.",
+    "attivo": false,
+    "giorni": 7,
+    "segreti": "segreti/blink.json",
+    "ultima": "segreti/blink-ultima.txt"
+  },
+
   "allarme": {
     "_nota": "la centrale Tuya. Se lasci id o chiave vuoti, l'allarme si salta e non da' errore.",
     "id": "",
