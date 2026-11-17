@@ -41,11 +41,22 @@ Scheda da 16 o 32 GB. In Imager:
 - sistema: **Raspberry Pi OS Lite (64 bit)** — senza interfaccia grafica, il
   Pi Zero non ne ha bisogno e consuma meno;
 - l'**ingranaggio** delle impostazioni: nome `bergava-scatoletta`, utente e
-  password tuoi, **SSH acceso**, e la rete del camper (`bergamobile`) con la
-  sua password.
+  password tuoi, **SSH acceso**, e una rete WiFi con la sua password.
 
 Quell'ingranaggio fa metà del lavoro. Senza, il Raspberry parte muto e non lo
 raggiungi.
+
+**Quale rete mettere: quella dove sarai alla prima accensione.** Sembra ovvio
+e non lo è, perché la risposta istintiva è «quella del camper» e quasi sempre
+è sbagliata: il Raspberry si accende per la prima volta sul tavolo di casa.
+Se in Imager c'è `bergamobile` e tu sei in cucina, il Raspberry parte, non
+trova niente, e resta irraggiungibile — senza schermo e senza tastiera non
+c'è modo di dirglielo, e si ricomincia dalla scheda.
+
+Quindi: **in Imager va la rete della prima accensione.** L'altra si aggiunge
+dopo, da ferma, con `./aggiungi-rete.sh` (vedi «Una seconda rete WiFi» più
+sotto), e da quel momento aggancia da sé quella che trova. È esattamente il
+problema per cui quello script esiste.
 
 ### 2. Il config
 
