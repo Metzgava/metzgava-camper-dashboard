@@ -212,7 +212,17 @@ async function rinnovaEVerifica(rinnovo) {
     await new Promise(v => setTimeout(v, 6000));
     prova = await chiedi('/api/bluiotdata/ha/v1/devices', n.accesso);
     if (Number(prova.dato?.msgCode) === 805 || prova.http === 401) {
-      console.warn('Bluetti: il gettone nato dal rinnovo e\u2019 rifiutato dal gateway. NON lo salvo: in archivio resta quello di prima.');
+      // Il gettone di **accesso** non si salva: resta quello di prima, che e'
+      // l'unico che si sa funzionare.
+      //
+      // Ma il gettone di **rinnovo** si salva comunque, e la differenza e'
+      // sostanziale: un gettone di rinnovo **si consuma quando lo si usa**.
+      // Quello vecchio in archivio e' ormai bruciato, quindi tenerlo vorrebbe
+      // dire conservare una chiave che non apre piu' niente, e trovarsela
+      // morta al primo rinnovo legittimo fra un mese. Il nuovo invece non e'
+      // ancora stato usato: e' l'unico dei due che possa ancora servire.
+      await salva(null, n.nuovoRinnovo, null);
+      console.warn('Bluetti: il gettone nato dal rinnovo e\u2019 rifiutato dal gateway. Non salvo quello di accesso — resta il precedente — ma salvo il nuovo gettone di rinnovo, perche\u2019 il vecchio si e\u2019 consumato usandolo.');
       return { esito: 'rifiutato', perche: 'il gettone rinnovato e\u2019 rifiutato dal gateway' };
     }
     console.log('Bluetti: il gettone rinnovato ha avuto bisogno di sei secondi, poi e\u2019 stato accettato');
