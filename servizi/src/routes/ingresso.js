@@ -18,12 +18,19 @@ const wrap = f => (req, res, next) => Promise.resolve(f(req, res, next)).catch(n
 // fuori scala non si scrive: quasi sempre vuol dire che il decodificatore ha
 // sbagliato un byte, e un numero assurdo in archivio sporca i grafici per
 // sempre. Meglio perderla e accorgersene.
-const AMMESSE = {
+export const AMMESSE = {
   carica: [0, 100],
   volt: [0, 80],
   ampere: [-400, 400],
   watt: [-6000, 6000],
   temperatura: [-40, 90],
+  // Mancavano, e la mancanza non si vedeva: i termometri mandano l'umidita'
+  // da sempre, e il server la scartava a ogni giro con una riga negli eventi.
+  // Nessun errore, nessun grafico, e nessuno se ne era accorto.
+  umidita: [0, 100],
+  // La carica della pila di un termometro. Non e' un dato che serve a leggere
+  // la temperatura: serve a sapere quando cambiarla prima che smetta.
+  pila: [0, 100],
   celle_scarto_mv: [0, 2000],
   cicli: [0, 20000],
   capacita_ah: [0, 2000],

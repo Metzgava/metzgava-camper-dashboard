@@ -162,6 +162,59 @@ def atc_leggi(d: bytes):
 
 
 # ----------------------------------------------------------------------------
+# SwitchBot: il termometro che parla da solo
+# ----------------------------------------------------------------------------
+#
+# I SwitchBot trasmettono in chiaro, senza accoppiamento, senza account e
+# senza cloud: la scatoletta li sente passando. E' il piu' facile di tutti gli
+# apparecchi di questo camper, e nello stesso pacchetto arriva anche la carica
+# della sua pila.
+#
+# L'Outdoor Meter (WoSensorTHO, modello W3400010) ha fama di essere
+# l'eccezione della famiglia, e lo e' per i dati di SERVIZIO: gli altri Meter
+# ci mettono temperatura e umidita', lui no. Ma nei dati del COSTRUTTORE sta
+# come tutti gli altri — e la fama viene da come e' scritta la tabella.
+#
+# La documentazione di SwitchBot, nella sezione dell'Outdoor, indicizza i byte
+# **contando anche i due byte dell'azienda** (0x6909), e scrive quindi
+# data[10], data[11], data[12]. bleak invece consegna il payload con quei due
+# byte gia' togliati, dove gli stessi campi stanno a 8, 9, 10: che sono
+# esattamente gli offset della tabella generale dei Meter. Verificato sul
+# campione pubblicato: 22,2 gradi e 55 %.
+#
+# La batteria sta nei dati di servizio. Anche li' la doc conta diversamente
+# (dice «byte 5» includendo il tipo 0x16); con il payload che da' bleak e' il
+# byte 2, che e' quel che dice la tabella generale.
+
+SWITCHBOT_ID = 0x0969          # dal firmware Meter V2.7; prima era 0x0059
+SWITCHBOT_ID_VECCHIO = 0x0059
+SWITCHBOT_SRV = "0000fd3d-0000-1000-8000-00805f9b34fb"
+
+
+def switchbot_leggi(costruttore, servizio=None):
+    """Temperatura, umidita' e carica della pila di un termometro SwitchBot.
+
+    `costruttore` e' manufacturer_data[0x0969] come lo da' bleak, cioe' senza
+    i due byte dell'azienda. `servizio` e' service_data[fd3d], senza l'UUID:
+    serve solo per la pila, e se manca si legge il resto.
+    """
+    if not costruttore or len(costruttore) < 11:
+        return None
+    # bit 3-0: i decimi di grado. bit 7 del byte dopo: il segno, dove 1 e'
+    # positivo — al contrario di quasi tutti gli altri protocolli, e questo e'
+    # il modo tipico di leggere -22 invece di +22.
+    gradi = (costruttore[8] & 0x0F) * 0.1 + (costruttore[9] & 0x7F)
+    if not costruttore[9] & 0x80:
+        gradi = -gradi
+    # bit 7 dell'umidita' dice in che unita' il DISPLAY mostra i gradi. Non
+    # c'entra col valore: senza mascherarlo, un 55 % diventa 183 %.
+    letto = {"temperatura": round(gradi, 1), "umidita": costruttore[10] & 0x7F}
+    if servizio and len(servizio) >= 3:
+        letto["pila"] = servizio[2] & 0x7F
+    return letto
+
+
+# ----------------------------------------------------------------------------
 # Ective: il testo che arriva a pezzi
 # ----------------------------------------------------------------------------
 #
@@ -242,11 +295,19 @@ async def giro_bluetooth(conf):
             annunci.setdefault(dispositivo.address, (dispositivo.name or "", grezzo))
         # I termometri: ultimo annuncio sentito, che e' il piu' fresco
         servizi = dati.service_data or {}
+        costruttori = dati.manufacturer_data or {}
         letto = None
         if BTHOME in servizi:
             letto = bthome_leggi(servizi[BTHOME])
         elif ATC in servizi:
             letto = atc_leggi(servizi[ATC])
+        else:
+            # SwitchBot e' il solo che tiene temperatura e umidita' nei dati
+            # del costruttore e la pila in quelli di servizio: vanno guardati
+            # tutti e due, ed e' per questo che sta in un ramo suo.
+            sb = costruttori.get(SWITCHBOT_ID) or costruttori.get(SWITCHBOT_ID_VECCHIO)
+            if sb:
+                letto = switchbot_leggi(sb, servizi.get(SWITCHBOT_SRV))
         if letto and "temperatura" in letto:
             termometri[dispositivo.address] = (dispositivo.name or "", letto)
 
@@ -294,7 +355,9 @@ async def giro_bluetooth(conf):
         # che un sensore anonimo in mezzo agli altri.
         etichetta = nomi.get(indirizzo.lower()) or nome or indirizzo
         forza = potenze.get(indirizzo)
-        misure = {k: v for k, v in letto.items() if k in ("temperatura", "umidita")}
+        # `pila` entra nello storico insieme alle altre: una tensione che scende
+        # e' quel che dice di cambiare la batteria prima che il sensore taccia.
+        misure = {k: v for k, v in letto.items() if k in ("temperatura", "umidita", "pila")}
         if forza is not None:
             letto = dict(letto, rssi=forza)
             misure["rssi"] = forza

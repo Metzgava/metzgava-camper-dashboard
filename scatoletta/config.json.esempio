@@ -18,10 +18,11 @@
   },
 
   "termometri": {
-    "_nota": "indirizzo MAC : come lo vuoi chiamare nella pagina",
+    "_nota": "indirizzo MAC : come lo vuoi chiamare nella pagina. Vanno qui tutti i termometri, di qualunque marca: ATC, BTHome e SwitchBot si riconoscono da se'. Il SwitchBot non va accoppiato ne' configurato: trasmette in chiaro e basta sentirlo.",
     "a4:c1:38:00:00:01": "dentro",
     "a4:c1:38:00:00:02": "frigo",
-    "a4:c1:38:00:00:03": "gavone"
+    "a4:c1:38:00:00:03": "gavone",
+    "e1:22:33:44:55:66": "fuori"
   },
 
   "blink": {
