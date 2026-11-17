@@ -67,9 +67,6 @@ class ProveForma(unittest.TestCase):
         self.assertEqual(in_forma_ingresso([]), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 # ---------------------------------------------------------------------------
 # La lettura vera, col ritmo che sopravvive al riavvio
@@ -260,3 +257,7 @@ class ProveGiro(unittest.IsolatedAsyncioTestCase):
         await agente.un_giro({"nome": "prova"})
         nomi = [a["nome"] for a in spediti[0]["apparecchi"]]
         self.assertEqual(nomi, ["Ective 1", "Ingresso", "Garage"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -207,10 +207,7 @@ function vistaAdesso() {
         : `<div class="scheda">
             ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza,
               carica: (dati.conti?.ingresso?.valore || 0) > 0 })}
-            ${dati.bluetti?.vecchia ? `<div class="nota" style="margin-top:10px">
-              Questi numeri sono di <b>${esc(dilloInMinuti(dati.bluetti.minuti))}</b>: il cloud di Bluetti
-              non risponde in questo momento e si riprova al prossimo giro. I comandi potrebbero non passare.
-            </div>` : ''}
+            ${dati.bluetti?.vecchia ? `<div style="margin-top:12px">${fasciaVecchia()}</div>` : ''}
             <div class="riga" style="margin-top:14px">
               <div class="cresci"><div class="eti">Col consumo di adesso</div>
                 <div class="cifra" style="font-size:22px">${c.tempo_residuo_bluetti?.detto ? esc(c.tempo_residuo_bluetti.detto) : '<span class="vuoto">—</span>'}</div>
@@ -556,7 +553,7 @@ function calcolo() {
 
 function vistaEnergia() {
   const c = dati.conti || {};
-  return `<div class="titolo">Quanto ci vuole a caricarla</div>
+  return `${fasciaVecchia()}<div class="titolo">Quanto ci vuole a caricarla</div>
     ${calcolo()}
     <div class="nota">Ogni riga dice <b>su cosa si basa</b>. <span class="bollo misurato">misurato</span> vuol dire che i numeri vengono dal tuo impianto; <span class="bollo stima">stima</span> che almeno uno viene da un catalogo. Quando un dato manca, il conto non si fa: si dice quale manca.</div>
     <div class="titolo">Quanta corrente c'è</div>
@@ -730,15 +727,40 @@ async function vistaImpianto() {
     </div>`;
 }
 
+// La fascia che dice l'eta' dei numeri.
+//
+// Stava solo nella prima schermata, e non bastava: Energia fa i conti sugli
+// stessi numeri e ci mette accanto il bollo «misurato», che in questa app
+// vuol dire «vengono dal tuo impianto» — affermava una freschezza che non
+// c'era. E Comandi disegnava le levette secondo una lettura vecchia, accese
+// come se fossero la posizione di adesso.
+//
+// Un numero vecchio dichiarato e' utile. Un numero vecchio spacciato per
+// fresco e' peggio di nessun numero.
+function fasciaVecchia() {
+  if (!dati.bluetti?.vecchia) return '';
+  return `<div class="avviso" style="margin-bottom:12px">
+    Questi numeri sono di <b>${esc(dilloInMinuti(dati.bluetti.minuti))}</b>.
+    ${esc(dati.bluetti.avviso || 'Il cloud di Bluetti non risponde in questo momento.')}
+    Si riprova da sé al prossimo giro; per averli adesso, <b>Impianto → Ricollega</b>.
+  </div>`;
+}
+
 function vistaComandi() {
   const b = (dati.bluetti?.apparecchi || [])[0];
   const com = dati.comandi || {};
   if (!b) return `<div class="scheda"><div class="nota">Nessun apparecchio da comandare.</div></div>`;
+  // Con numeri di ripiego le levette si spengono. Un interruttore non si puo'
+  // pescare dall'archivio come un numero: deve arrivare davvero
+  // all'apparecchio, e in questo momento non ci arriva. Lasciarlo premibile
+  // vorrebbe dire far credere che la posizione mostrata sia quella di adesso.
+  const vecchia = !!dati.bluetti?.vecchia;
   const righe = Object.entries(com).map(([k, def]) => `<div class="riga">
       <div class="cresci"><div>${esc(def.nome)}</div><div class="perche">${esc(def.avviso)}</div></div>
-      <label class="levetta"><input type="checkbox" data-comando="${esc(k)}" ${b[k] ? 'checked' : ''} ${b[k] == null ? 'disabled' : ''}><i></i></label>
+      <label class="levetta"><input type="checkbox" data-comando="${esc(k)}" ${b[k] ? 'checked' : ''} ${b[k] == null || vecchia ? 'disabled' : ''}><i></i></label>
     </div>`).join('');
-  return `<div class="nota">I comandi arrivano alla Bluetti vera, in camper. Ogni interruttore chiede conferma prima di partire: <b>un tocco per sbaglio in tasca non deve spegnere la 220 col frigo acceso</b>.</div>
+  return `${fasciaVecchia()}${vecchia ? `<div class="nota">Le levette sono <b>spente</b> perché quel che vedi è l’ultima posizione conosciuta, non quella di adesso: un comando deve arrivare davvero alla Bluetti, e il cloud non lo passa. Si riaprono appena il collegamento torna.</div>` : ''}
+    <div class="nota">I comandi arrivano alla Bluetti vera, in camper. Ogni interruttore chiede conferma prima di partire: <b>un tocco per sbaglio in tasca non deve spegnere la 220 col frigo acceso</b>.</div>
     <div class="scheda">${righe}</div>
     <div class="titolo">Modalità di lavoro</div>
     <div class="scheda"><div class="riga" style="padding:0">

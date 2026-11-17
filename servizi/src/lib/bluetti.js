@@ -267,9 +267,12 @@ async function ultimaBuona(avviso) {
                      WHERE fonte='bluetti' ORDER BY quando DESC`);
   if (!r.rows.length) return { collegato: true, errore: avviso };
   const quando = r.rows[0].quando;
-  const minuti = Math.round((Date.now() - new Date(quando).getTime()) / 60000);
+  // `quando` lo scrive Postgres, la differenza la fa Node: due orologi. Uno
+  // scarto fra i due darebbe un numero negativo, e «meno di un minuto fa» di
+  // una lettura vecchia e' precisamente la bugia che si sta evitando.
+  const minuti = Math.max(0, Math.round((Date.now() - new Date(quando).getTime()) / 60000));
   console.log(`Bluetti: mostro l\u2019ultima lettura buona, di ${minuti} minuti fa`);
-  return {
+  const dato = {
     collegato: true,
     quando: new Date(quando).toISOString(),
     vecchia: true,
@@ -277,6 +280,11 @@ async function ultimaBuona(avviso) {
     avviso,
     apparecchi: r.rows.map(x => x.dati).filter(Boolean),
   };
+  // In cache come una lettura buona: le aperture di pagina del minuto
+  // successivo non toccano nemmeno la rete. Senza questo, ogni cambio di
+  // sezione rifaceva la catena da capo.
+  cache = { quando: Date.now(), dato };
+  return dato;
 }
 
 // ---------- le chiamate ----------
@@ -412,6 +420,20 @@ async function leggiDavvero({ fresco = false } = {}) {
 
   // Primo rimedio: **riprovare lo stesso gettone.** Un rifiuto passeggero non
   // e' un gettone morto, e questo e' l'unico rimedio che non puo' far danno.
+  // Chi ha aperto una pagina non paga i rimedi.
+  //
+  // `disegna()` rilegge /stato a ogni cambio di sezione, e la pausa piu' il
+  // rinnovo stanno **dentro** quella richiesta: passare da «Adesso» a
+  // «Comandi» aspettava tutta la catena. Il proprietario l'ha visto subito.
+  //
+  // Quindi i rimedi li fa solo chi ha chiesto una lettura fresca — il giro
+  // periodico ogni quindici minuti, o il tasto di aggiornamento. Una pagina
+  // prova una volta e ripiega sull'ultima lettura buona: svelta, e onesta,
+  // perche' l'eta' c'e' scritta. Il recupero non si perde, arriva al giro dopo.
+  if (rifiutato(r) && !fresco) {
+    console.log('Bluetti: rifiutata, ma e\u2019 una pagina: ripiego subito invece di far aspettare.');
+    return ultimaBuona('il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro');
+  }
   if (rifiutato(r)) {
     console.warn(`Bluetti: lettura rifiutata (msgCode=${r.dato?.msgCode ?? '-'}, http=${r.http}). Aspetto sei secondi e riprovo con lo stesso gettone.`);
     await new Promise(v => setTimeout(v, 6000));
@@ -425,7 +447,6 @@ async function leggiDavvero({ fresco = false } = {}) {
   if (rifiutato(r)) {
     if (Date.now() - ultimoRinnovo < DISTANZA) {
       console.warn(`Bluetti: rifiutato, ma ho rinnovato meno di ${Math.round(DISTANZA / 60000)} minuti fa. Non insisto: riprovo al prossimo giro.`);
-      cache = { quando: 0, dato: null };
       return ultimaBuona('il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro');
     }
     ultimoRinnovo = Date.now();
@@ -455,7 +476,6 @@ async function leggiDavvero({ fresco = false } = {}) {
     // prova che il permesso sia morto, e l'unico modo di rifarlo sono le mani
     // del proprietario.
     console.warn('Bluetti: il cloud rifiuta il permesso (805) anche dopo rinnovo e secondo tentativo. Tengo i gettoni e riprovo al prossimo giro.');
-    cache = { quando: 0, dato: null };
     return ultimaBuona('il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro');
   }
   if (!r.dato || r.dato.msgCode !== 0) {
@@ -503,7 +523,21 @@ export async function comanda(sn, codice, valore) {
     corpo: { sn, fnCode: codice, fnValue: String(valore) },
   });
   cache = { quando: 0, dato: null };        // lo stato in cache non vale piu'
-  return { ok: r.dato?.msgCode === 0, messaggio: r.dato?.message || r.testo.slice(0, 160) };
+
+  // Un permesso rifiutato va detto in italiano. Il 17/11 il proprietario ha
+  // premuto «uscita 220» e si e' visto rispondere
+  // «登录已过期，请重新登录！» — la frase del loro cloud, passata di peso dalla
+  // risposta alla pagina. Vera, e inutile.
+  //
+  // E qui, a differenza della lettura, non c'e' ripiego possibile: un numero
+  // si puo' pescare dall'archivio, un interruttore deve arrivare davvero
+  // all'apparecchio.
+  if (Number(r.dato?.msgCode) === 805 || r.http === 401) {
+    return { ok: false, errore: 'il permesso Bluetti e\u2019 scaduto: ricollega dall\u2019Impianto e riprova' };
+  }
+  // `Number()` e non `===`: il loro cloud manda msgCode anche come stringa, ed
+  // e' l'inciampo che il 16/11 aveva tenuto nascosto il guasto per sei ore.
+  return { ok: Number(r.dato?.msgCode) === 0, messaggio: r.dato?.message || r.testo.slice(0, 160) };
 }
 
 // Mette in archivio quel che si e' letto: l'istantanea per la pagina, e le
