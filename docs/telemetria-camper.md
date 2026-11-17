@@ -720,3 +720,55 @@ prescindere da quale sia la causa.
 
 E il rinnovo automatico **non e' inutile**, come avevo scritto due paragrafi
 sopra: funziona, purche' non lo si chieda tre volte al minuto.
+
+## La lista della spesa per la scatoletta Truma
+
+Aggiornata al 17/11/2026, dopo la foto del cavo e dopo la riga `C 4.04.01` del
+pannello (che dice che quel pannello **accetta comandi**, non solo letture).
+
+Due cose sono cambiate rispetto alla prima stesura, e sono entrambe errori che
+si pagano con un pacco da rispedire.
+
+**1. L'adattatore RJ12 va FEMMINA.** Nel camper non c'e' una presa libera da
+occupare: c'e' uno **spinotto maschio** che pende. Due maschi non si accoppiano.
+Serve un **RJ12 femmina (jack) → morsettiera a vite**, oppure un accoppiatore
+femmina-femmina piu' il maschio-morsettiera. Niente sdoppiatore: il cavo e' gia'
+libero, non c'e' niente in cui inserirsi.
+
+**2. L'ESP32 vuole la sua presa, non un pezzo di quella dei telefoni.** Un
+triplicatore o un hub alimentato dal bus dividono la stessa corrente della
+presa USB-A di partenza, e due iPhone in carica se la prendono quasi tutta. Ma
+la ragione vera non e' la corrente: e' che la scatoletta deve stare accesa
+**sempre**, e una presa condivisa e' una presa che qualcuno stacca. Da qui i
+pezzi 4-7, che le danno un'alimentazione sua con il suo fusibile.
+
+### I tre pezzi che lavorano
+
+| | Pezzo | Note |
+|---|---|---|
+| 1 | Basetta **ESP32-WROOM-32 DevKit** | 6-10 €. Guardare la foto dell'annuncio per l'attacco USB: la DevKit V1 e' quasi sempre **micro-USB**, le basette recenti (S3, C3) USB-C |
+| 2 | **Ricetrasmettitore LIN** su basetta | Chip `TJA1020`, `TJA1021` o `MCP2003`. Deve portare fuori cinque contatti: `VBAT`, `LIN`, `GND`, `TX`, `RX`. **E' il pezzo piu' difficile da trovare** |
+| 3 | **Adattatore RJ12 6P6C FEMMINA → morsettiera a vite** | Cercare «femmina» o «jack». Se l'annuncio dice «maschio» o «plug» e' quello sbagliato |
+
+### L'alimentazione
+
+| | Pezzo | Note |
+|---|---|---|
+| 4 | Adattatore **12 V → USB** | 8-10 €. Suo, dedicato, non diviso con i telefoni |
+| 5 | **Portafusibile volante + fusibile 2 A** | Fra il 12 V e l'adattatore |
+| 6 | Due o tre **morsetti a leva Wago 221** | Per derivare il 12 V senza saldare |
+| 7 | Due metri di **cavo 0,75 mm²**, rosso e nero | |
+
+### Il resto
+
+| | Pezzo | Note |
+|---|---|---|
+| 8 | Cavetti **Dupont femmina-femmina** | Fra basetta e ricetrasmettitore |
+| 9 | Una **scatoletta** di plastica | |
+| 10 | **Cavo USB-A → micro-USB (o USB-C) corto, 50 cm - 1 m, DATI** | Deve essere un cavo **dati**: il programma entra nell'ESP32 da li'. Un cavo da sola carica alimenta e poi non si programma, ed e' mezz'ora persa a cercare un guasto che non c'e'. Corto perche' sui cavi lunghi e sottili i 5 V si perdono per strada |
+
+Totale indicativo **100-140 €**, col ricetrasmettitore come variabile.
+
+**Una cosa da sapere prima di collegare:** su quel connettore RJ12 **non c'e' il
+12 V**. E' solo bus. La corrente si prende altrove, ed e' il motivo dei pezzi
+4-7.
