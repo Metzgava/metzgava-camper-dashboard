@@ -23,9 +23,11 @@
      rosso» — aveva ragione). A opacita' piena quel che si vede e' esattamente
      questo colore, senza mescole da indovinare.
      Resta ben distinto da `--rosso`: sotto il 20 % i due archi sono entrambi
-     rossi, e devono restare due — salmone chiaro quel che resta, rosso cupo
-     quel che si e' speso. */
-  --consumato: #e03131;
+     rossi, e devono restare due — salmone chiaro quel che resta, rosso acceso
+     quel che si e' speso. La gradazione l'ha scelta il proprietario guardando
+     tre rossi affiancati, dopo che due tentativi con l'opacita' erano falliti:
+     su un colore chi lo vede decide meglio di chi lo calcola. */
+  --consumato: #f03e3e;
   --azzurro: #7fb3c9;
   /* Le fonti della carica e il segnale «sta ricevendo». Sono colori di
      **stato**, tenuti separati da quelli del livello: mescolare «quanto e'
