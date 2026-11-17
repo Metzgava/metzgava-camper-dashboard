@@ -786,7 +786,8 @@ si apre con `https://www.amazon.it/dp/<codice>`.
 | 4 | Splitter USB passivo, 1 maschio → 4 femmine, 30 cm | `B095HM4V6W` | 9,99 € |
 | 5 | Cavo step-up USB-A → 12 V, spinotto DC 5,5x2,1 | `B0GYR648B4` | 7,99 € |
 | 6 | Jack DC 5,5x2,1 femmina a vite, 4 paia + cacciavite | `B0DPPTLF11` | 7,59 € |
-| 7 | Prolunga RJ12 6P6C maschio-femmina | `B0GF6CJTCV` | 12,50 € |
+| 7a | Cavo RJ12 6P6C **maschio-maschio**, 3 m, 1:1 (InLine 18844) | `B000L13JSS` | 7,60 € |
+| 7b | Accoppiatore RJ12 6P6C **femmina-femmina**, 1:1 (InLine) | `B00342M2H0` | 4,68 € |
 | 8 | Cavetti Dupont, 40 pezzi | `B0FPCB9JHK` | 5,03 € |
 | 9 | Scatola stagna 120x80x50 mm | `B0B7K4JFB9` | 3,60 € |
 | 10 | Cavo dati USB-A → USB-C, 50 cm | `B0G6472JMY` | 7,59 € |
@@ -825,10 +826,17 @@ Quel che il camper offre, accertato il 17/11/2026 dal proprietario:
 - la USB **non** si spegne con l'interruttore della lampada;
 - la USB **si spegne** col generale dei servizi, che lui tiene sempre acceso.
 
-Da qui l'architettura: **la scatoletta vive accanto alla presa, e il bus viene
-a lei** con una prolunga telefonica piatta. Lo splitter a quattro porte serve i
-due cavi iPhone, l'ESP32 e il cavo step-up; il ricetrasmettitore prende i suoi
-12 V dallo step-up attraverso un jack DC a vite.
+Da qui l'architettura, **come e' finita dopo il pezzo 11**: la scatoletta vive
+nel nascondiglio accanto alla Truma, e la **presa USB viene a lei** con una
+prolunga da due metri; il cavo telefonico del bus resta corto. Lo splitter a
+quattro porte serve i due cavi iPhone, l'ESP32 e il cavo step-up; il
+ricetrasmettitore prende i suoi 12 V dallo step-up attraverso un jack DC a
+vite.
+
+La prima stesura diceva il contrario — scatoletta accanto alla presa e bus
+lungo — ed e' rimasta scritta qui per un giro, dopo che il pezzo 11 aveva
+girato il verso delle cose. Conta perche' decide quale dei due cavi deve
+essere lungo.
 
 **Il formato accendisigari e' stato scartato dopo essere stato proposto.** Era
 un trascinamento dallo scenario precedente, quando la sorgente era una presa
@@ -848,6 +856,46 @@ tira ogni apparecchio lo decide l'apparecchio. Il vincolo vero e' il totale di
 **lo splitter non e' il collo di bottiglia**. Il rischio residuo sono i 30 cm
 di filo sottile sulle punte di corrente dell'ESP32 — e trenta centimetri sono
 pochi, che e' quel che serve.
+
+**Sul pezzo 7, e perche' adesso sono due.** Il proprietario ha chiesto se la
+prolunga si trova con consegna il giorno dopo. Quella scelta (`B0GF6CJTCV`,
+12,50 €) nel migliore dei casi arriva **sabato 21**, e solo pagando la
+consegna piu' rapida: viene da un venditore di Shenzhen. Nessuna prolunga
+maschio-femmina singola arriva prima. La stessa cosa si fa con due pezzi che
+Amazon spedisce da se':
+
+- `B000L13JSS` — InLine 18844, cavo RJ12 6P6C **maschio-maschio**, 3 m,
+  «6 fili (6P6C), assegnazione 1:1», 7,60 €, **domani**. In magazzino ce ne
+  sono **due**;
+- `B00342M2H0` — accoppiatore InLine RJ12 6P6C **femmina-femmina**, «1:1
+  compito completo», 4,68 €, Scelta Amazon.
+
+Lo spinotto maschio che pende dalla Truma entra nell'accoppiatore; dall'altro
+lato dell'accoppiatore entra il cavo; l'altro capo del cavo entra nella presa
+del pezzo 3. Elettricamente e' la stessa catena di una prolunga, e la cosa che
+la rende tale e' scritta su entrambe le schede: i contatti vanno **1 a 1**.
+Se il cavo fosse «girato» — contatto 1 su contatto 6, come sono cablati molti
+cordoni telefonici piatti — il piedino che lui identifica sullo spinotto libero
+riuscirebbe da un'altra parte, e il LIN finirebbe sul morsetto sbagliato.
+Questo e' il motivo per cui qui sopra ci sono due codici precisi e non
+«un cavo telefonico qualsiasi».
+
+Costa 12,28 € invece di 12,50 €, da' tre metri invece di trenta centimetri, e
+i resi passano da Amazon. Il contro, detto: due accoppiamenti in piu', cioe'
+due punti di contatto in piu' su un bus che sta in un veicolo che vibra. A
+9600 baud non e' un problema di segnale, e' un problema di spinotto che si
+allenta: si risolve con una fascetta.
+
+**Ma il collo di bottiglia non e' il pezzo 7.** E' il **pezzo 3**, la presa
+RJ12 → morsettiera, che e' anche il pezzo senza il quale non si collega
+niente. A 15,27 € arriva il **5 dicembre**. Lo stesso articolo spedito da
+Amazon costa **20,76 €** e arriva il 22 novembre, con sei pezzi in magazzino.
+Se la scatoletta deve partire presto, quei 5,49 € comprano due settimane.
+
+**Come leggere queste date.** Sono lette senza essere entrati nell'account, su
+un indirizzo predefinito. Per gli articoli **spediti da Amazon** possono solo
+migliorare con il suo indirizzo e il suo Prime; per quelli spediti dal
+venditore valgono piu' o meno come sono scritte.
 
 **I numeri.** ESP32 ~0,25 A a 5 V, step-up ~0,3 A: **~0,55 A** per la
 scatoletta. Lo step-up da' 12 V fino a 0,6 A, e il ricetrasmettitore ne vuole
