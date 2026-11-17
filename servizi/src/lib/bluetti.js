@@ -109,18 +109,35 @@ async function salva(accesso, rinnovo, scade) {
   }
 }
 
-// Un gettone rifiutato con 805 e un rinnovo che non riesce non tornano buoni
-// da soli: quel permesso e' morto. Si butta, per tre motivi. Primo, cosi'
-// `collegato()` dice la verita' invece di rispondere «si» perche' in archivio
-// c'e' una riga. Secondo, il giro periodico smette di bussare ogni quarto
-// d'ora a una porta chiusa — nei log ne ho trovate sei ore di fila, tutte
-// identiche. Terzo, in pagina compare il tasto «Collega la Bluetti», che e'
-// esattamente la cosa da fare.
-async function scorda(perche) {
-  await q(`DELETE FROM gettoni_cloud WHERE nome LIKE 'bluetti_%'`);
-  console.warn('Bluetti: permesso SCARTATO — ' + perche);
-  await segna('gettone', 'Permesso Bluetti scartato: ' + perche);
-}
+// Qui c'era una funzione che **buttava** i gettoni quando il cloud rifiutava
+// due volte di fila, e si fondava su una premessa che i log hanno smentito la
+// mattina del 17/11/2026:
+//
+//   06:58:34  nuovo accesso dal tuo Agree, gettone di 1835 caratteri
+//   06:58:39  lettura RIFIUTATA (805)       <- cinque secondi dopo
+//   06:58:39  rinnovo riuscito, gettone nuovo
+//   06:58:39  lettura ANCORA rifiutata      <- anche col gettone appena nato
+//   06:58:39  permesso SCARTATO
+//
+// Un gettone di cinque secondi non e' scaduto, e nemmeno quello nato dal
+// rinnovo. Trenta secondi dopo un terzo accesso andava liscio, e lo stesso
+// gettone ha poi letto bene alle 07:11, alle 07:13 e alle 07:26. Quindi
+// **805 non vuol dire che il permesso e' morto**: il loro cloud rifiuta a
+// tratti, per meno di un minuto, qualunque gettone gli si porti.
+//
+// Le tre ragioni per buttare sono cadute tutte:
+//
+// - «cosi' `collegato()` dice la verita'»: la verita' e' che il permesso e'
+//   vivo, e buttarlo faceva dire una bugia al contrario;
+// - «il giro smette di bussare a una porta chiusa»: la porta non e' chiusa,
+//   e bussare ogni quarto d'ora costa una richiesta;
+// - «in pagina compare il tasto»: il tasto nella pagina Impianto **c'e'
+//   sempre**, e dice «Ricollega» quando sei collegato.
+//
+// Adesso non si butta piu' niente da soli. Il costo di tenere un gettone
+// morto e' un messaggio di errore; il costo di buttarne uno vivo sono le tue
+// mani sull'Agree. I due costi non si somigliano, e la scelta e' per il
+// secondo.
 
 // Tre esiti, non due, e la differenza vale il collegamento.
 //
@@ -313,9 +330,21 @@ async function leggiDavvero({ fresco = false } = {}) {
     }
   }
   if (rifiutato(r)) {
-    await scorda('rifiutato dal cloud anche dopo il rinnovo');
+    // Il rifiuto a tratti dura pochi secondi: una pausa e un secondo
+    // tentativo lo coprono. Nei log del 17/11 la finestra nera piu' lunga e'
+    // stata di circa settanta secondi, quindi non si pretende di coprirle
+    // tutte: si copre quella breve, e per il resto si riprova al giro dopo.
+    await new Promise(v => setTimeout(v, 6000));
+    console.log('Bluetti: rifiutato anche col gettone fresco. Aspetto sei secondi e riprovo.');
+    r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+  }
+  if (rifiutato(r)) {
+    // E qui si **tiene** tutto. Vedi il commento lungo sopra: 805 non e' una
+    // prova che il permesso sia morto, e l'unico modo di rifarlo sono le mani
+    // del proprietario.
+    console.warn('Bluetti: il cloud rifiuta il permesso (805) anche dopo rinnovo e secondo tentativo. Tengo i gettoni e riprovo al prossimo giro.');
     cache = { quando: 0, dato: null };
-    return { collegato: false, errore: 'il permesso Bluetti e\u2019 scaduto: ricollega dall\u2019Impianto' };
+    return { collegato: true, errore: 'il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro' };
   }
   if (!r.dato || r.dato.msgCode !== 0) {
     return { collegato: true, errore: `il cloud ha risposto ${r.dato?.msgCode ?? r.http}: ${r.dato?.message || r.testo.slice(0, 120)}` };

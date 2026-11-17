@@ -576,3 +576,47 @@ Scritto perche' non torni, e perche' quattro di queste sembravano ragionevoli:
 
 Tutte e cinque cadute **guardando**, non ragionando. E ogni volta che ho
 corretto prima di guardare, ho corretto il ramo sbagliato.
+
+### Seguito del 17 novembre: la contesa era vera, ma non era tutto
+
+La correzione della notte ha funzionato per quel che prometteva — i log del
+mattino non mostrano **nessuna** seconda catena di rinnovo partita in
+parallelo, e la riga «in archivio c'e' un gettone piu' nuovo» non compare mai,
+perche' non serve piu'. Ma il collegamento e' caduto comunque, alle 07:41, e i
+log dicono che il guasto restante e' un altro e piu' semplice:
+
+```
+06:58:34  nuovo accesso dall'Agree, gettone di 1835 caratteri
+06:58:39  lettura RIFIUTATA (805)       <- cinque secondi dopo
+06:58:39  rinnovo riuscito, gettone nuovo
+06:58:39  lettura ANCORA rifiutata      <- anche col gettone appena nato
+06:58:39  permesso SCARTATO
+06:59:29  un terzo accesso: lettura riuscita
+07:11 / 07:13 / 07:26  lo stesso gettone legge bene
+07:41  lo stesso gettone rifiutato, e scartato
+```
+
+**805 non vuol dire «permesso scaduto».** Un gettone di cinque secondi non e'
+scaduto; nemmeno quello nato dal rinnovo; e lo stesso gettone rifiutato alle
+06:58 leggeva bene alle 07:11. Il loro cloud rifiuta **a tratti**, per meno di
+un minuto, qualunque gettone gli si porti — e il nostro codice leggeva quel
+rifiuto come una sentenza e buttava tutto.
+
+Due correzioni:
+
+- **una pausa di sei secondi e un secondo tentativo**, che e' la durata della
+  finestra nera piu' corta vista nei log;
+- **non si butta piu' niente da soli.** Il costo di tenere un gettone morto e'
+  un messaggio di errore; il costo di buttarne uno vivo sono le mani del
+  proprietario sull'Agree. I due costi non si somigliano.
+
+Le tre ragioni scritte a giustificazione del cestino sono cadute tutte: il
+permesso era vivo, quindi buttarlo faceva dire al programma una bugia al
+contrario; la porta non era chiusa; e il tasto nella pagina Impianto **c'e'
+sempre**, e dice «Ricollega» quando il collegamento c'e'.
+
+Lezione che si somma a quella di stanotte: **una diagnosi confermata da una
+prova non e' una diagnosi completa.** La contesa c'era davvero e la prova la
+riproduceva; semplicemente non era l'unico modo di perdere il collegamento. Il
+modo di accorgersene non e' stato ragionare, e' stato tornare a leggere i log
+il mattino dopo.
