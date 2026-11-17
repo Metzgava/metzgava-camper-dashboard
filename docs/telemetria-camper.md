@@ -783,16 +783,59 @@ si apre con `https://www.amazon.it/dp/<codice>`.
 | 1 | ELEGOO ESP32 USB-C, 3 pezzi, chip CP2102 | `B0D8T5XD3P` | 21,84 € |
 | 2 | Modulo TTL UART → LIN con **TJA1020**, 12 V | `B0HC67CFCG` | 24,01 € |
 | 3 | **Presa** RJ12 6P6C → morsettiera 6 poli, da pannello | `B0GTTSHJBV` | 15,27 € |
-| 4 | Presa USB 12 V da incasso per camper, 2 porte 48 W | `B0HFHSGDRP` | 10,99 € |
-| 5 | Portafusibile volante impermeabile | `B00UX6NIQE` | 4,99 € |
-| 5b | Assortimento fusibili lamellari (contiene i 2 A) | `B09B7K9PDB` | 9,99 € |
-| 6 | WAGO 221-412, 16 pezzi | `B01KI1I8SG` | 10,17 € |
-| 7 | Cavo 0,75 mm² rosso e nero, 5 m ciascuno | `B0D12R349S` | 14,99 € |
+| 4 | Splitter USB, 1 maschio → 4 femmine | `B0HGFS8VN2` | 9,29 € |
+| 5 | Cavo step-up USB-A → 12 V, spinotto DC 5,5x2,1 | `B0GYR648B4` | 7,99 € |
+| 6 | Jack DC 5,5x2,1 femmina a vite, 4 paia + cacciavite | `B0DPPTLF11` | 7,59 € |
+| 7 | Prolunga RJ12 6P6C maschio-femmina | `B0GF6CJTCV` | 12,50 € |
 | 8 | Cavetti Dupont, 40 pezzi | `B0FPCB9JHK` | 5,03 € |
 | 9 | Scatola stagna 120x80x50 mm | `B0B7K4JFB9` | 3,60 € |
 | 10 | Cavo dati USB-A → USB-C, 50 cm | `B0G6472JMY` | 7,59 € |
 
-Totale **circa 128 €**.
+Totale **circa 115 €**.
+
+### Perche' i pezzi 4-7 sono questi e non un cablaggio a 12 V
+
+La prima stesura di questa lista portava il 12 V alla scatoletta: presa USB da
+incasso, portafusibile, Wago, cavo bipolare — 51 € e le mani nell'impianto del
+camper. Il proprietario ha chiesto una via a spina, «meglio presa con presa»,
+e aveva ragione: **l'unico posto dove uno sbaglio costa qualcosa e' il 12 V del
+camper**. Sulla basetta, se sbagli un filo, il conto massimo e' la basetta.
+
+Quel che il camper offre, accertato il 17/11/2026 dal proprietario:
+
+- una **presa USB-A** sulla lampada a collo di cigno, **a meno di 2 m dalla
+  Truma**;
+- la USB **non** si spegne con l'interruttore della lampada;
+- la USB **si spegne** col generale dei servizi, che lui tiene sempre acceso.
+
+Da qui l'architettura: **la scatoletta vive accanto alla presa, e il bus viene
+a lei** con una prolunga telefonica piatta. Lo splitter a quattro porte serve i
+due cavi iPhone, l'ESP32 e il cavo step-up; il ricetrasmettitore prende i suoi
+12 V dallo step-up attraverso un jack DC a vite.
+
+**Il formato accendisigari e' stato scartato dopo essere stato proposto.** Era
+un trascinamento dallo scenario precedente, quando la sorgente era una presa
+12 V: con una USB-A come sorgente aggiunge due corpi da 6 cm per fare un
+collegamento da due fili, e in una scatola 120x80x50 non ci stanno. Costava
+anche uguale (15,54 € contro 15,58 €): il guadagno del jack DC e' solo
+meccanico, ed e' decisivo.
+
+**I numeri.** ESP32 ~0,25 A a 5 V, step-up ~0,3 A: **~0,55 A** per la
+scatoletta. Lo step-up da' 12 V fino a 0,6 A, e il ricetrasmettitore ne vuole
+meno di 0,1 A — nel progetto di riferimento la sua alimentazione e' protetta da
+un fusibile da 100 mA. Su una presa da 2,1 A restano ~1,5 A per i telefoni.
+
+**Quel che resta aperto:** l'amperaggio di quella presa. Il catalogo ricambi
+Knaus dichiara 3 A per la lampada a collo di cigno con USB (art. 316100002),
+le equivalenti non originali 2,1 A, e nessuna fonte collega quel codice al
+BoxLife 540 del 2023. Si misura con un tester USB. Con 1 A la scatoletta
+funziona da sola ma i due iPhone no.
+
+**E un rischio che non ha rimedio tecnico:** quella presa dipende dal generale
+dei servizi, e se qualcuno lo spegne **non arriva nessun avviso** — l'unico
+segnale e' il silenzio. Da qui la cosa da fare quando la scatoletta arriva: una
+riga che dice «la scatoletta non parla da X ore», invece di mostrare numeri
+vecchi come se fossero di adesso.
 
 Tre cose da sapere su questa tabella.
 
