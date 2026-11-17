@@ -118,3 +118,117 @@ def in_forma_ingresso(telecamere: list[dict]) -> list[dict]:
             "misure": misure,
         })
     return fuori
+
+
+# ---------------------------------------------------------------------------
+# Il ritmo, in un file
+# ---------------------------------------------------------------------------
+#
+# La data dell'ultima lettura sta su disco e non in memoria, per una ragione
+# pratica: la scatoletta si riavvia — manca la corrente, si riaggiorna, si
+# riparte dopo una modifica — e un ritmo tenuto in memoria ricominciherebbe
+# da capo ogni volta, interrogando le telecamere a ogni riavvio. Che e'
+# esattamente quel che si sta cercando di evitare.
+
+QUI = Path(__file__).resolve().parent
+
+
+def _percorso(dato, predefinito: str) -> Path:
+    p = Path(dato or predefinito)
+    return p if p.is_absolute() else QUI / p
+
+
+def quando_ultima(percorso) -> datetime.datetime | None:
+    """La data dell'ultima lettura, o None se non c'e' o non si capisce.
+
+    Un file illeggibile vale come «mai letto»: si rilegge una volta di troppo,
+    che costa un po' di batteria, invece di non rileggere mai piu'.
+    """
+    try:
+        testo = Path(percorso).read_text().strip()
+    except OSError:
+        return None
+    try:
+        d = datetime.datetime.fromisoformat(testo.replace("Z", "+00:00"))
+    except ValueError:
+        log.warning("la data in %s non si capisce: faccio come se non avessi mai letto", percorso)
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=datetime.timezone.utc)
+
+
+def segna_lettura(percorso, ora: datetime.datetime) -> None:
+    p = Path(percorso)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(ora.isoformat())
+
+
+async def _blink_vero(b: dict):
+    """Il `blinkpy` vero, costruito dal gettone salvato alla preparazione.
+
+    Questo e' il solo punto che importa `blinkpy`, e il solo che non ha prove:
+    si verifica al primo giro sulla scatoletta. Il modello d'uso e' quello
+    della documentazione di blinkpy (sezione «Loading credentials»).
+    """
+    from aiohttp import ClientSession
+    from blinkpy.auth import Auth
+    from blinkpy.blinkpy import Blink
+    from blinkpy.helpers.util import json_load
+
+    segreti = _percorso(b.get("segreti"), "segreti/blink.json")
+    blink = Blink(session=ClientSession())
+    blink.auth = Auth(await json_load(str(segreti)), no_prompt=True)
+    await blink.start()
+    return blink
+
+
+async def _chiudi(oggetto) -> None:
+    """La sessione HTTP va chiusa, o ogni settimana si perde un socket.
+
+    Scritto con cautela perche' l'oggetto puo' essere una finta delle prove,
+    che non ha ne' `auth` ne' sessione.
+    """
+    sessione = getattr(getattr(oggetto, "auth", None), "session", None)
+    if sessione is not None and hasattr(sessione, "close"):
+        try:
+            await sessione.close()
+        except Exception as e:                        # noqa: BLE001
+            log.warning("la sessione Blink non si e' chiusa bene: %s", e)
+
+
+async def leggi_blink(conf: dict, fabbrica=None, ora=None) -> list[dict]:
+    """Gli `apparecchi` da mandare al server, o [] se non e' ora.
+
+    Chi chiama non deve sapere niente del ritmo: chiama a ogni giro, e il piu'
+    delle volte si sente rispondere una lista vuota.
+
+    Un guasto **risale** a chi chiama, e la data non viene segnata: altrimenti
+    un'intermittenza di dieci secondi costerebbe una settimana di silenzio.
+    """
+    b = (conf or {}).get("blink") or {}
+    if not b.get("attivo"):
+        return []
+
+    ora = ora or datetime.datetime.now(datetime.timezone.utc)
+    f_ultima = _percorso(b.get("ultima"), "segreti/blink-ultima.txt")
+    if not serve_lettura(quando_ultima(f_ultima), ora, int(b.get("giorni", GIORNI))):
+        return []
+
+    costruisci = fabbrica or (lambda: _blink_vero(b))
+    oggetto = costruisci()
+    if hasattr(oggetto, "__await__"):
+        oggetto = await oggetto
+    try:
+        # Una sola interrogazione per tutte le telecamere. `force` scavalca la
+        # strozzatura interna di blinkpy, che e' pensata per chi guarda le
+        # immagini: noi chiediamo una volta la settimana, non c'e' niente da
+        # strozzare.
+        await oggetto.refresh(force=True)
+        telecamere = [pulisci_telecamera(c.attributes) for c in oggetto.cameras.values()]
+    finally:
+        await _chiudi(oggetto)
+
+    apparecchi = in_forma_ingresso(telecamere)
+    segna_lettura(f_ultima, ora)
+    log.info("Blink: lette %d telecamere (%s)", len(apparecchi),
+             ", ".join(a["nome"] or "senza nome" for a in apparecchi) or "nessuna")
+    return apparecchi

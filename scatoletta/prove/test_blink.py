@@ -68,3 +68,90 @@ class ProveForma(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# La lettura vera, col ritmo che sopravvive al riavvio
+# ---------------------------------------------------------------------------
+import asyncio      # noqa: E402
+import tempfile     # noqa: E402
+
+from blink import quando_ultima, segna_lettura, leggi_blink  # noqa: E402
+
+DUE = [dict(UNA), {"camera_id": 9, "name": "Garage", "battery": "low",
+                   "battery_voltage": 140, "temperature": 50, "wifi_strength": -71}]
+
+
+class FintaBlink:
+    """Quel poco di `blinkpy` che il nostro codice usa: `.cameras` e `refresh()`."""
+
+    def __init__(self, telecamere, spacca=False):
+        self.cameras = {t["name"]: type("T", (), {"attributes": t})() for t in telecamere}
+        self.spacca = spacca
+        self.refresh_fatti = 0
+
+    async def refresh(self, **_):
+        self.refresh_fatti += 1
+        if self.spacca:
+            raise RuntimeError("Blink non risponde")
+
+
+class ProveLettura(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ultima = Path(self.tmp.name) / "blink-ultima.txt"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def conf(self, attivo=True):
+        return {"blink": {"attivo": attivo, "giorni": 7,
+                          "ultima": str(self.ultima),
+                          "segreti": str(Path(self.tmp.name) / "blink.json")}}
+
+    # Review Focus 3: la data sta in un file, non in memoria.
+    def test_il_ritmo_sopravvive_al_riavvio(self):
+        segna_lettura(self.ultima, ORA - datetime.timedelta(days=1))
+        chiamate = []
+
+        def fabbrica():
+            chiamate.append(1)
+            return FintaBlink(DUE)
+
+        got = asyncio.run(leggi_blink(self.conf(), fabbrica=fabbrica, ora=ORA))
+        self.assertEqual(got, [])
+        self.assertEqual(chiamate, [], "non deve nemmeno costruire blinkpy")
+
+    def test_quando_e_ora_legge_e_segna_la_data(self):
+        self.assertIsNone(quando_ultima(self.ultima))
+        finta = FintaBlink(DUE)
+        got = asyncio.run(leggi_blink(self.conf(), fabbrica=lambda: finta, ora=ORA))
+        self.assertEqual(len(got), 2)
+        self.assertEqual({a["id"] for a in got}, {"blink-7", "blink-9"})
+        self.assertEqual(finta.refresh_fatti, 1, "una sola interrogazione per tutte")
+        self.assertEqual(quando_ultima(self.ultima), ORA)
+
+    def test_una_data_illeggibile_vale_come_mai_letto(self):
+        self.ultima.write_text("pasticcio")
+        self.assertIsNone(quando_ultima(self.ultima))
+        finta = FintaBlink(DUE)
+        got = asyncio.run(leggi_blink(self.conf(), fabbrica=lambda: finta, ora=ORA))
+        self.assertEqual(len(got), 2)
+
+    def test_un_guasto_non_segna_la_data(self):
+        # Se un guasto segnasse la data, salterebbe una settimana di letture:
+        # il modo peggiore di gestire un errore passeggero.
+        finta = FintaBlink(DUE, spacca=True)
+        with self.assertRaises(RuntimeError):
+            asyncio.run(leggi_blink(self.conf(), fabbrica=lambda: finta, ora=ORA))
+        self.assertIsNone(quando_ultima(self.ultima))
+
+    def test_spento_nella_configurazione_non_legge(self):
+        chiamate = []
+        got = asyncio.run(leggi_blink(self.conf(attivo=False),
+                                      fabbrica=lambda: chiamate.append(1), ora=ORA))
+        self.assertEqual(got, [])
+        self.assertEqual(chiamate, [])
+
+    def test_niente_blink_nella_configurazione_non_e_un_guasto(self):
+        self.assertEqual(asyncio.run(leggi_blink({}, fabbrica=None, ora=ORA)), [])
