@@ -135,3 +135,68 @@ per la Bluetti, e nient'altro.
 - Il nome del campo in archivio per la data dell'ultima lettura.
 - Se `battery_state` arrivi come `ok` / `low` o con altre parole: si mostra
   quel che manda, tradotto, senza inventare soglie nostre sulla tensione.
+
+---
+
+## Correzione del 17/11/2026, ore 09:50: la premessa era falsa
+
+Questo disegno diceva: «Blink e' solo cloud, quindi **non serve la
+scatoletta**». **Misurato, e non e' vero** — o meglio, e' vero ma irrilevante.
+
+Sonda con credenziali inventate su un indirizzo `@example.invalid`, nessun
+account toccato:
+
+```
+POST https://api.oauth.blink.com/oauth/token   grant_type=password
+-> 401 {"error":"unsupported_grant_type","error_description":"invalid grant type"}
+```
+
+Blink ha **ritirato** l'accesso con utente e password. Quel che resta e' il
+flusso OAuth con PKCE che `blinkpy` usa oggi, e per entrare richiede: chiedere
+l'autorizzazione, **scaricare la pagina HTML di accesso**, estrarre un token
+CSRF da dentro un tag `<script>`, mandare le credenziali, verificare il codice,
+catturare il codice da un reindirizzamento a uno schema per app mobili, e
+scambiarlo per i gettoni.
+
+Si puo' reimplementare. Ma si rompe il giorno che Blink ridisegna quella
+pagina — e l'hanno appena cambiata, quindi ci stanno lavorando. Contro un
+bersaglio che si muove, una libreria mantenuta vale piu' di una nostra
+reimplementazione.
+
+### Quel che cambia
+
+**Blink si legge dalla scatoletta, con `blinkpy`.** Il proprietario ha scelto
+questa via il 17/11/2026, sapendo che si aspetta la scatoletta.
+
+- il Raspberry fa girare Python e gia' fa girare `agente.py`;
+- lo stato delle telecamere entra per il canale che la scatoletta **ha gia'**:
+  `POST /api/ingresso` con la sua chiave;
+- quando Blink cambia qualcosa, `pip install -U blinkpy` risolve;
+- **il server su Railway non vede mai la password Blink.** Cade tutta la
+  faccenda delle variabili `BLINK_EMAIL` / `BLINK_PASSWORD`: non vanno messe.
+
+Scelta sulla password: non piu' la **(b)** ma la **(c)** — in camper, sulla
+scatoletta. Era quella che questo disegno chiamava «la piu' pulita, la piu'
+lenta», e lo e' ancora: ma adesso e' anche la piu' robusta, che e' il motivo
+per cui vince.
+
+### E una cosa che viene gratis
+
+`POST /api/ingresso` accetta misure solo dall'elenco delle grandezze ammesse,
+e **`volt`, `rssi` e `temperatura` ci sono gia'**. Quindi la storia della
+tensione di ogni batteria si archivia da se', senza toccare il server: fra un
+mese si potra' vedere **come scende**, non solo com'e' adesso. Non era chiesto
+e non si costruisce niente per averlo; viene dal canale che esiste.
+
+Una cautela: la potenza del segnale va in `dati.segnale`, **non** in
+`dati.rssi`. La pagina ha una scheda del segnale che pesca ogni istantanea con
+`dati.rssi`, ed e' per gli apparecchi del camper: ci finirebbero dentro anche
+le telecamere, mescolate a cose di natura diversa. Nelle `misure` invece
+`rssi` va benissimo, perche' quelle sono storia, non pagina.
+
+### Quel che non cambia
+
+Tutto il resto: settimanale e' la domanda, la pagina mostra sempre l'ultima
+risposta con la sua data; niente immagini ne' diretta ne' clip; niente armare
+e disarmare; niente registro dei movimenti; la temperatura si prende perche'
+arriva con la stessa richiesta; le Blink fuori dalla taratura.
