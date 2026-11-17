@@ -11,6 +11,7 @@ import { q, segna } from '../lib/db.js';
 import { statoBluetti, collegato, associa, comanda, COMANDI,
   indirizzoAutorizza, completaAutorizzazione } from '../lib/bluetti.js';
 import { tuttiIConti, impianto } from '../lib/conti.js';
+import { leggiTravaso } from '../lib/travaso.js';
 import { serveAccesso } from './auth.js';
 
 // Le rotte normali stanno dietro al login. Una sola no, e sotto si dice perche'.
@@ -86,7 +87,13 @@ router.get('/stato', wrap(async (req, res) => {
   // A ogni apparecchio con una carica si attacca il suo ritmo
   for (const a of (bluetti.apparecchi || [])) {
     if (a.carica != null) a.tendenza = await tendenza(a.sn);
+    // Il travaso si legge dalle misure gia' in archivio: nessuna chiamata
+    // in piu' al loro cloud. La regola sta in `lib/travaso.js`.
+    a.travaso = await leggiTravaso(q, a.sn);
   }
+  // Uno solo sale in cima, per la fascia della pagina: con un apparecchio e'
+  // lo stesso, con due il primo che travasa e' quello di cui parlare.
+  bluetti.travaso = (bluetti.apparecchi || []).map(a => a.travaso).find(Boolean) || null;
   // E lo stesso per quelli che manda la scatoletta: il manometro e' uno solo,
   // e vuole lo stesso corredo da chiunque arrivino i numeri.
   for (const r of ultimi) {

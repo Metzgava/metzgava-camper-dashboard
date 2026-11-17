@@ -814,3 +814,45 @@ riferimento il chip non distingue i livelli. Quindi i pezzi 5-7 servono
 comunque, e una volta che il 12 V e' arrivato nella scatola il pezzo 4 — una
 presa USB da incasso avvitata nel coperchio — da' all'ESP32 i suoi 5 V senza
 portare nessuna USB da lontano.
+
+## Il travaso, e perche' l'app adesso lo dice
+
+Il 17/11/2026 il proprietario ha letto **430 W in uscita dal Bluetti** e ha
+spento il 220 per prudenza. Non era un guasto, e non era un dato inventato:
+era il **caricabatterie del camper** che ricaricava le batterie di servizio
+prendendo corrente dall'inverter, senza colonnina attaccata. I conti tornano:
+un caricatore da circa 25 A a pieno regime chiede al 220 esattamente quei
+watt.
+
+Due dettagli che rendono la cosa meno innocua di come sembra.
+
+**Si perde un quinto dell'energia.** Batteria → inverter (~90%) → caricatore
+(~87,5%) → batteria: di quel che esce dalla Bluetti ne arriva meno di quattro
+quinti. Il resto scalda.
+
+**Col litio non finisce da se'.** Una batteria al piombo quasi carica fa calare
+la corrente da sola dopo poco. Le LiFePO4 accettano la corrente piena quasi
+fino in cima: quattrocento watt restano quattrocento watt per un'ora o due. E
+nessuna spia si accende: il Bluetti si svuota mentre il camper sembra spento.
+
+### La regola, e perche' ha i paletti che ha
+
+In `servizi/src/lib/travaso.js`, provata in `servizi/test/travaso.test.js`.
+
+| Paletto | Valore | Perche' |
+|---|---|---|
+| uscita 220 | ≥ **150 W** | sotto, e' una spia o un caricatore da telefono |
+| rete in ingresso | < **50 W** | sopra c'e' la colonnina, e la corrente la paga lei: **non e' un travaso** |
+| letture di fila | **2** | il server legge ogni quarto d'ora. Una sola lettura alta potrebbe essere il bollitore |
+| eta' dell'ultima lettura | ≤ **50 min** | tre giri persi. Senza questo, un avviso scattato prima che il cloud cadesse resterebbe appeso per ore a parlare di un fatto finito |
+
+Il conto dell'energia si integra fra una lettura e l'altra con la media dei due
+valori. Moltiplicare l'ultima potenza per tutta la durata sarebbe comodo e
+sbagliato: il carico cambia.
+
+**Due promesse mancate, dette qui perche' erano state fatte a voce.** Avevo
+proposto «un avviso se resta sopra soglia per dieci minuti»: a un quarto d'ora
+di ritmo non si puo', e il minimo onesto e' **due letture, cioe' un quarto
+d'ora**. E la fascia la vede solo chi apre l'app, quindi il travaso finisce
+anche negli **eventi**, una volta ogni due ore: serve a rispondere a «perche'
+ieri sera era vuota?» quando nessuno stava guardando.

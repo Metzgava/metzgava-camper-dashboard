@@ -14,6 +14,7 @@
 //  3. il loro bindDevices risponde «OK» anche a un seriale inventato. La prova
 //     che e' andata e' che dopo arrivino i numeri, non la risposta.
 import { q, segna } from './db.js';
+import { leggiTravaso } from './travaso.js';
 
 const SSO = 'https://sso.bluettipower.com';
 const GATEWAY = 'https://gw.bluettipower.com';
@@ -565,6 +566,28 @@ export async function registra() {
       await q('INSERT INTO misure (apparecchio, grandezza, valore) VALUES ($1,$2,$3)', [a.sn, grandezza, valore]);
       quante++;
     }
+    await segnaTravaso(a.sn);
   }
   return { quante };
+}
+
+// Un travaso in corso finisce anche negli eventi, non solo nella pagina.
+// Serve a rispondere a «perche' ieri sera la Bluetti era vuota?» quando
+// nessuno stava guardando: la fascia la vede solo chi apre l'app.
+//
+// Una volta ogni due ore, non una ogni quarto d'ora: un travaso al litio dura
+// ore, e dodici righe identiche non dicono niente di piu' della prima.
+const RICORDO_ORE = 2;
+
+async function segnaTravaso(sn) {
+  const t = await leggiTravaso(q, sn);
+  if (!t) return;
+  const gia = await q(
+    `SELECT 1 FROM eventi WHERE tipo='travaso' AND quando > now() - interval '${RICORDO_ORE} hours' LIMIT 1`);
+  if (gia.rows.length) return;
+  const persi = Math.round(t.persi_wh);
+  await segna('travaso',
+    `Travaso in corso: ${Math.round(t.watt)} W dall’uscita 220 da ${t.minuti} minuti, senza rete. `
+    + `${Math.round(t.wh_dalla_batteria)} Wh usciti dalla Bluetti, ~${persi} Wh persi in calore.`);
+  console.log(`Bluetti: travaso in corso, ${Math.round(t.watt)} W da ${t.minuti} min. Segnato negli eventi.`);
 }

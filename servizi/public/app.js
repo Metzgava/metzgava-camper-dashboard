@@ -221,6 +221,7 @@ function vistaAdesso() {
             ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza,
               carica: (dati.conti?.ingresso?.valore || 0) > 0 })}
             ${dati.bluetti?.vecchia ? `<div style="margin-top:12px">${fasciaVecchia()}</div>` : ''}
+            ${dati.bluetti?.travaso ? `<div style="margin-top:12px">${fasciaTravaso()}</div>` : ''}
             <div class="riga" style="margin-top:14px">
               <div class="cresci"><div class="eti">Col consumo di adesso</div>
                 <div class="cifra" style="font-size:22px">${c.tempo_residuo_bluetti?.detto ? esc(c.tempo_residuo_bluetti.detto) : '<span class="vuoto">—</span>'}</div>
@@ -566,7 +567,7 @@ function calcolo() {
 
 function vistaEnergia() {
   const c = dati.conti || {};
-  return `${fasciaVecchia()}<div class="titolo">Quanto ci vuole a caricarla</div>
+  return `${fasciaVecchia()}${fasciaTravaso()}<div class="titolo">Quanto ci vuole a caricarla</div>
     ${calcolo()}
     <div class="nota">Ogni riga dice <b>su cosa si basa</b>. <span class="bollo misurato">misurato</span> vuol dire che i numeri vengono dal tuo impianto; <span class="bollo stima">stima</span> che almeno uno viene da un catalogo. Quando un dato manca, il conto non si fa: si dice quale manca.</div>
     <div class="titolo">Quanta corrente c'è</div>
@@ -750,6 +751,24 @@ async function vistaImpianto() {
 //
 // Un numero vecchio dichiarato e' utile. Un numero vecchio spacciato per
 // fresco e' peggio di nessun numero.
+// Il travaso: le batterie di servizio che si ricaricano dall'inverter del
+// Bluetti, senza colonnina attaccata. Non e' un guasto — qualcuno potrebbe
+// volerlo — quindi la fascia non grida: dice il numero, dice da quanto, e
+// dice quanto costa. Il conto di quel che si perde e' la ragione per cui
+// vale la pena saperlo: un quinto dell'energia se ne va in calore.
+function fasciaTravaso() {
+  const t = dati.bluetti?.travaso;
+  if (!t) return '';
+  return `<div class="avviso" style="margin-bottom:12px">
+    <b>Travaso in corso.</b> Dall’uscita 220 escono <b>${Math.round(t.watt)} W</b>
+    da ${esc(dilloInOre(t.minuti / 60))}, e non c’è colonnina attaccata:
+    sono le batterie di servizio che si ricaricano dall’inverter.
+    Finora <b>${Math.round(t.wh_dalla_batteria)} Wh</b> usciti dalla Bluetti,
+    di cui circa <b>${Math.round(t.persi_wh)} Wh</b> persi in calore fra inverter e caricatore.
+    Se non è voluto, si spegne da <b>Comandi → Uscita 220</b>.
+  </div>`;
+}
+
 function fasciaVecchia() {
   if (!dati.bluetti?.vecchia) return '';
   return `<div class="avviso" style="margin-bottom:12px">
