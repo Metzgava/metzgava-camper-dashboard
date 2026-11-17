@@ -788,12 +788,12 @@ si apre con `https://www.amazon.it/dp/<codice>`.
 | 6 | Jack DC 5,5x2,1 femmina a vite, 4 paia + cacciavite | `B0DPPTLF11` | 7,59 € |
 | 7a | Cavo RJ12 6P6C **maschio-maschio**, 3 m, 1:1 (InLine 18844) | `B000L13JSS` | 7,60 € |
 | 7b | Accoppiatore RJ12 6P6C **femmina-femmina**, 1:1 (InLine) | `B00342M2H0` | 4,68 € |
-| 8 | Cavetti Dupont, 40 pezzi | `B0FPCB9JHK` | 5,03 € |
+| 8 | Kit Dupont 120 pezzi da 20 cm (40 M-M, 40 M-F, **40 F-F**) | `B01N40EK6M` | 9,99 € |
 | 9 | Scatola stagna 120x80x50 mm | `B0B7K4JFB9` | 3,60 € |
 | 10 | Cavo dati USB-A → USB-C, 50 cm | `B0G6472JMY` | 7,59 € |
 | 11 | Prolunga USB-A maschio-femmina, 2 m (Amazon Basics) | `B00NH136GE` | 6,64 € |
 
-Totale **circa 122 €**.
+Totale **circa 127 €**.
 
 ### Il pezzo 11, e perche' c'e'
 
@@ -896,6 +896,43 @@ Se la scatoletta deve partire presto, quei 5,49 € comprano due settimane.
 un indirizzo predefinito. Per gli articoli **spediti da Amazon** possono solo
 migliorare con il suo indirizzo e il suo Prime; per quelli spediti dal
 venditore valgono piu' o meno come sono scritte.
+
+### Il pezzo 8: a cosa servono i cavetti, e dove si attacca ancora qualcosa
+
+Il proprietario ha chiesto a cosa servono i cavetti Dupont «che poi bisogna
+attaccarli». Servono a una cosa sola: **unire le due basette**, ESP32 e
+ricetrasmettitore. Tre fili sicuri — `TX`, `RX`, `GND` — piu' eventualmente un
+quarto per i 3,3 V della parte logica, se quel modulo li vuole: dipende dalla
+sua piedinatura, che si legge dalla foto e non dal testo dell'annuncio.
+
+Non si attaccano con niente. Sono manicotti che si infilano a mano sui
+piedini da 2,54 mm delle due basette: nessun cacciavite, nessuna saldatura,
+nessun filo da spelare. E se `TX` e `RX` vanno scambiati non si rompe nulla —
+semplicemente non si parlano, e si scambiano.
+
+Tanto vale dire per intero **dove in tutta la catena si attacca ancora
+qualcosa a mano**, perche' sono tre punti e non uno:
+
+| Dove | Cosa | Con cosa | Se si sbaglia |
+|---|---|---|---|
+| Pezzo 3, morsettiera a 6 poli | due fili: contatto **3** → `LIN`, contatto **5** → `GND` | cacciavite | il bus non parla; non brucia niente |
+| Pezzo 6, jack DC a vite | due fili: centro **+**, guaina **−** | cacciavite | **la basetta del ricetrasmettitore** |
+| Pezzo 8, Dupont | tre o quattro fili fra le due basette | le mani | non si parlano |
+
+Quattro viti e tre manicotti. Tutto il resto e' spina dentro presa, e
+**nessuno di questi punti sta nell'impianto a 12 V del camper**: era il punto
+della richiesta «meglio presa con presa», e regge.
+
+**Perche' il codice e' cambiato.** Quello di prima (`B0FPCB9JHK`, 5,03 €) oggi
+costa **5,03 € piu' 8,99 € di spedizione** e arriva il **17 dicembre**: 14 €
+veri e un mese, per dei cavetti. Il sostituto e' `B01N40EK6M` — ELEGOO, 120
+cavetti da 20 cm nei tre tipi, 9,99 €, spedito da Amazon, 2.088 recensioni,
+stessa marca della basetta ESP32. Al massimo **sabato 21**.
+
+Se ne volesse uno che arriva domani c'e' `B0CFXZDBVY` (GTIWUNG, 240 cavetti,
+11,99 €, spedito da Amazon). **Non lo consiglio**: due euro per un giorno che
+non serve a niente, perche' la catena aspetta comunque il pezzo 3, che nel
+migliore dei casi arriva il 22.
 
 **I numeri.** ESP32 ~0,25 A a 5 V, step-up ~0,3 A: **~0,55 A** per la
 scatoletta. Lo step-up da' 12 V fino a 0,6 A, e il ricetrasmettitore ne vuole
