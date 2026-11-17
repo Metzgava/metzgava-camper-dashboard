@@ -1326,3 +1326,33 @@ derivazione. Vale anche per la garanzia — un camper del 2023 puo' essere
 ancora coperto, e un apparecchio non Truma attaccato al bus e' il genere di
 cosa che un concessionario guarda storto. Smontato non lascia traccia, ma e'
 giusto saperlo prima.
+
+## 17/11/2026: la Truma e' parcheggiata
+
+Il proprietario ha deciso di **non fare per ora la parte Truma** e di andare
+avanti col resto. Non per un pezzo sbagliato o un rischio nuovo: dopo aver
+letto per intero cosa puo' andare storto, il beneficio — sapere da lontano se
+la stufa e' accesa e a che temperatura — non gli e' sembrato valere
+l'incertezza su un apparecchio a gas di un camper in garanzia. E' una
+decisione di appetito, non di ingegneria, ed e' sua.
+
+**Non c'e' niente da comprare.** Tutti e dodici i pezzi della lista servono
+solo a quella scatoletta: ESP32, ricetrasmettitore, presa RJ12, splitter,
+step-up, jack, cavi, scatola. Fuori dalla Truma non ne serve nessuno. I 128 €
+restano in tasca.
+
+**Una cosa da sapere su come e' stata posta la domanda.** Lui ha chiesto una
+rassicurazione e io ho risposto con l'elenco completo dei modi in cui si puo'
+sbagliare. Ogni voce era vera, ma il volume non era proporzionato alla
+gravita': erano quasi tutti accorgimenti per rendere piccola una probabilita'
+gia' piccola. Messi in fila sembravano un campo minato. Se un giorno questa
+parte si riapre, vale la pena rileggere i numeri prima delle paure: il danno
+irreparabile alla Truma richiede di infilare un filo dei 12 V in un contatto
+dell'RJ12, che e' uno scambio grossolano fra due connettori all'estremita'
+opposte della scatola, non una svista.
+
+**Cosa servirebbe per riaprirla**, il giorno che venisse voglia: la lista di
+codici verificati sta qui sopra ed e' buona finche' i prodotti restano in
+vendita; il vincolo della tappa 1 pure. L'unica cosa che scade sono i prezzi.
+E resta la domanda mai risolta, che e' anche la prima da risolvere: **se
+quello spinotto libero sia davvero il TIN-Bus.**
