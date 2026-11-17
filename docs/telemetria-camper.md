@@ -1237,3 +1237,92 @@ foglio dati.** I piedini che erano viti, il filo che mancava, l'alimentazione
 logica che non esiste. Nessuno dei tre si vedeva leggendo l'annuncio, e tutti
 e tre si sarebbero visti a scatola aperta, in camper, con i pezzi gia'
 pagati.
+
+## Tappa 1: la scatoletta non deve poter parlare
+
+Deciso dal proprietario il 17/11/2026, dopo aver chiesto se questo impianto
+puo' rovinare o manomettere la Truma. La risposta onesta era: il lato
+alimentazione no, il lato bus quasi mai ma non mai. Lui ha scelto di togliere
+il «quasi».
+
+**Vincolo, non buona intenzione.** Nella prima versione la scatoletta non deve
+**evitare** di trasmettere: non deve **poterlo fare**. Ne' via programma, ne'
+via filo. Un programma che sa trasmettere e sceglie di non farlo e' a un
+errore di distanza dal farlo; questo e' a un cacciavite di distanza, ed e' un
+cacciavite che si gira apposta.
+
+### Come si collega in tappa 1
+
+| Morsetto della basetta | Va a | Nota |
+|---|---|---|
+| `RX` | `RX2` dell'ESP32 | con la resistenza interna di salita accesa: `RXD` e' a collettore aperto |
+| `SLP` | un piedino qualsiasi dell'ESP32 | all'accensione sta basso, e basso vuol dire chip addormentato: il riposo e' lo stato di partenza |
+| `GND` (lato logica) | `GND` dell'ESP32 | |
+| `TX` | **`3V3` dell'ESP32, fisso** | **non** a un piedino programmabile |
+| `GND` + `LIN` (lato bus) | contatti **5** e **3** della presa RJ12 | |
+| `12V` + `GND` (lato bus) | jack DC dallo step-up | l'unico punto dove un errore costa la basetta |
+| `INH` | niente | |
+
+`TX` fisso a 3,3 V e' il cuore della tappa 1, e fa **due** cose. La prima e'
+ovvia: l'ESP32 non ha nessun filo con cui comandare il bus, quindi non puo'
+trasmettere nemmeno sbagliando. La seconda e' meno ovvia ed e' il motivo per
+cui non basta «lasciare `TX` staccato»: sul TJA1020 l'ingresso `TXD` e' **attivo
+basso**, cioe' un livello basso tiene il bus occupato. Un filo staccato non e'
+alto: e' indeciso, e un ingresso indeciso che scivola basso **blocca le
+comunicazioni della Truma finche' la scatoletta resta attaccata**. Staccare il
+filo sembra la cosa prudente ed e' la piu' pericolosa delle due.
+
+### Le due misure da fare in casa, prima di avvicinarsi al camper
+
+Si fanno sul tavolo, con lo step-up e un tester, senza niente di Truma
+collegato. Servono a provare che la scatoletta **non puo'** disturbare, invece
+di sperarlo.
+
+1. **Il livello su `RX`.** Dare i 12 V alla sola basetta, ESP32 staccato, e
+   misurare fra `RX` e `GND`. Deve stare **sotto 3,3 V**, idealmente vicino a
+   zero. Se legge 5 o 12 V c'e' una resistenza di salita verso una tensione
+   che l'ESP32 non tollera: non si collega, e serve un adattatore di livello.
+2. **Lo stato del bus con `TX` a 3,3 V.** Collegare `TX` a `3V3`, dare i 12 V,
+   e misurare fra `LIN` e `GND` **senza niente attaccato alla presa RJ12**. Un
+   bus libero riposa vicino alla tensione di alimentazione: deve leggere
+   **circa 12 V**. Se legge circa **zero**, l'ingresso `TXD` sta interpretando
+   i 3,3 V come livello basso e la basetta terrebbe il bus occupato: **non si
+   attacca al camper**, e si risolve portando `TX` a 5 V invece che a 3,3 V.
+
+La seconda misura e' quella che vale il prezzo di tutto questo paragrafo: e'
+l'unico modo di sapere **prima** se la scatoletta, una volta infilata,
+zittirebbe il pannello della Truma. Costa trenta secondi e si fa in cucina.
+
+### Il vincolo sul programma
+
+Nella prima versione del programma **non esiste una funzione che trasmette**.
+Non disabilitata, non dietro una bandierina, non commentata: assente. La porta
+seriale si apre in sola lettura e il piedino di trasmissione non viene
+nemmeno assegnato.
+
+Quando il programma si scrivera', questo va provato come si prova tutto il
+resto: una prova che fallisce se nel sorgente compare una scrittura sulla
+seriale del bus. Una prova che guarda il codice, non il comportamento, perche'
+qui l'affermazione da difendere e' «non puo'», non «non l'ha fatto».
+
+### Cosa si impara in tappa 1, e cosa serve per uscirne
+
+Si impara l'unica cosa che oggi e' un'ipotesi: **se quello spinotto libero e'
+davvero il TIN-Bus**, e cosa ci passa. Se si vede traffico, l'ipotesi su cui
+poggia tutto il progetto diventa un fatto.
+
+Per passare alla tappa 2 — rispondere, fingendosi una iNet Box — servono due
+cose: che la tappa 1 abbia visto traffico, e che sul camper **non ci sia gia'
+una iNet Box vera**, perche' due apparecchi che rispondono allo stesso
+indirizzo si pestano i piedi. La tappa 3, mandare comandi, e' una decisione a
+parte e si puo' non prendere mai: per sapere se la Truma e' accesa e a che
+temperatura basta la tappa 2.
+
+### Quel che resta vero in ogni caso
+
+Niente di questo impianto e' permanente. Si stacca lo spinotto RJ12 e il
+camper e' esattamente com'era: non c'e' un filo tagliato, un foro, una
+derivazione. Vale anche per la garanzia — un camper del 2023 puo' essere
+ancora coperto, e un apparecchio non Truma attaccato al bus e' il genere di
+cosa che un concessionario guarda storto. Smontato non lascia traccia, ma e'
+giusto saperlo prima.
