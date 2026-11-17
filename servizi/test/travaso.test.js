@@ -22,6 +22,14 @@ const righe = (...letture) => letture.flatMap(([quando, uscita, rete]) => [
   { quando: new Date(quando.getTime() + 300), grandezza: 'rete_w', valore: rete },
 ]);
 
+// Guardare "adesso", con adesso fissato al momento della lettura piu' recente
+// (le prove le elencano dalla piu' nuova). Serve perche' travasoInCorso tace
+// sulle misure vecchie, e senza un orologio fissato queste prove passerebbero
+// il giorno in cui si scrivono e fallirebbero qualche ora dopo: le date sono
+// fisse, l'orologio no. E' successo davvero, il 17/11/2026.
+const inCorso = (...letture) =>
+  travasoInCorso(raggruppa(righe(...letture)), { ora: letture[0][0] });
+
 test('raggruppa: due righe scritte nello stesso istante sono una lettura sola', () => {
   const l = raggruppa(righe([min(0), 430, 0]));
   assert.equal(l.length, 1);
@@ -35,11 +43,11 @@ test('raggruppa: letture a un quarto d’ora di distanza restano separate', () =
 });
 
 test('una sola lettura alta non basta: potrebbe essere il bollitore', () => {
-  assert.equal(travasoInCorso(raggruppa(righe([min(15), 430, 0]))), null);
+  assert.equal(inCorso([min(15), 430, 0]), null);
 });
 
 test('due letture alte di fila senza rete: e’ un travaso', () => {
-  const t = travasoInCorso(raggruppa(righe([min(15), 430, 0], [min(0), 410, 0])));
+  const t = inCorso([min(15), 430, 0], [min(0), 410, 0]);
   assert.ok(t, 'ci si aspetta un avviso');
   assert.equal(t.watt, 430);
   assert.equal(t.minuti, 15);
@@ -47,23 +55,21 @@ test('due letture alte di fila senza rete: e’ un travaso', () => {
 });
 
 test('con la colonnina attaccata non si avvisa: la corrente la paga la rete', () => {
-  const t = travasoInCorso(raggruppa(righe([min(15), 430, 450], [min(0), 410, 430])));
+  const t = inCorso([min(15), 430, 450], [min(0), 410, 430]);
   assert.equal(t, null);
 });
 
 test('il conto si ferma alla prima lettura che non e’ un travaso', () => {
   // Mezz'ora di travaso, e prima la quiete: l'avviso parla della mezz'ora,
   // non di tutta la giornata.
-  const t = travasoInCorso(raggruppa(righe(
-    [min(30), 430, 0], [min(15), 430, 0], [min(0), 5, 0],
-  )));
+  const t = inCorso([min(30), 430, 0], [min(15), 430, 0], [min(0), 5, 0]);
   assert.ok(t);
   assert.equal(t.minuti, 15);
   assert.equal(t.letture, 2);
 });
 
 test('l’energia: quel che esce dalla presa, quel che parte dalla batteria, quel che arriva', () => {
-  const t = travasoInCorso(raggruppa(righe([min(30), 430, 0], [min(15), 430, 0], [min(0), 430, 0])));
+  const t = inCorso([min(30), 430, 0], [min(15), 430, 0], [min(0), 430, 0]);
   assert.equal(t.minuti, 30);
   // 430 W per mezz'ora = 215 Wh alla presa
   assert.equal(Math.round(t.wh), 215);
@@ -80,7 +86,7 @@ test('senza misure non si inventa niente', () => {
 });
 
 test('una uscita piccola non e’ un travaso: e’ un caricatore del telefono', () => {
-  assert.equal(travasoInCorso(raggruppa(righe([min(15), 40, 0], [min(0), 35, 0]))), null);
+  assert.equal(inCorso([min(15), 40, 0], [min(0), 35, 0]), null);
 });
 
 test('un travaso vecchio non e’ un travaso in corso: se il cloud e’ caduto, si tace', () => {
