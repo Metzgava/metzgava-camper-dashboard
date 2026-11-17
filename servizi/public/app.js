@@ -285,6 +285,7 @@ function vistaAdesso() {
     <div class="titolo">Batterie di servizio</div>
     ${ective}
 ${catena()}
+    ${vistaTelecamere()}
     ${vistaSegnale()}
         <div class="titolo">Non ancora collegati</div>
     <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono e sono già stati letti una volta, il 16 novembre, col computer dentro al camper. Parlano solo da vicino: arriveranno qui quando la scatoletta sarà a bordo. Finché non ci sono, <b>non mostro numeri</b>: sarebbero vecchi di settimane.</div>
@@ -387,6 +388,59 @@ function antenna(rssi) {
   const barre = [1, 2, 3, 4].map(n =>
     `<span style="display:inline-block;width:3px;height:${3 + n * 2}px;margin-right:1px;vertical-align:bottom;background:${n <= tacche ? 'currentColor' : 'rgba(255,255,255,.18)'}"></span>`).join('');
   return `<span title="${rssi} dBm">${barre} ${parola}</span>`;
+}
+
+// Le webcam Blink: lo stato delle batterie, chiesto una volta la settimana.
+//
+// Settimanale è la domanda, non il messaggio. Se la pagina dicesse lo stato
+// solo una volta la settimana, l'informazione sarebbe vecchia fino a sei
+// giorni nel momento in cui la guardi. Così invece: si chiede raramente —
+// perché ogni interrogazione costa batteria alle telecamere — e si mostra
+// sempre, con la data scritta accanto.
+//
+// Se non c'è nessuna telecamera la scheda non compare. A differenza della
+// Bluetti qui non c'è niente da collegare dal telefono: una scheda vuota con
+// un invito che non si può seguire darebbe solo fastidio.
+function vistaTelecamere() {
+  const cam = (dati.istantanee || []).filter(r => r.dati?.tipo === 'telecamera');
+  if (!cam.length) return '';
+
+  const batteria = b => b == null ? '<span class="vuoto">—</span>'
+    : b === 'ok' ? 'buona' : b === 'low' ? '<b>scarsa</b>' : esc(String(b));
+
+  const quando = cam.map(r => new Date(r.quando).getTime()).sort((a, b) => b - a)[0];
+  const giorni = (Date.now() - quando) / 86400000;
+  // Oltre due settimane non è più «l'ultima lettura»: è un dato che nessuno
+  // sta più aggiornando, e dirlo è l'unica cosa onesta.
+  const vecchia = giorni > 14;
+
+  return `<div class="titolo">Webcam</div>
+    <div class="scheda">
+      <div class="riga" style="margin-bottom:6px">
+        <div class="cresci"><div class="eti">Letto ${esc(dataCorta(quando))}</div></div>
+        <div style="text-align:right">${bollo(vecchia ? 'incompleto' : 'misurato')}</div>
+      </div>
+      ${cam.map(r => `<div class="riga">
+        <div class="cresci"><div class="eti">${esc(r.dati.nome || r.apparecchio)}</div>
+          <div class="perche">${r.dati.temperatura == null ? '' : num(r.dati.temperatura, 1) + ' °C'}</div></div>
+        <div style="text-align:right">
+          <div class="sotto" style="font-size:14px;color:var(--testo)">${batteria(r.dati.batteria)}${
+            r.dati.volt == null ? '' : ` · ${num(r.dati.volt, 2)} V`}</div>
+          <div class="perche">${r.dati.segnale == null ? '' : antenna(r.dati.segnale)}</div></div>
+      </div>`).join('')}
+      ${vecchia ? `<div class="nota" style="margin-top:10px">Nessuna lettura da <b>${esc(dilloInOre(giorni * 24))}</b>: la scatoletta non parla da un po’, o il
+        permesso Blink è scaduto. Si rifà con <code>blink-accedi.py</code>, in camper.</div>`
+        : '<div class="nota" style="margin-top:10px">Si chiede a Blink una volta la settimana: interrogarle più spesso consuma la loro batteria.</div>'}
+    </div>`;
+}
+
+// «lunedì 17», che è come si dice una data a voce.
+function dataCorta(quando) {
+  try {
+    return new Date(quando).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric' });
+  } catch {
+    return '—';
+  }
 }
 
 function vistaSegnale() {

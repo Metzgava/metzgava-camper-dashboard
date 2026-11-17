@@ -186,6 +186,19 @@ async function rinnova(rinnovo) {
     console.warn(`Bluetti: rinnovo RIFIUTATO (${r.status}): ${perche}`);
     return { esito: 'rifiutato', perche };
   }
+  // Un 200 **senza** gettone non e' «non ci siamo arrivati»: ci siamo
+  // arrivati e loro hanno risposto qualcos'altro. Il 17/11 alle 09:13 e'
+  // successo, e il log diceva solo «irraggiungibile (HTTP 200)»: inutile.
+  //
+  // Si scrivono le chiavi della risposta e i campi che spiegano — mai i
+  // valori, che potrebbero essere gettoni.
+  if (r.ok) {
+    const chiavi = g && typeof g === 'object' ? Object.keys(g).join(', ') : typeof g;
+    const detto = [g?.error, g?.error_description, g?.msgCode, g?.message]
+      .filter(Boolean).join(' / ') || 'niente che spieghi';
+    console.warn(`Bluetti: il rinnovo ha risposto 200 ma senza gettone. Campi: [${chiavi}]. Dice: ${detto}`);
+    return { esito: 'rifiutato', perche: `hanno risposto 200 senza gettone (${detto})` };
+  }
   return { esito: 'irraggiungibile', perche: `HTTP ${r.status}` };
 }
 
