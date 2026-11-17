@@ -790,8 +790,25 @@ si apre con `https://www.amazon.it/dp/<codice>`.
 | 8 | Cavetti Dupont, 40 pezzi | `B0FPCB9JHK` | 5,03 € |
 | 9 | Scatola stagna 120x80x50 mm | `B0B7K4JFB9` | 3,60 € |
 | 10 | Cavo dati USB-A → USB-C, 50 cm | `B0G6472JMY` | 7,59 € |
+| 11 | Prolunga USB-A maschio-femmina, 2 m (Amazon Basics) | `B00NH136GE` | 6,64 € |
 
-Totale **circa 115 €**.
+Totale **circa 122 €**.
+
+### Il pezzo 11, e perche' c'e'
+
+Il proprietario ha chiesto cosa resta in vista, e ha scelto la via che non
+lascia niente. La prolunga porta la presa USB della lampada **dentro il
+nascondiglio**: lo splitter sta li' con tutto il resto, e da fuori riescono
+solo i due cavi iPhone. In vista resta esattamente quel che si vede oggi.
+
+Il contro, detto: per infilare una quinta cosa bisogna aprire il nascondiglio.
+
+Scelta la Amazon Basics e non la piu' economica da 3,99 €: su due metri di
+prolunga quel che conta per la corrente e' la sezione dei conduttori, non la
+marca del nylon, e su un cavo anonimo non c'e' modo di saperla. Fra il
+nascondiglio e l'ESP32 la corrente passa per prolunga, splitter e cavo del
+dispositivo: tre cadute di tensione in fila, e la prima vale la pena pagarla
+tre euro in piu'.
 
 ### Perche' i pezzi 4-7 sono questi e non un cablaggio a 12 V
 
