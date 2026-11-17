@@ -957,11 +957,20 @@ l'ESP32 — ed e' per questo che il capo grosso e' USB-A, perche' USB-A e'
 quello che da' lo splitter. Ma e' anche il cavo da cui **entra il programma**
 nell'ESP32, la prima volta, da un computer.
 
-**Da verificare, e lo sa solo lui:** se il Mac ha solo porte USB-C, per
-programmare serve un adattatore o un cavo C-C. Probabilmente ce l'ha gia' in
-casa: gli iPhone dal 15 in su arrivano con un cavo USB-C a USB-C, e per
-caricare un programma in un ESP32 quello basta e avanza. Il cavo della lista
-resta comunque necessario, perche' nella scatola l'altro capo e' lo splitter.
+**Risolto il 17/11/2026: il cavo C-C ce l'ha.** Quindi niente adattatore per
+programmare, e il lavoro si divide fra due cavi: il suo C-C carica il
+programma dal Mac, una volta; il pezzo 10 alimenta l'ESP32 nella scatola, per
+anni. Il pezzo 10 **resta in lista**: nella scatola l'altro capo e' lo
+splitter, che da' USB-A femmina, e un C-C li' non entra.
+
+C'e' un guadagno che non avevo previsto: cosi' **il cavo nella scatola non si
+stacca mai**. Si infila una volta e resta, invece di essere tirato fuori e
+rimesso ogni volta che si ritocca il programma. In un veicolo che vibra, un
+connettore che non si tocca e' un connettore che non si allenta.
+
+Unica verifica sul suo: che sia un cavo **dati**. Quello in dotazione agli
+iPhone lo e'; uno generico da sola ricarica no, ed e' l'errore che fa cercare
+per mezz'ora un guasto che non c'e'.
 
 **I numeri.** ESP32 ~0,25 A a 5 V, step-up ~0,3 A: **~0,55 A** per la
 scatoletta. Lo step-up da' 12 V fino a 0,6 A, e il ricetrasmettitore ne vuole
