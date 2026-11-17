@@ -14,9 +14,20 @@ entrare scarica la pagina HTML di accesso e ne estrae un token: lo fa
 conseguenza buona e' che **la password non arriva mai al server**: resta fra
 le tue dita e Blink.
 
-E non la scrive nemmeno questo programma. La chiede con `getpass`, che non la
-mostra a schermo, la passa a `blinkpy` e la dimentica. Quel che finisce su
-disco e' soltanto il gettone.
+E su disco non ci finisce. La chiede con `getpass`, che non la mostra a
+schermo, e quel che si scrive nel file e' soltanto il gettone.
+ 
+Questo pero' va detto con precisione, perche' la prima stesura di questo
+programma affermava il falso. `blink.save()` di blinkpy **salverebbe anche la
+password**: la funzione che sembra dare «solo i dati del gettone»
+(`Auth.login_attributes`) restituisce in realta' lo stesso dizionario che le
+si e' passato, password compresa, e `save()` lo scrive tutto. Per questo qui
+`save()` non si chiama: il file lo scrive `salva_gettone`, che filtra utente e
+password e nasce con i permessi giusti.
+ 
+Resta vero che per la durata di questo processo la password vive dentro
+l'oggetto di blinkpy, in memoria. Finisce quando il programma esce — che e'
+fra pochi secondi — e non viene scritta da nessuna parte.
 """
 import asyncio
 import getpass
@@ -24,6 +35,8 @@ import json
 import os
 import sys
 from pathlib import Path
+
+from blink import salva_gettone
 
 QUI = Path(__file__).resolve().parent
 CONFIG = Path(os.environ.get("AGENTE_CONFIG", QUI / "config.json"))
@@ -47,13 +60,16 @@ async def accedi() -> int:
         from blinkpy.auth import Auth
         from blinkpy.blinkpy import Blink
     except ImportError:
-        print("Manca blinkpy. Installalo e torna qui:")
-        print("    pip3 install blinkpy")
+        print("Manca blinkpy nell'ambiente della scatoletta. Installalo e torna qui:")
+        print("    ambiente/bin/pip install blinkpy")
+        print()
+        print("Poi rilancia questo programma con lo stesso Python:")
+        print("    ambiente/bin/python blink-accedi.py")
         return 1
 
     segreti = dove_i_segreti()
     print(f"Il gettone finira' in {segreti}")
-    print("La password non viene salvata da nessuna parte, e non si vede mentre la digiti.\n")
+    print("La password non viene scritta in nessun file, e non si vede mentre la digiti.\n")
 
     email = input("Email dell'account Blink: ").strip()
     if not email:
@@ -64,10 +80,16 @@ async def accedi() -> int:
         print("Senza password non si va avanti.")
         return 1
 
-    blink = Blink(session=ClientSession())
-    blink.auth = Auth({"username": email, "password": segreta}, no_prompt=True)
-    # Da qui in poi la password non serve piu' a questo programma: ce l'ha
-    # `blinkpy`, che la manda a Blink e non la conserva.
+    sessione = ClientSession()
+    blink = Blink(session=sessione)
+    # La stessa sessione a tutti e due: `Blink(session=...)` se ne fa un `Auth`
+    # suo, e se quello che lo sostituisce non la riceve se ne costruisce una
+    # propria che nessuno chiude.
+    blink.auth = Auth({"username": email, "password": segreta},
+                      no_prompt=True, session=sessione)
+    # Il nome locale si cancella, ma senza illusioni: la password resta dentro
+    # `blink.auth.data` per tutta la vita di questo oggetto. E' il motivo per
+    # cui il file lo scrive `salva_gettone` filtrandola, invece di `save()`.
     del segreta
 
     try:
@@ -85,19 +107,14 @@ async def accedi() -> int:
             print("Controlla di aver usato l'account giusto.")
             return 1
 
-        segreti.parent.mkdir(parents=True, exist_ok=True)
-        await blink.save(str(segreti))
-        # Il gettone e' una chiave: la si tiene leggibile solo da chi l'ha
-        # scritta. Se il file e' su una scheda di memoria che gira per casa,
-        # questo non salva niente — ma non costa niente.
-        try:
-            os.chmod(segreti, 0o600)
-        except OSError:
-            pass
+        # NON `blink.save()`: vedi la spiegazione in cima. `salva_gettone`
+        # filtra utente e password e crea il file gia' riservato.
+        salva_gettone(segreti, blink.auth.login_attributes)
 
         print(f"\nFatto. {len(nomi)} telecamere: {', '.join(nomi)}")
         print(f"Gettone salvato in {segreti}")
-        print("\nUltimo passo: in config.json metti  \"blink\": { \"attivo\": true }")
+        print("\nControlla pure il file: dentro c'e' il gettone, non la tua password.")
+        print("Ultimo passo: in config.json metti  \"blink\": { \"attivo\": true }")
         print("Al primo giro dopo quello, le telecamere compaiono nella pagina.")
         return 0
 
@@ -109,9 +126,7 @@ async def accedi() -> int:
         print("che l'app di Blink sul telefono entri con le stesse.")
         return 1
     finally:
-        sessione = getattr(blink.auth, "session", None)
-        if sessione is not None:
-            await sessione.close()
+        await sessione.close()
 
 
 if __name__ == "__main__":

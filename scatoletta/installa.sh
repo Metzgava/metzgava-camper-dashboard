@@ -31,12 +31,12 @@ sudo systemctl enable --now bluetooth
 # In un ambiente a parte, non nel Python di sistema: su Raspberry Pi OS quello
 # e' protetto apposta, e mescolarci dentro roba e' il modo classico per
 # rompere l'aggiornamento successivo.
-echo "-- librerie Python (bleak per il Bluetooth, tinytuya per l'allarme)"
+echo "-- librerie Python (bleak per il Bluetooth, tinytuya per l'allarme, blinkpy per le webcam)"
 if [ ! -d "$DOVE/ambiente" ]; then
   python3 -m venv "$DOVE/ambiente"
 fi
 "$DOVE/ambiente/bin/pip" install --quiet --upgrade pip
-"$DOVE/ambiente/bin/pip" install --quiet bleak cryptography tinytuya
+"$DOVE/ambiente/bin/pip" install --quiet bleak cryptography tinytuya blinkpy
 
 # --- 3. il servizio ---
 # Restart=always e RestartSec: se cade, torna su da solo. In camper nessuno

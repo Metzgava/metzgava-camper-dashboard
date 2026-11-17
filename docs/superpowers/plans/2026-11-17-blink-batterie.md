@@ -15,7 +15,7 @@
 - **La password Blink non si scrive mai**: non in un file, non nei log, non in un pacco. Si digita una volta sola alla preparazione, con `getpass` (che non la mostra a schermo), e quel che resta e' il gettone di `blinkpy`.
 - I segreti della scatoletta stanno in `scatoletta/segreti/` — da aggiungere a `.gitignore` se non c'e' gia'.
 - **Niente `BLINK_EMAIL` ne' `BLINK_PASSWORD` su Railway.** La correzione del disegno le annulla.
-- **Una sola interrogazione per tutte le telecamere**, quella che `blinkpy` fa con `refresh()`. Mai una chiamata per telecamera.
+- **Una sola chiamata a `refresh()`**, dalla nostra parte. ATTENZIONE: il disegno e la prima stesura di questo piano dicevano «mai una chiamata per telecamera», e **non e' vero**. Letto in `blinkpy` (ramo `dev`): `SyncModule.refresh()` interroga i sensori telecamera per telecamera, e per quelle a batteria passa da `.../camera/<id>/signals` — proprio l'indirizzo che il disegno aveva escluso per nome. Una volta la settimana il costo e' accettabile, ma l'affermazione era falsa e qualcuno un giorno ci si appoggerebbe.
 - Ritmo: **sette giorni**, e la data dell'ultima lettura sta in un **file**, non in memoria.
 - Le Blink **non entrano nella taratura**: `passo_taratura` stringe il giro fino a cinque secondi, e una telecamera a batteria interrogata cosi' si scarica. Il freno dei sette giorni basta: non va aggiunto nient'altro, ma non va nemmeno aggirato.
 - `battery_voltage` di `blinkpy` e' in **centesimi di volt** (165 = 1,65 V). `temperature` e' in **Fahrenheit**.

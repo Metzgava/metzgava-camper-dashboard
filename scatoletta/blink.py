@@ -21,7 +21,9 @@ scheda appena preparata dove `pip install` non e' ancora passato.
 from __future__ import annotations
 
 import datetime
+import json
 import logging
+import os
 from pathlib import Path
 
 log = logging.getLogger("blink")
@@ -146,7 +148,9 @@ def quando_ultima(percorso) -> datetime.datetime | None:
     """
     try:
         testo = Path(percorso).read_text().strip()
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError prende anche UnicodeDecodeError: un file rovinato con
+        # byte binari non e' un errore di sistema, e sfuggiva al primo except.
         return None
     try:
         d = datetime.datetime.fromisoformat(testo.replace("Z", "+00:00"))
@@ -162,37 +166,61 @@ def segna_lettura(percorso, ora: datetime.datetime) -> None:
     p.write_text(ora.isoformat())
 
 
-async def _blink_vero(b: dict):
+# Le chiavi che NON vanno su disco.
+#
+# `Auth.login_attributes` di blinkpy restituisce `self.data` **in persona** —
+# lo stesso dizionario che gli si passa, con dentro utente e password, piu' i
+# campi del gettone. Non una copia filtrata. E `blink.save()` lo serializza
+# tutto, con `indent=4`, senza guardarci dentro.
+#
+# Quindi `blink.save()` non si chiama: il file lo si scrive qui, togliendo
+# queste chiavi e mettendo i permessi dal primo byte invece che dopo.
+#
+# La conseguenza e' una scelta, non un incidente: senza la password nel file,
+# il giorno che il gettone muore si rilancia `blink-accedi.py`. Era esattamente
+# quel che il disegno voleva — «quel che resta e' il gettone».
+FUORI_DAL_FILE = ("username", "password", "email")
+
+
+def salva_gettone(percorso, attributi: dict) -> None:
+    """Scrive il gettone su disco senza le credenziali, leggibile solo da chi lo scrive."""
+    dati = {k: v for k, v in attributi.items() if k not in FUORI_DAL_FILE}
+    p = Path(percorso)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    # os.open con 0o600: il file nasce gia' riservato. Un chmod dopo la
+    # scrittura lascia una finestra in cui sta li' coi permessi della umask.
+    with os.fdopen(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        json.dump(dati, f, indent=2)
+
+
+async def _blink_vero(b: dict, sessione):
     """Il `blinkpy` vero, costruito dal gettone salvato alla preparazione.
 
     Questo e' il solo punto che importa `blinkpy`, e il solo che non ha prove:
     si verifica al primo giro sulla scatoletta. Il modello d'uso e' quello
     della documentazione di blinkpy (sezione «Loading credentials»).
     """
-    from aiohttp import ClientSession
     from blinkpy.auth import Auth
     from blinkpy.blinkpy import Blink
     from blinkpy.helpers.util import json_load
 
     segreti = _percorso(b.get("segreti"), "segreti/blink.json")
-    blink = Blink(session=ClientSession())
-    blink.auth = Auth(await json_load(str(segreti)), no_prompt=True)
-    await blink.start()
+    # La STESSA sessione a tutti e due. `Blink(session=...)` se ne costruisce
+    # un `Auth` suo con dentro quella sessione; la riga dopo lo sostituisce, e
+    # se il nuovo `Auth` non la riceve se ne fa una propria. Risultato: due
+    # sessioni, una delle quali nessuno chiude mai — un socket perso ogni
+    # settimana, piu' «Unclosed client session» nel diario.
+    blink = Blink(session=sessione)
+    blink.auth = Auth(await json_load(str(segreti)), no_prompt=True, session=sessione)
+    # `start()` NON solleva quando l'accesso fallisce: intercetta i suoi errori,
+    # scrive «Cannot setup Blink platform.» e restituisce False. Ignorare quel
+    # valore vuol dire proseguire con un oggetto senza telecamere, e sembrare
+    # una lettura riuscita di zero telecamere.
+    if not await blink.start():
+        raise RuntimeError(
+            "Blink non ha completato l'accesso: gettone scaduto, oppure "
+            "il file dei segreti manca o non si legge. Rilancia blink-accedi.py.")
     return blink
-
-
-async def _chiudi(oggetto) -> None:
-    """La sessione HTTP va chiusa, o ogni settimana si perde un socket.
-
-    Scritto con cautela perche' l'oggetto puo' essere una finta delle prove,
-    che non ha ne' `auth` ne' sessione.
-    """
-    sessione = getattr(getattr(oggetto, "auth", None), "session", None)
-    if sessione is not None and hasattr(sessione, "close"):
-        try:
-            await sessione.close()
-        except Exception as e:                        # noqa: BLE001
-            log.warning("la sessione Blink non si e' chiusa bene: %s", e)
 
 
 async def leggi_blink(conf: dict, fabbrica=None, ora=None) -> list[dict]:
@@ -210,22 +238,49 @@ async def leggi_blink(conf: dict, fabbrica=None, ora=None) -> list[dict]:
 
     ora = ora or datetime.datetime.now(datetime.timezone.utc)
     f_ultima = _percorso(b.get("ultima"), "segreti/blink-ultima.txt")
-    if not serve_lettura(quando_ultima(f_ultima), ora, int(b.get("giorni", GIORNI))):
+    # max(1, ...): con `giorni: 0` si interrogherebbero le telecamere a ogni
+    # giro, cioe' ogni cinque minuti — il consumo che tutto questo esiste per
+    # evitare. E `or GIORNI` perche' un `null` nella configurazione farebbe
+    # cadere int() a ogni giro.
+    giorni = max(1, int(b.get("giorni") or GIORNI))
+    if not serve_lettura(quando_ultima(f_ultima), ora, giorni):
         return []
 
-    costruisci = fabbrica or (lambda: _blink_vero(b))
-    oggetto = costruisci()
-    if hasattr(oggetto, "__await__"):
-        oggetto = await oggetto
+    # La sessione HTTP la apre e la chiude **chi chiama**: costruirla dentro
+    # `_blink_vero` significava perderla se la costruzione stessa inciampava.
+    sessione = None
     try:
-        # Una sola interrogazione per tutte le telecamere. `force` scavalca la
-        # strozzatura interna di blinkpy, che e' pensata per chi guarda le
-        # immagini: noi chiediamo una volta la settimana, non c'e' niente da
-        # strozzare.
+        if fabbrica:
+            oggetto = fabbrica()
+            if hasattr(oggetto, "__await__"):
+                oggetto = await oggetto
+        else:
+            from aiohttp import ClientSession
+            sessione = ClientSession()
+            oggetto = await _blink_vero(b, sessione)
+        # Una chiamata di `refresh` per tutte le telecamere, dalla nostra
+        # parte. Dalla loro non e' una sola richiesta: `SyncModule.refresh()`
+        # interroga i sensori **telecamera per telecamera**, e per quelle a
+        # batteria passa da `.../camera/<id>/signals`. Lo scriviamo perche' il
+        # disegno affermava il contrario, e una volta la settimana il costo e'
+        # accettabile — ma non e' vero che sia una richiesta sola.
         await oggetto.refresh(force=True)
         telecamere = [pulisci_telecamera(c.attributes) for c in oggetto.cameras.values()]
     finally:
-        await _chiudi(oggetto)
+        if sessione is not None:
+            await sessione.close()
+
+    # Zero telecamere **non** e' una lettura riuscita.
+    #
+    # E' il modo in cui blinkpy racconta un accesso fallito: `start()` torna
+    # False, `cameras` resta vuoto, `refresh()` non solleva. Timbrare la data
+    # qui vorrebbe dire spegnere le letture per sette giorni, e ritimbrare ogni
+    # settimana senza guarire mai — proprio il guasto che questa funzione
+    # dichiarava di evitare.
+    if not telecamere:
+        log.warning("Blink: nessuna telecamera nella risposta. Non segno la data: "
+                    "riprovo al prossimo giro invece di aspettare una settimana.")
+        return []
 
     apparecchi = in_forma_ingresso(telecamere)
     segna_lettura(f_ultima, ora)

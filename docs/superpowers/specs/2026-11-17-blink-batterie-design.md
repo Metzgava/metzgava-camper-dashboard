@@ -46,10 +46,11 @@ senza inventarle un ruolo.
 
 - **Blink e' solo cloud.** Non c'e' niente da interrogare sulla rete del
   camper. Quindi **non serve la scatoletta**: si puo' fare subito, dal server.
-- **Una richiesta per volta per tutte le telecamere.** L'elenco completo con
-  batteria, temperatura e segnale sta in **`homescreen`**, una sola chiamata.
-  Esiste anche `.../camera/<id>/signals` per telecamera: **non si usa**, perche'
-  sarebbe una richiesta per ciascuna e il punto e' risparmiare batteria.
+- **Una richiesta per volta per tutte le telecamere.** Era l'intenzione, e
+  **non si e' ottenuta**: vedi la seconda correzione in fondo a questo
+  documento. `blinkpy` interroga i sensori telecamera per telecamera, e non
+  c'e' modo di chiedergli solo l'elenco. Una volta la settimana il costo resta
+  accettabile; l'affermazione no.
 - **La password del proprietario non passa da nessuna pagina scritta qui.**
   Vedi sotto.
 - **Non si fida della memoria sulle chiamate di Blink.** Sono state lette dal
@@ -200,3 +201,28 @@ Tutto il resto: settimanale e' la domanda, la pagina mostra sempre l'ultima
 risposta con la sua data; niente immagini ne' diretta ne' clip; niente armare
 e disarmare; niente registro dei movimenti; la temperatura si prende perche'
 arriva con la stessa richiesta; le Blink fuori dalla taratura.
+
+---
+
+## Seconda correzione, 17/11/2026 ore 11:30: «una sola richiesta» non era vero
+
+Il disegno escludeva per nome `.../camera/<id>/signals`, «perche' sarebbe una
+richiesta per ciascuna e il punto e' risparmiare batteria». Ma leggendo
+`blinkpy` (ramo `dev`) per correggere altro: `SyncModule.refresh()` fa
+`get_network_info()`, `update_local_storage_manifest()`, `check_new_videos()` e
+poi, **per ogni telecamera**, `get_camera_info()` e `camera.update()` ->
+`get_sensor_info()` -> `request_camera_sensors()`, che e' esattamente quella
+richiesta. Le Mini e i campanelli la saltano; le telecamere **a batteria** no,
+cioe' proprio quelle che si voleva risparmiare.
+
+Non si cambia la scelta — una volta la settimana il costo e' accettabile, ed e'
+comunque meno di quel che fa l'app di Blink ogni volta che la si apre. Si
+cambia l'affermazione, perche' era falsa in tre posti (disegno, piano, e il
+messaggio di una prova) e prima o poi qualcuno ci si appoggia.
+
+**Come si e' scoperto, ed e' la parte che vale:** una prova che usa una finta
+scritta a immagine dell'affermazione non prova l'affermazione. La nostra
+verificava che *il nostro codice* chiami `refresh` una volta — cosa vera e
+irrilevante. Dove si dichiara un comportamento di una libreria, quella riga va
+letta nel suo sorgente e citata col percorso, come si era fatto bene con la
+sonda su `grant_type=password`.

@@ -131,16 +131,24 @@ password, e quel che resta lo sa fare `blinkpy`, che è Python e quindi gira
 qui. La conseguenza buona è che **la tua password non arriva mai al server**.
 Su Railway non va messo niente.
 
-```bash
-pip3 install blinkpy
-```
+`installa.sh` lo installa già da sé, quindi se hai preparato la scatoletta
+dopo il 17 novembre 2026 questo passo è fatto. Altrimenti:
 
 ```bash
-python3 blink-accedi.py
+ambiente/bin/pip install blinkpy
+```
+
+Il comando usa **`ambiente/bin/pip` e non `pip3`**: la scatoletta tiene le sue
+librerie in un ambiente a parte, ed è quello che il servizio usa. Su Raspberry
+Pi OS il `pip3` di sistema rifiuta comunque di installare.
+
+```bash
+ambiente/bin/python blink-accedi.py
 ```
 
 Chiede l'email e la password — che **non si vede mentre la digiti e non viene
-salvata da nessuna parte**. Poi Blink ti manda un codice usa-e-getta per email
+scritta in nessun file**. Sul disco finisce solo il gettone, e puoi
+controllarlo: apri `segreti/blink.json` e la password non c'è. Poi Blink ti manda un codice usa-e-getta per email
 o per SMS: scrivilo lì. Se è andata, elenca le telecamere che ha trovato e
 salva un gettone in `segreti/blink.json`.
 

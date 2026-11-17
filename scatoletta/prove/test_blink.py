@@ -5,6 +5,7 @@ funzione che ne ha bisogno, non in cima al file. Serve perche' queste prove
 devono poter girare sul Mac mentre la scatoletta e' ancora in viaggio.
 """
 import datetime
+import json
 import re
 import sys
 import unittest
@@ -126,7 +127,9 @@ class ProveLettura(unittest.TestCase):
         got = asyncio.run(leggi_blink(self.conf(), fabbrica=lambda: finta, ora=ORA))
         self.assertEqual(len(got), 2)
         self.assertEqual({a["id"] for a in got}, {"blink-7", "blink-9"})
-        self.assertEqual(finta.refresh_fatti, 1, "una sola interrogazione per tutte")
+        self.assertEqual(finta.refresh_fatti, 1,
+                         "una sola chiamata a refresh dalla NOSTRA parte: dalla loro, "
+                         "blinkpy interroga i sensori telecamera per telecamera")
         self.assertEqual(quando_ultima(self.ultima), ORA)
 
     def test_una_data_illeggibile_vale_come_mai_letto(self):
@@ -257,6 +260,144 @@ class ProveGiro(unittest.IsolatedAsyncioTestCase):
         await agente.un_giro({"nome": "prova"})
         nomi = [a["nome"] for a in spediti[0]["apparecchi"]]
         self.assertEqual(nomi, ["Ective 1", "Ingresso", "Garage"])
+
+
+# ---------------------------------------------------------------------------
+# Il gettone su disco: la password NON ci deve finire
+# ---------------------------------------------------------------------------
+#
+# Questa e' la prova che mancava, e la sua assenza e' costata un difetto
+# grave. Le prime prove cercavano il nome della variabile nel sorgente di
+# `blink-accedi.py`: passavano, e il requisito era rotto, perche' la password
+# la scriveva `blink.save()` — una riga che non contiene la parola.
+#
+# Verificato nel sorgente di blinkpy (ramo dev):
+#   Blink.save()           -> util.json_save(self.auth.login_attributes, ...)
+#   Auth.login_attributes  -> restituisce self.data IN PERSONA, cioe' lo
+#                             stesso dizionario che gli abbiamo passato con
+#                             dentro username e password, piu' i campi del
+#                             gettone. Non una copia filtrata.
+#   json_save              -> json.dumps(data, indent=4), senza filtrare.
+#
+# Quindi si scrive il file da se'. E la prova guarda il FILE, non il sorgente.
+from blink import salva_gettone  # noqa: E402
+
+PASSWORD_FINTA = "PASSWORD-FINTA-RICONOSCIBILE-9d3f"
+
+
+class ProveSalvataggioGettone(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dove = Path(self.tmp.name) / "dentro" / "blink.json"
+        self.attributi = {
+            "username": "qualcuno@example.com",
+            "password": PASSWORD_FINTA,
+            "token": "GETTONE-DI-ACCESSO",
+            "refresh_token": "GETTONE-DI-RINNOVO",
+            "account_id": 42, "region_id": "e003", "hardware_id": "abc-123",
+        }
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_la_password_non_finisce_nel_file(self):
+        salva_gettone(self.dove, self.attributi)
+        testo = self.dove.read_text()
+        self.assertNotIn(PASSWORD_FINTA, testo)
+        self.assertNotIn("qualcuno@example.com", testo)
+
+    def test_il_gettone_invece_ci_finisce(self):
+        salva_gettone(self.dove, self.attributi)
+        dentro = json.loads(self.dove.read_text())
+        self.assertEqual(dentro["token"], "GETTONE-DI-ACCESSO")
+        self.assertEqual(dentro["refresh_token"], "GETTONE-DI-RINNOVO")
+        self.assertEqual(dentro["account_id"], 42)
+
+    def test_il_file_e_leggibile_solo_da_chi_lo_scrive(self):
+        salva_gettone(self.dove, self.attributi)
+        self.assertEqual(oct(self.dove.stat().st_mode & 0o777), "0o600")
+
+    def test_non_tocca_il_dizionario_che_gli_passano(self):
+        # `login_attributes` di blinkpy restituisce il dizionario VIVO
+        # dell'oggetto: togliergli la password di dentro vorrebbe dire
+        # sfilarla a un oggetto ancora in uso. Si filtra una copia.
+        salva_gettone(self.dove, self.attributi)
+        self.assertEqual(self.attributi["password"], PASSWORD_FINTA)
+
+
+# ---------------------------------------------------------------------------
+# Un guasto silenzioso non deve costare una settimana
+# ---------------------------------------------------------------------------
+class ProveGuastoSilenzioso(unittest.TestCase):
+    """blinkpy, quando l'accesso fallisce, **non solleva**.
+
+    Verificato nel sorgente: `Blink.start()` intercetta LoginError,
+    TokenRefreshFailed e BlinkSetupError, scrive «Cannot setup Blink
+    platform.» e restituisce **False**; `cameras` resta il dizionario vuoto di
+    __init__; e `refresh()` in quello stato non solleva.
+
+    La prima prova su questo usava una finta che SOLLEVA, cioe' un
+    comportamento che blinkpy non ha. Passava, e il caso vero — gettone
+    scaduto, file dei segreti illeggibile — timbrava la data e spegneva le
+    letture per sette giorni.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ultima = Path(self.tmp.name) / "ultima.txt"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def conf(self):
+        return {"blink": {"attivo": True, "giorni": 7, "ultima": str(self.ultima),
+                          "segreti": str(Path(self.tmp.name) / "blink.json")}}
+
+    def test_zero_telecamere_non_segna_la_data(self):
+        vuota = FintaBlink([])                 # non solleva, e `cameras` e' vuoto
+        got = asyncio.run(leggi_blink(self.conf(), fabbrica=lambda: vuota, ora=ORA))
+        self.assertEqual(got, [])
+        self.assertIsNone(quando_ultima(self.ultima),
+                          "una lettura vuota non deve consumare la settimana")
+
+    def test_e_lo_dice(self):
+        vuota = FintaBlink([])
+        with self.assertLogs("blink", level="WARNING"):
+            asyncio.run(leggi_blink(self.conf(), fabbrica=lambda: vuota, ora=ORA))
+
+
+# ---------------------------------------------------------------------------
+# Due paletti sulla configurazione
+# ---------------------------------------------------------------------------
+class ProveConfigurazioneStorta(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ultima = Path(self.tmp.name) / "ultima.txt"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_giorni_a_zero_non_vuol_dire_a_ogni_giro(self):
+        # Con giorni = 0 si interrogherebbero le telecamere ogni cinque
+        # minuti: il consumo che tutto questo lavoro esiste per evitare.
+        conf = {"blink": {"attivo": True, "giorni": 0, "ultima": str(self.ultima)}}
+        segna_lettura(self.ultima, ORA - datetime.timedelta(hours=2))
+        chiamate = []
+        got = asyncio.run(leggi_blink(conf, fabbrica=lambda: chiamate.append(1), ora=ORA))
+        self.assertEqual(got, [])
+        self.assertEqual(chiamate, [], "due ore non sono un giorno")
+
+    def test_giorni_nullo_vale_il_predefinito(self):
+        conf = {"blink": {"attivo": True, "giorni": None, "ultima": str(self.ultima)}}
+        segna_lettura(self.ultima, ORA - datetime.timedelta(days=1))
+        got = asyncio.run(leggi_blink(conf, fabbrica=lambda: 1 / 0, ora=ORA))
+        self.assertEqual(got, [])
+
+    def test_un_file_della_data_con_byte_binari_non_fa_cadere_il_giro(self):
+        # read_text su byte non testuali solleva UnicodeDecodeError, che e' un
+        # ValueError e non un OSError: sfuggiva al primo `except`.
+        self.ultima.write_bytes(b"\xff\xfe\x00rovinato")
+        self.assertIsNone(quando_ultima(self.ultima))
 
 
 if __name__ == "__main__":

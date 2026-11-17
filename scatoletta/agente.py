@@ -545,7 +545,15 @@ async def un_giro(conf):
     # Non serve un paletto in piu': il freno dei sette giorni sta dentro
     # `leggi_blink`.
     try:
-        apparecchi += await leggi_blink(conf)
+        # Con un tetto di tempo, non solo dentro un try. Il `try` ferma le
+        # ECCEZIONI, non un blocco: se il cloud di Blink accetta la
+        # connessione e poi tace, il giro si fermerebbe qui e le letture
+        # Bluetooth gia' fatte non arriverebbero nemmeno in coda, perche'
+        # `spedisci` sta piu' sotto. Due minuti sono larghi per una richiesta
+        # settimanale e stretti rispetto al giro da cinque minuti.
+        apparecchi += await asyncio.wait_for(leggi_blink(conf), 120)
+    except asyncio.TimeoutError:
+        log.error("Blink non ha risposto entro due minuti: lascio stare e tiro avanti")
     except Exception as e:                            # noqa: BLE001
         log.error("Blink e' andato storto: %s", e)
 
