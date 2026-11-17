@@ -169,6 +169,41 @@ batteria finisce anche nello storico, come le altre misure. Quindi fra un mese
 non vedrai solo **com'è**, ma **come sta scendendo** — che è il dato che dice
 quando conviene ricaricarle.
 
+## Una seconda rete WiFi
+
+Il camper oggi ha il TP-Link `bergamobile`. Domani il portante potrebbe
+cambiare — Starlink, una SIM, il WiFi di casa d'inverno. La scatoletta puo'
+tenerne in memoria **piu' di una** e agganciare quella che trova, da se'.
+
+Sulla scatoletta, una volta per rete:
+
+    ./aggiungi-rete.sh
+
+Chiede nome e password, scrive il profilo di NetworkManager e finisce. Chiede
+anche **quale preferire** quando ci sono entrambe.
+
+**Non c'e' un tasto nell'app per cambiare rete, ed e' una scelta.** Un comando
+del genere viaggerebbe sulla rete che sta per spegnere: se la nuova non c'e',
+la scatoletta resta in un posto dove non la raggiungi piu', e il canale per
+dirle «torna indietro» e' esattamente quello che le hai appena tolto. Due reti
+in memoria risolvono lo stesso problema senza quel rischio, e funzionano anche
+quando nessuno guarda — che e' il requisito vero.
+
+Tre dettagli del come, che sembrano pignoleria e non lo sono:
+
+- **la password non passa dalla riga di comando.** `nmcli device wifi connect
+  ... password X` la metterebbe negli argomenti del processo, dove `ps` la
+  mostra a chiunque sia connesso in quel momento;
+- **non si attiva niente.** Un `connect` cambierebbe rete subito, buttando giu'
+  la sessione SSH da cui stai lanciando lo script;
+- **funziona anche se la rete nuova non e' a portata.** Un `connect` la vuole
+  in aria adesso; un profilo su disco aspetta il suo turno, quindi Starlink lo
+  puoi preparare da casa.
+
+Il file nasce leggibile solo da root, e la password non si vede mentre la
+batti. Provato in `prove/test_reti.py`, che controlla anche che non finisca
+negli argomenti di `nmcli`.
+
 ## Due cose che non ci sono ancora
 
 ### La Truma

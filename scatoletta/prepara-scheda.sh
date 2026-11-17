@@ -51,14 +51,24 @@ esac
 # --- la copia ---
 echo "== Copio la scatoletta su $SCHEDA =="
 mkdir -p "$SCHEDA/scatoletta"
-cp "$DOVE/agente.py" "$DOVE/installa.sh" "$SCHEDA/scatoletta/"
+# L'elenco sta in una variabile e non sparso nella riga di `cp`, perche' il
+# guasto di questo pezzo non e' un file sbagliato: e' un file che manca. La
+# prima stesura copiava solo agente.py, installa.sh e config.json, e `blink.py`
+# restava a casa — con `agente.py` che lo importa. La scatoletta sarebbe
+# partita e avrebbe perso le telecamere al primo giro, in camper, con la
+# scheda gia' infilata. Ora l'elenco e' uno, e `prove/test_scheda.py` lo
+# controlla.
+PEZZI="agente.py blink.py blink-accedi.py aggiungi-rete.sh installa.sh"
+for pezzo in $PEZZI; do
+  cp "$DOVE/$pezzo" "$SCHEDA/scatoletta/$pezzo"
+done
 cp "$CONFIG" "$SCHEDA/scatoletta/config.json"
-chmod +x "$SCHEDA/scatoletta/installa.sh" 2>/dev/null || true
+chmod +x "$SCHEDA/scatoletta/installa.sh" "$SCHEDA/scatoletta/aggiungi-rete.sh" 2>/dev/null || true
 
 # La partizione di avvio e' FAT: non tiene i permessi e la legge chiunque
 # infili la scheda in un computer. La chiave della porta ci passa, e va bene
 # cosi' — serve solo a scrivere misure — ma e' giusto saperlo.
-echo "   agente.py, installa.sh, config.json"
+echo "   $PEZZI config.json"
 
 UTENTE=$(python3 - "$SCHEDA" <<'PY'
 import re, sys, pathlib
@@ -83,6 +93,14 @@ Scatoletta del camper — ultimo passo
    ssh $UTENTE@$NOME.local 'cp -r /boot/firmware/scatoletta ~/ && bash ~/scatoletta/installa.sh'
 
 Da quel momento parte da sola a ogni accensione. Non serve piu' toccarla.
+
+Una seconda rete WiFi (Starlink, casa, un telefono) si aggiunge cosi', sulla
+scatoletta, una volta per rete:
+
+   ssh $UTENTE@$NOME.local '~/scatoletta/aggiungi-rete.sh'
+
+Non cambia la rete adesso: scrive il profilo, e NetworkManager aggancia da se'
+quella che trova. Il collegamento in corso non si tocca.
 
 Come sta:          ssh $UTENTE@$NOME.local 'systemctl status scatoletta'
 Cosa sta dicendo:  ssh $UTENTE@$NOME.local 'journalctl -u scatoletta -f'

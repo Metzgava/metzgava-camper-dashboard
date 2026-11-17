@@ -83,3 +83,7 @@ echo "   Riavvialo:       sudo systemctl restart scatoletta"
 echo
 echo "Il primo giro parte entro un minuto. Se la rete non c'e', le letture"
 echo "restano in coda.jsonl e partono appena torna."
+echo
+echo "Hai una seconda rete — Starlink, il WiFi di casa, un telefono? Aggiungila:"
+echo "   ./aggiungi-rete.sh"
+echo "Da quel momento aggancia da se' quella che trova, senza comandi."
