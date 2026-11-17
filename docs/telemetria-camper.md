@@ -339,6 +339,30 @@ alimenta a 12 V dalla stessa linea del Combi:
 L'RJ12 va sulla porta libera del Combi, oppure su uno sdoppiatore inserito nel
 cavo che già collega Combi e pannello.
 
+#### Nel camper vero: un cavo gia' tirato, e il connettore e' al rovescio
+
+Guardato in foto il 17/11/2026. La predisposizione **non e' una presa libera
+sul Combi**: e' un **cavo gia' tirato** che esce dalla stufa e finisce con uno
+**spinotto RJ12 maschio libero**, appoggiato sopra una copertura. Sei contatti
+dorati contati sull'ingrandimento, fili colorati dietro.
+
+Che sia la predisposizione iNet e' **molto probabile**, per tre indizi
+indipendenti: il connettore e' un RJ12 6P6C, che in un camper non si usa per
+altro; la CP plus funziona — se ne e' letta la versione dal menu — quindi il
+suo cavo e' attaccato e questo e' un secondo cavo; e in quel punto non c'e'
+nient'altro che la Truma. Non e' pero' **visto**: il proprietario non riesce a
+raggiungere il punto in cui il cavo nasce.
+
+**Conseguenza sulla lista della spesa, ed e' un errore classico:** serve un
+adattatore **femmina**, non maschio. Un «RJ12 maschio → morsettiera» non si
+accoppia con uno spinotto maschio. Va preso un **RJ12 femmina (jack) →
+morsettiera a vite**, oppure un accoppiatore femmina-femmina piu' il maschio.
+
+**Come si chiudera' il dubbio senza rischio:** la prima accensione si fa **in
+sola lettura**. Se e' il TIN-Bus, l'ESP32 vede passare traffico LIN subito; se
+non lo e', non vede niente. Ascoltare non puo' rompere nulla, quindi
+l'esperimento costa zero e si fa prima di tentare qualunque comando.
+
 ### Perché non sul Raspberry
 
 Sembrerebbe naturale: il Raspberry c'è già e `inetbox.py` è scritto per lui.
