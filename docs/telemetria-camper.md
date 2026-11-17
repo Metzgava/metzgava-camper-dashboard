@@ -665,3 +665,34 @@ la risposta sara' nei log invece che nelle ipotesi.
 Lezione, la terza in due giorni: **il rimedio che non puo' far danno va provato
 per primo.** Riprovare la stessa richiesta non rompe niente; rinnovare
 sovrascrive. Avevamo messo il secondo prima del primo.
+
+#### Correzione, venti minuti dopo: la causa era al rovescio
+
+Scritto qui sopra: «ogni gettone nato da un rinnovo e' stato rifiutato, undici
+su undici». Il fatto e' vero, la conclusione no.
+
+Alle **08:19:41**, sei minuti dopo l'ultimo rinnovo e col contenitore appena
+ripartito, **quello stesso gettone delle 08:13:52 — uno di quegli undici — ha
+letto benissimo.**
+
+Quindi il gateway non rifiuta i gettoni nati dal rinnovo. Li rifiutava perche'
+li usavamo **dentro la grandinata**: con la pagina aperta ogni lettura
+rifiutata faceva un rinnovo, tre al minuto, e il loro cloud ci sbatteva la
+porta. I gettoni nati dall'Agree funzionavano piu' spesso per un motivo che non
+ha niente a che vedere col gettone: un Agree succede quando intervieni tu, cioe'
+**dopo** che la grandinata e' finita.
+
+La correlazione era forte e la lettura era rovesciata. Vale la pena notare
+**come** si e' smontata: non con un ragionamento migliore, ma perche' il
+contenitore e' ripartito e ha fatto per caso l'unico esperimento che mancava —
+usare un gettone «inutile» in un momento di calma. Il controesempio e' arrivato
+da solo, venti minuti dopo che avevo scritto «chiuso il caso» per la terza
+volta.
+
+Delle tre correzioni, quella che conta e' **il freno**. Le altre due restano
+buone per conto loro: riprovare lo stesso gettone non puo' far danno, e non
+sovrascrivere un gettone che funziona con uno mai provato e' igiene a
+prescindere da quale sia la causa.
+
+E il rinnovo automatico **non e' inutile**, come avevo scritto due paragrafi
+sopra: funziona, purche' non lo si chieda tre volte al minuto.
