@@ -15,6 +15,17 @@
   --ambra-cupa: #c9833a;
   --verde: #5fcf9a;
   --rosso: #ef7b6b;
+  /* Il consumato del manometro: un rosso VERO, usato a opacita' piena.
+     Non e' `--rosso`, ed e' una scelta. `--rosso` e' un salmone tenue, scelto
+     per gli avvisi, dove deve avvisare senza aggredire; diluito sulla traccia
+     blu-grigia scivola verso il grigio, e nessuna percentuale lo salva (a
+     0,85 fa #d2736a, che il proprietario ha visto e definito «piu' grigio che
+     rosso» — aveva ragione). A opacita' piena quel che si vede e' esattamente
+     questo colore, senza mescole da indovinare.
+     Resta ben distinto da `--rosso`: sotto il 20 % i due archi sono entrambi
+     rossi, e devono restare due — salmone chiaro quel che resta, rosso cupo
+     quel che si e' speso. */
+  --consumato: #e03131;
   --azzurro: #7fb3c9;
   /* Le fonti della carica e il segnale «sta ricevendo». Sono colori di
      **stato**, tenuti separati da quelli del livello: mescolare «quanto e'

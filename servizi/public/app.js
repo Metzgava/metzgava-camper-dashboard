@@ -136,7 +136,7 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
       <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
       ${carica && !atteso ? `<path d="${arco(0, 100, R)}" stroke="var(--carica)" stroke-width="20" fill="none" stroke-linecap="round" class="alone"/>` : ''}
       ${pct != null && !atteso && pct < 99.5
-        ? `<path class="consumato" d="${arco(pct, 100, R)}" stroke="var(--rosso)" stroke-opacity=".85" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
+        ? `<path class="consumato" d="${arco(pct, 100, R)}" stroke="var(--consumato)" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
       ${pct != null && !atteso ? `<path d="${arco(0, pct, R)}" stroke="${colore}" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
       ${tacche}${scia}${lancetta}
       <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)">${pct == null ? '\u2014' : Math.round(pct)}</text>
