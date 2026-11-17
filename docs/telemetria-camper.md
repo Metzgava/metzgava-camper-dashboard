@@ -783,7 +783,7 @@ si apre con `https://www.amazon.it/dp/<codice>`.
 | 1 | ELEGOO ESP32 USB-C, 3 pezzi, chip CP2102 | `B0D8T5XD3P` | 21,84 € |
 | 2 | Modulo TTL UART → LIN con **TJA1020**, 12 V | `B0HC67CFCG` | 24,01 € |
 | 3 | **Presa** RJ12 6P6C → morsettiera 6 poli, da pannello | `B0GTTSHJBV` | 15,27 € |
-| 4 | Splitter USB, 1 maschio → 4 femmine | `B0HGFS8VN2` | 9,29 € |
+| 4 | Splitter USB passivo, 1 maschio → 4 femmine, 30 cm | `B095HM4V6W` | 9,99 € |
 | 5 | Cavo step-up USB-A → 12 V, spinotto DC 5,5x2,1 | `B0GYR648B4` | 7,99 € |
 | 6 | Jack DC 5,5x2,1 femmina a vite, 4 paia + cacciavite | `B0DPPTLF11` | 7,59 € |
 | 7 | Prolunga RJ12 6P6C maschio-femmina | `B0GF6CJTCV` | 12,50 € |
@@ -819,6 +819,18 @@ un trascinamento dallo scenario precedente, quando la sorgente era una presa
 collegamento da due fili, e in una scatola 120x80x50 non ci stanno. Costava
 anche uguale (15,54 € contro 15,58 €): il guadagno del jack DC e' solo
 meccanico, ed e' decisivo.
+
+**Sullo splitter.** Il primo scelto (`B0HGFS8VN2`) arrivava il 17 dicembre, e
+un mese d'attesa per un cavo a Y non si giustifica. Il sostituto e' passivo
+come il primo — nessun chip dentro, niente che si pianti — e dichiara **2 A
+complessivi**, con la nota che «ogni sottocavo riceve 0,5 A se usati tutti
+insieme». Quella nota e' il venditore che divide 2 per 4, non un limitatore:
+in un cavo a Y passivo le linee di alimentazione sono in parallelo, e quanto
+tira ogni apparecchio lo decide l'apparecchio. Il vincolo vero e' il totale di
+2 A, che e' lo stesso ordine di grandezza del limite della presa del camper:
+**lo splitter non e' il collo di bottiglia**. Il rischio residuo sono i 30 cm
+di filo sottile sulle punte di corrente dell'ESP32 — e trenta centimetri sono
+pochi, che e' quel che serve.
 
 **I numeri.** ESP32 ~0,25 A a 5 V, step-up ~0,3 A: **~0,55 A** per la
 scatoletta. Lo step-up da' 12 V fino a 0,6 A, e il ricetrasmettitore ne vuole
