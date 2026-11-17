@@ -772,3 +772,45 @@ Totale indicativo **100-140 €**, col ricetrasmettitore come variabile.
 **Una cosa da sapere prima di collegare:** su quel connettore RJ12 **non c'e' il
 12 V**. E' solo bus. La corrente si prende altrove, ed e' il motivo dei pezzi
 4-7.
+
+### Gli articoli trovati su Amazon.it
+
+Cercati e letti il 17/11/2026. I prezzi ballano, i codici no: un codice `B0...`
+si apre con `https://www.amazon.it/dp/<codice>`.
+
+| # | Pezzo | Codice | Visto a |
+|---|---|---|---|
+| 1 | ELEGOO ESP32 USB-C, 3 pezzi, chip CP2102 | `B0D8T5XD3P` | 21,84 € |
+| 2 | Modulo TTL UART → LIN con **TJA1020**, 12 V | `B0HC67CFCG` | 24,01 € |
+| 3 | **Presa** RJ12 6P6C → morsettiera 6 poli, da pannello | `B0GTTSHJBV` | 15,27 € |
+| 4 | Presa USB 12 V da incasso per camper, 2 porte 48 W | `B0HFHSGDRP` | 10,99 € |
+| 5 | Portafusibile volante impermeabile | `B00UX6NIQE` | 4,99 € |
+| 5b | Assortimento fusibili lamellari (contiene i 2 A) | `B09B7K9PDB` | 9,99 € |
+| 6 | WAGO 221-412, 16 pezzi | `B01KI1I8SG` | 10,17 € |
+| 7 | Cavo 0,75 mm² rosso e nero, 5 m ciascuno | `B0D12R349S` | 14,99 € |
+| 8 | Cavetti Dupont, 40 pezzi | `B0FPCB9JHK` | 5,03 € |
+| 9 | Scatola stagna 120x80x50 mm | `B0B7K4JFB9` | 3,60 € |
+| 10 | Cavo dati USB-A → USB-C, 50 cm | `B0G6472JMY` | 7,59 € |
+
+Totale **circa 128 €**.
+
+Tre cose da sapere su questa tabella.
+
+**Il pezzo 3 e' quello giusto perche' la scheda dice «presa».** In italiano
+commerciale «presa» vuol dire femmina. Gli altri dieci risultati di quella
+ricerca dicevano tutti «maschio», ed e' esattamente l'errore contro cui mette
+in guardia il paragrafo sopra. Piano B se finisce: accoppiatore RJ12
+femmina-femmina `B00342M2H0` (4,68 €) piu' un maschio-morsettiera
+`B0FX8JV9GJ` (11,99 €).
+
+**Il pezzo 2 e' l'unico su cui resta un rischio di reso.** La scheda conferma
+il chip TJA1020 e l'alimentazione a 12 V, ma non elenca i nomi dei piedini: che
+porti fuori `VBAT`, `LIN`, `GND`, `TX`, `RX` si vede dalla foto, non dal testo.
+Alternative: `B0G1G75NY3` (18,99 €) e, con TJA1021, `B0HQP7PHHJ` (32,39 €).
+
+**Il 12 V alla scatoletta non e' evitabile.** Il ricetrasmettitore LIN vuole
+`VBAT` a 12 V per forza: il bus LIN e' un filo che riposa a 12 V, e senza quel
+riferimento il chip non distingue i livelli. Quindi i pezzi 5-7 servono
+comunque, e una volta che il 12 V e' arrivato nella scatola il pezzo 4 — una
+presa USB da incasso avvitata nel coperchio — da' all'ESP32 i suoi 5 V senza
+portare nessuna USB da lontano.
