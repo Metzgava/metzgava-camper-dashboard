@@ -166,11 +166,14 @@ async function rinnova(rinnovo) {
   }
   const g = await r.json().catch(() => null);
   if (r.ok && g?.access_token) {
-    await salva(g.access_token, g.refresh_token || rinnovo,
-      g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null);
     console.log(`Bluetti rinnovato: expires_in=${g.expires_in ?? 'assente'}s, rinnovo ${g.refresh_token ? 'nuovo' : 'invariato'}`);
-    await segna('gettone', 'Gettone Bluetti rinnovato');
-    return { esito: 'ok', accesso: g.access_token };
+    // Non si salva qui. Chi chiama lo prova prima: vedi rinnovaEVerifica().
+    return {
+      esito: 'ok',
+      accesso: g.access_token,
+      nuovoRinnovo: g.refresh_token || rinnovo,
+      scade: g.expires_in ? new Date(Date.now() + g.expires_in * 1000) : null,
+    };
   }
   // Un 4xx con una risposta leggibile e' un no detto da loro. Tutto il resto
   // — 500, 502, risposte non JSON — e' un loro inciampo, non un nostro
@@ -181,6 +184,43 @@ async function rinnova(rinnovo) {
     return { esito: 'rifiutato', perche };
   }
   return { esito: 'irraggiungibile', perche: `HTTP ${r.status}` };
+}
+
+// Non si sostituisce mai un gettone che funziona con uno che nessuno ha
+// ancora visto funzionare.
+//
+// Era questo il guasto vero, e lo dicono i log del 17/11/2026: alle 08:11:49
+// il gettone nato dal tuo Agree leggeva bene; alle 08:12:59 un rifiuto
+// passeggero ha fatto scattare il rinnovo; il gettone nuovo e' stato salvato
+// **sopra** quello buono senza essere provato; e il gateway non ne ha
+// accettato nemmeno uno. Undici rinnovi di fila, undici rifiuti, e il gettone
+// buono cancellato al primo. Da li' non si risaliva piu' se non col tuo Agree.
+//
+// Adesso il gettone nuovo si prova sulla stessa richiesta che ci serviva
+// comunque — l'elenco degli apparecchi — e si salva **solo** se quella
+// risponde. Se il gateway lo rifiuta, in archivio resta quello di prima, che
+// e' l'unico che si sa funzionare.
+async function rinnovaEVerifica(rinnovo) {
+  const n = await rinnova(rinnovo);
+  if (n.esito !== 'ok') return n;
+
+  let prova = await chiedi('/api/bluiotdata/ha/v1/devices', n.accesso);
+  if (Number(prova.dato?.msgCode) === 805 || prova.http === 401) {
+    // Un gettone appena nato potrebbe aver bisogno di un istante per essere
+    // riconosciuto dal gateway. Una pausa e un secondo tentativo lo dicono,
+    // e il log distinguera' le due cose la prossima volta.
+    await new Promise(v => setTimeout(v, 6000));
+    prova = await chiedi('/api/bluiotdata/ha/v1/devices', n.accesso);
+    if (Number(prova.dato?.msgCode) === 805 || prova.http === 401) {
+      console.warn('Bluetti: il gettone nato dal rinnovo e\u2019 rifiutato dal gateway. NON lo salvo: in archivio resta quello di prima.');
+      return { esito: 'rifiutato', perche: 'il gettone rinnovato e\u2019 rifiutato dal gateway' };
+    }
+    console.log('Bluetti: il gettone rinnovato ha avuto bisogno di sei secondi, poi e\u2019 stato accettato');
+  }
+  await salva(n.accesso, n.nuovoRinnovo, n.scade);
+  await segna('gettone', 'Gettone Bluetti rinnovato, provato e salvato');
+  console.log('Bluetti: gettone rinnovato, provato e salvato');
+  return { esito: 'ok', accesso: n.accesso, risposta: prova };
 }
 
 // ---------- le chiamate ----------
@@ -277,7 +317,7 @@ async function leggiDavvero({ fresco = false } = {}) {
   const DISTANZA = 10 * 60 * 1000;
   if (scade && new Date(scade).getTime() - Date.now() < MARGINE && rinnovo
       && Date.now() - ultimoRinnovo > DISTANZA) {
-    const n = await rinnova(rinnovo);
+    const n = await rinnovaEVerifica(rinnovo);
     ultimoRinnovo = Date.now();
     console.log(`Bluetti: rinnovo preventivo (margine ${Math.round(MARGINE / 60000)} min, vita dichiarata ${vita ? Math.round(vita / 60000) + ' min' : 'ignota'})`);
     if (n.esito === 'ok') accesso = n.accesso;
@@ -302,18 +342,32 @@ async function leggiDavvero({ fresco = false } = {}) {
 
   console.log(`Bluetti: uso un gettone di ${String(accesso).length} caratteri (inizia per ${String(accesso).slice(0, 10)}), scadenza ${scade || 'ignota'}`);
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+
+  // Primo rimedio: **riprovare lo stesso gettone.** Un rifiuto passeggero non
+  // e' un gettone morto, e questo e' l'unico rimedio che non puo' far danno.
   if (rifiutato(r)) {
-    console.warn(`Bluetti: lettura rifiutata (msgCode=${r.dato?.msgCode ?? '-'}, http=${r.http}). Provo il rinnovo.`);
+    console.warn(`Bluetti: lettura rifiutata (msgCode=${r.dato?.msgCode ?? '-'}, http=${r.http}). Aspetto sei secondi e riprovo con lo stesso gettone.`);
+    await new Promise(v => setTimeout(v, 6000));
+    r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
+    if (!rifiutato(r)) console.log('Bluetti: al secondo tentativo lo stesso gettone va bene — era un rifiuto passeggero');
+  }
+
+  // Secondo rimedio, e solo adesso: il rinnovo. Con un freno, perche' senza
+  // freno ogni lettura rifiutata ne faceva uno, e quando la pagina e' aperta
+  // sono tre al minuto: una grandinata che non ha mai aiutato nessuno.
+  if (rifiutato(r)) {
+    if (Date.now() - ultimoRinnovo < DISTANZA) {
+      console.warn(`Bluetti: rifiutato, ma ho rinnovato meno di ${Math.round(DISTANZA / 60000)} minuti fa. Non insisto: riprovo al prossimo giro.`);
+      cache = { quando: 0, dato: null };
+      return { collegato: true, errore: 'il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro' };
+    }
     ultimoRinnovo = Date.now();
-    const n = await rinnova(rinnovo);
+    const n = await rinnovaEVerifica(rinnovo);
     if (n.esito === 'ok') {
       accesso = n.accesso;
-      r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
-      console.log(`Bluetti: dopo il rinnovo la lettura ${rifiutato(r) ? 'e\u2019 ANCORA rifiutata' : `risponde msgCode=${r.dato?.msgCode ?? '-'}`}`);
+      r = n.risposta;
     } else if (n.esito === 'irraggiungibile') {
       // Non si sa se il permesso sia ancora buono, e nel dubbio **si tiene**.
-      // Si riprova al giro dopo: una lettura persa costa molto meno di un
-      // collegamento da rifare a mano.
       return { collegato: true, errore: `non sono riuscito a rinnovare il permesso (${n.perche}): riprovo al prossimo giro` };
     }
   }
@@ -328,15 +382,6 @@ async function leggiDavvero({ fresco = false } = {}) {
       r = await chiedi('/api/bluiotdata/ha/v1/devices', ora.accesso);
       accesso = ora.accesso;
     }
-  }
-  if (rifiutato(r)) {
-    // Il rifiuto a tratti dura pochi secondi: una pausa e un secondo
-    // tentativo lo coprono. Nei log del 17/11 la finestra nera piu' lunga e'
-    // stata di circa settanta secondi, quindi non si pretende di coprirle
-    // tutte: si copre quella breve, e per il resto si riprova al giro dopo.
-    await new Promise(v => setTimeout(v, 6000));
-    console.log('Bluetti: rifiutato anche col gettone fresco. Aspetto sei secondi e riprovo.');
-    r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
   }
   if (rifiutato(r)) {
     // E qui si **tiene** tutto. Vedi il commento lungo sopra: 805 non e' una

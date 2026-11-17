@@ -620,3 +620,48 @@ prova non e' una diagnosi completa.** La contesa c'era davvero e la prova la
 riproduceva; semplicemente non era l'unico modo di perdere il collegamento. Il
 modo di accorgersene non e' stato ragionare, e' stato tornare a leggere i log
 il mattino dopo.
+
+### Il guasto vero, terza e ultima lettura: lo facevamo noi
+
+I log delle 08:11-08:14 del 17 novembre mettono in fila due fatti che insieme
+chiudono il caso:
+
+- alle **08:11:49** il gettone nato dal tuo Agree leggeva bene;
+- dalle **08:12:59** in poi, **ogni gettone nato da un rinnovo e' stato
+  rifiutato**: undici su undici, nessuna eccezione, mentre i gettoni nati da un
+  accesso vero funzionavano quattro volte su sei.
+
+E `rinnova()` **salvava il gettone nuovo prima che qualcuno l'avesse visto
+funzionare.** Quindi:
+
+1. un rifiuto passeggero fa scattare il rinnovo;
+2. il gettone nuovo viene salvato **sopra** quello buono, senza prova;
+3. il gateway non lo accetta;
+4. da li' ogni lettura fallisce, e ogni fallimento rinnova di nuovo,
+   sovrascrivendo con un altro gettone che non vale niente;
+5. si risale solo col tuo Agree.
+
+Il gettone buono lo cancellavamo noi, al primo inciampo del loro cloud.
+
+Tre correzioni, in ordine di quanto possono far danno (dalla meno alla piu'):
+
+- **prima si riprova lo stesso gettone.** Sei secondi di pausa. E' il solo
+  rimedio che non puo' rompere niente, ed e' quello che mancava.
+- **non si sostituisce mai un gettone che funziona con uno che nessuno ha visto
+  funzionare.** Il gettone nato dal rinnovo si prova sulla richiesta che ci
+  serviva comunque, e si salva solo se quella risponde. Altrimenti in archivio
+  resta quello di prima.
+- **un freno sul rinnovo**: non piu' di uno ogni dieci minuti. Senza freno ogni
+  lettura rifiutata ne faceva uno, e con la pagina aperta sono tre al minuto.
+
+Resta aperta una domanda, e vale la pena scriverla: **perche' il gateway non
+accetta i gettoni nati dal rinnovo?** Undici su undici non e' sfortuna. Puo'
+essere un parametro che manca nella richiesta di rinnovo (`scope`, o altro).
+Finche' non si sa, il rinnovo e' inutile e il permesso va rifatto a mano una
+volta al mese — un tocco su «Ricollega», con la scadenza di 31 giorni che
+abbiamo misurato. Il log adesso distingue i due casi, quindi la prossima volta
+la risposta sara' nei log invece che nelle ipotesi.
+
+Lezione, la terza in due giorni: **il rimedio che non puo' far danno va provato
+per primo.** Riprovare la stessa richiesta non rompe niente; rinnovare
+sovrascrive. Avevamo messo il secondo prima del primo.
