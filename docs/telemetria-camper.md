@@ -916,13 +916,19 @@ qualcosa a mano**, perche' sono tre punti e non uno:
 
 | Dove | Cosa | Con cosa | Se si sbaglia |
 |---|---|---|---|
-| Pezzo 3, morsettiera a 6 poli | due fili: contatto **3** → `LIN`, contatto **5** → `GND` | cacciavite | il bus non parla; non brucia niente |
+| Pezzo 3, morsettiera a 6 poli | due fili: contatto **3** → `LIN`, contatto **5** → `GND` | **levetta arancione**, niente attrezzi | il bus non parla; non brucia niente |
+| Pezzo 2, ricetrasmettitore | **quattro** fili verso l'ESP32 + due verso il pezzo 3 + due verso il 12 V | cacciavite | vedi sotto |
 | Pezzo 6, jack DC a vite | due fili: centro **+**, guaina **−** | cacciavite | **la basetta del ricetrasmettitore** |
-| Pezzo 8, Dupont | tre o quattro fili fra le due basette | le mani | non si parlano |
+| Pezzo 8, Dupont | i quattro fili, dal lato ESP32 | le mani | non si parlano |
 
-Quattro viti e tre manicotti. Tutto il resto e' spina dentro presa, e
-**nessuno di questi punti sta nell'impianto a 12 V del camper**: era il punto
-della richiesta «meglio presa con presa», e regge.
+Tutto il resto e' spina dentro presa, e **nessuno di questi punti sta
+nell'impianto a 12 V del camper**: era il senso della richiesta «meglio presa
+con presa», e regge.
+
+**Questa tabella e' stata corretta il 17/11/2026 guardando le foto dei
+pezzi** — vedi «L'ultimo controllo» in fondo. La versione precedente diceva
+tre punti e un cacciavite sul pezzo 3: erano quattro punti, e sul pezzo 3 il
+cacciavite non serve.
 
 **Perche' il codice e' cambiato.** Quello di prima (`B0FPCB9JHK`, 5,03 €) oggi
 costa **5,03 € piu' 8,99 € di spedizione** e arriva il **17 dicembre**: 14 €
@@ -1110,3 +1116,124 @@ di ritmo non si puo', e il minimo onesto e' **due letture, cioe' un quarto
 d'ora**. E la fascia la vede solo chi apre l'app, quindi il travaso finisce
 anche negli **eventi**, una volta ogni due ore: serve a rispondere a «perche'
 ieri sera era vuota?» quando nessuno stava guardando.
+
+## L'ultimo controllo, pezzo per pezzo
+
+Il 17/11/2026, prima di comprare, il proprietario ha chiesto un controllo
+finale: non le date, ma **se i pezzi sono quelli giusti**. Fatto guardando le
+foto dei prodotti e il foglio dati del chip, non le descrizioni. Sui pezzi non
+e' saltato fuori niente da cambiare. **Sul piano intorno ai pezzi, tre cose
+erano sbagliate.**
+
+### 1. Il ricetrasmettitore ha le viti, non i piedini
+
+La basetta (`B0HC67CFCG`, marchio FST, sigla `T151`) ha **otto morsetti a
+vite** e nessun piedino:
+
+- lato logica: `TX` `SLP` `RX` `GND`
+- lato bus: `GND` `LIN` `INH` `12V`
+
+Il chip e' confermato **NXP A1020/C**, cioe' un TJA1020 vero.
+
+Conseguenza: **i cavetti Dupont femmina-femmina non ci si attaccano.** Servono
+i **maschio-femmina**: femmina sul piedino dell'ESP32, e dall'altro capo o il
+pin maschio stretto sotto la vite, o — meglio — il pin tagliato via e cinque
+millimetri di rame spelato nel morsetto.
+
+Il kit ELEGOO `B01N40EK6M` li ha tutti e tre i tipi, quindi e' coperto. Ma e'
+una fortuna, non una previsione: il pezzo 8 della prima lista era **solo
+femmina-femmina**, e con quello la scatoletta non si sarebbe collegata.
+
+### 2. I fili verso l'ESP32 sono quattro, e il quarto non e' quello che credevo
+
+Il documento diceva che la basetta doveva portare fuori `VBAT`, `LIN`, `GND`,
+`TX`, `RX`, e piu' avanti ipotizzava un quarto filo per i 3,3 V. Sbagliato: il
+quarto filo e' **`SLP`**.
+
+`SLP` e' il comando di sonno del TJA1020. Il foglio dati dice che quel piedino
+ha una **resistenza interna verso massa**, cioe' se lo si lascia staccato il
+chip **resta addormentato**. Non e' un filo facoltativo: senza quello non
+arriva niente, e non c'e' nessun segno che dica perche'.
+
+Quindi, fra ESP32 e ricetrasmettitore: **`TX`, `RX`, `GND`, `SLP`**. `INH`
+resta staccato.
+
+Sulla basetta ELEGOO ci sono `RX2` e `TX2` portati fuori, oltre a `3V3` e
+`GND`: si usa la **seconda porta seriale**, cosi' la prima resta libera per
+l'USB e per leggere i messaggi mentre funziona.
+
+### 3. Il livello logico: la cosa da misurare prima di collegare
+
+Il foglio dati dice tre cose che contano:
+
+- il TJA1020 **non ha un piedino di alimentazione logica**: si alimenta solo
+  da `BAT`, da 5 a 27 V. Torna con la basetta, che ha solo `12V`;
+- il massimo assoluto su `TXD`, `RXD` e `NSLP` e' **da −0,3 a +7 V**: i 3,3 V
+  dell'ESP32 ci stanno comodi, e l'ESP32 non puo' farsi male da solo;
+- **`RXD` e' a collettore aperto.** Vuol dire che da solo non sale: ha bisogno
+  di essere tirato su verso la tensione del microcontrollore. Si fa
+  **dall'ESP32, con la resistenza interna** del piedino, una riga di
+  programma, zero componenti.
+
+Resta un rischio che il foglio dati non copre, perche' dipende da come ha
+disegnato la basetta il cinese: **se sulla basetta c'e' gia' una resistenza
+che tira `RX` verso i 12 V, quei 12 V finiscono su un piedino dell'ESP32 e lo
+bruciano.** L'ESP32 non tollera niente sopra 3,3 V.
+
+**Quindi, prima di collegare `RX`:** dare i 12 V alla sola basetta, con l'ESP32
+staccato, e misurare col tester fra `RX` e `GND`. Vicino a **zero** si collega
+tranquilli. Se legge 5 o 12 V, non si collega diretto e serve un adattatore di
+livello — una decina di euro, un giorno di consegna, e si scopre in trenta
+secondi di misura invece che a basetta morta.
+
+### Le altre otto, in breve
+
+| Pezzo | Verificato | Esito |
+|---|---|---|
+| 1 ESP32 | foto | USB-C, piedini maschi gia' saldati, `RX2`/`TX2`/`3V3`/`GND` portati fuori ✓ |
+| 3 presa RJ12 | foto | **presa femmina** vera, sei contatti dorati, e il morsetto e' a **levetta**, non a vite ✓ |
+| 4 splitter | scheda | 1 maschio → 4 femmine, passivo ✓ |
+| 5 step-up | scheda | uscita 12,0 V, spinotto 5,5x2,1, **massimo 0,6 A** ✓ |
+| 6 jack DC | scheda | «4 paia» = maschi **e** femmine, quindi la femmina a vite c'e' ✓ |
+| 7a + 7b | scheda | 6P6C, **1:1** dichiarato su tutti e due ✓ |
+| 9 scatola | scheda | 120x80x50 ✓ |
+| 11 prolunga USB | scheda | USB-A 2.0 maschio-femmina, 2 m ✓ |
+
+### Tre trappole di variante
+
+Sono il modo piu' facile di comprare il pezzo sbagliato con il codice giusto,
+perche' il codice e' lo stesso e la pagina si apre su una variante qualsiasi.
+
+1. **Pezzo 1:** la stessa pagina vende «Tipo C 3PZ» e «Micro 3PZ» **allo stesso
+   prezzo di 21,84 €**. Serve **Tipo C**: col micro-USB, il cavo del pezzo 10
+   non entra. Non c'e' nessuna differenza di prezzo che avvisi dello sbaglio.
+   (Esiste anche «Tipo C 2PZ» a 18,04 €: due basette invece di tre. La terza e'
+   la scorta per quando se ne rompe una, e costa 3,80 €.)
+2. **Pezzo 10:** scegliere **0.5M**. La pagina vende anche 1, 1.5, 2, 3 e 5 m.
+3. **Scatola Electraline** (la seconda scelta): **120x80x50**. La stessa pagina
+   vende 150x110x70 e 190x140x70.
+
+### Due cose che restano da fare col tester in mano
+
+Nessuna delle due si risolve comprando qualcosa, e nessuna delle due blocca
+l'ordine:
+
+- **quale levetta e' il contatto 3.** Sul pezzo 3 la numerazione non si vede
+  nelle foto. Si trova con la prova di continuita' fra un contatto dello
+  spinotto e le sei levette, usando il cavo del pezzo 7a. Da fare **prima** di
+  decidere dove va il `LIN`;
+- **la tensione su `RX`**, come sopra.
+
+C'e' anche un dettaglio meccanico senza conseguenze: la presa del pezzo 3 sta
+in un guscio «tipo D», che e' della misura di un RJ45. Uno spinotto RJ12,
+piu' stretto, entra e fa contatto, ma balla di lato. E' normale, non e' un
+difetto, e dentro una scatola chiusa non cambia niente.
+
+### Cosa ha trovato davvero questo controllo
+
+Zero pezzi sbagliati. Tre errori nel piano, e tutti e tre dello stesso tipo:
+**avevo dedotto dalla descrizione quello che si vedeva solo dalla foto o dal
+foglio dati.** I piedini che erano viti, il filo che mancava, l'alimentazione
+logica che non esiste. Nessuno dei tre si vedeva leggendo l'annuncio, e tutti
+e tre si sarebbero visti a scatola aperta, in camper, con i pezzi gia'
+pagati.
