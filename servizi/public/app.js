@@ -207,6 +207,10 @@ function vistaAdesso() {
         : `<div class="scheda">
             ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza,
               carica: (dati.conti?.ingresso?.valore || 0) > 0 })}
+            ${dati.bluetti?.vecchia ? `<div class="nota" style="margin-top:10px">
+              Questi numeri sono di <b>${esc(dilloInMinuti(dati.bluetti.minuti))}</b>: il cloud di Bluetti
+              non risponde in questo momento e si riprova al prossimo giro. I comandi potrebbero non passare.
+            </div>` : ''}
             <div class="riga" style="margin-top:14px">
               <div class="cresci"><div class="eti">Col consumo di adesso</div>
                 <div class="cifra" style="font-size:22px">${c.tempo_residuo_bluetti?.detto ? esc(c.tempo_residuo_bluetti.detto) : '<span class="vuoto">—</span>'}</div>
@@ -397,6 +401,16 @@ function vistaSegnale() {
       </div>`).join('')}
       <div class="nota" style="margin:8px 0 0">Decide dove va montata la scatoletta: se qualcosa sta su <b>debole</b> o <b>al limite</b>, spostarla di mezzo metro cambia tutto. Si misura da sola a ogni giro, quindi si può provare e riguardare.</div>
     </div>`;
+}
+
+// «14 minuti fa», non «0,23 ore fa». Serve a dire l'età di una lettura di
+// ripiego: se è vecchia bisogna che si legga a colpo d'occhio quanto.
+function dilloInMinuti(minuti) {
+  if (minuti == null) return 'prima';
+  if (minuti < 1) return 'meno di un minuto fa';
+  if (minuti === 1) return 'un minuto fa';
+  if (minuti < 60) return `${Math.round(minuti)} minuti fa`;
+  return `${dilloInOre(minuti / 60)} fa`;
 }
 
 function dilloInOre(ore) {

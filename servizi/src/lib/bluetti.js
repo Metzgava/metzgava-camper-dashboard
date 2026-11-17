@@ -39,6 +39,9 @@ let ultimoRinnovo = 0;
 // E' il guasto che ha fatto perdere il collegamento tutta la sera del
 // 16/11/2026, tre volte di fila.
 let inCorso = null;
+// Per la misura: quale gettone si sta contando, e quante letture ha servito.
+let gettoneContato = null;
+let letturePerGettone = 0;
 
 // Il collegamento si fa dall'app, non da una variabile d'ambiente: si apre la
 // pagina di Bluetti, si dice «Agree», e il gettone torna qui e finisce in
@@ -233,6 +236,36 @@ async function rinnovaEVerifica(rinnovo) {
   return { esito: 'ok', accesso: n.accesso, risposta: prova };
 }
 
+// Il ripiego, che e' la cosa che il proprietario voleva davvero.
+//
+// A lui non interessa il gettone: gli interessa vedere la Bluetti. E l'ultima
+// lettura buona **e' gia' in archivio** — `registra()` la scrive in
+// `istantanee` a ogni giro riuscito. Quindi quando il loro cloud rifiuta non
+// si svuota la pagina: si mostra quella, con la sua eta' dichiarata.
+//
+// Cosi' un'intermittenza del cloud Bluetti diventa cosmetica — «letto 14
+// minuti fa» invece di una scheda vuota — e resta vera, perche' l'eta' c'e'
+// scritta. E' la differenza fra non saperlo e mentire.
+//
+// `avviso` e non `errore`: la pagina su `errore` sostituisce il manometro con
+// un rettangolo rosso, ed e' esattamente quel che non si vuole.
+async function ultimaBuona(avviso) {
+  const r = await q(`SELECT apparecchio, dati, quando FROM istantanee
+                     WHERE fonte='bluetti' ORDER BY quando DESC`);
+  if (!r.rows.length) return { collegato: true, errore: avviso };
+  const quando = r.rows[0].quando;
+  const minuti = Math.round((Date.now() - new Date(quando).getTime()) / 60000);
+  console.log(`Bluetti: mostro l\u2019ultima lettura buona, di ${minuti} minuti fa`);
+  return {
+    collegato: true,
+    quando: new Date(quando).toISOString(),
+    vecchia: true,
+    minuti,
+    avviso,
+    apparecchi: r.rows.map(x => x.dati).filter(Boolean),
+  };
+}
+
 // ---------- le chiamate ----------
 
 // Il loro cloud risponde HTTP 200 anche quando rifiuta: il motivo sta in
@@ -350,7 +383,18 @@ async function leggiDavvero({ fresco = false } = {}) {
   // morto, e va buttato in entrambi i casi.
   const rifiutato = x => Number(x.dato?.msgCode) === 805 || x.http === 401;
 
+  // Cinque collegamenti del 17/11 hanno tenuto 7, 2, 42, 7 e 14 minuti. Non e'
+  // una scadenza e non e' il numero di letture: non lo so. Quindi invece di
+  // farne un'altra ipotesi, si misura — eta' del gettone e letture servite,
+  // a ogni lettura. Fra qualche ciclo i numeri diranno da che cosa dipende.
+  //
+  // Il contatore vive in memoria, quindi una ripubblicazione lo azzera: e'
+  // dichiarato nel log perche' chi legge non si sbagli.
+  const eta = aggiornato ? Math.round((Date.now() - new Date(aggiornato).getTime()) / 60000) : null;
+  if (accesso !== gettoneContato) { gettoneContato = accesso; letturePerGettone = 0; }
+  letturePerGettone++;
   console.log(`Bluetti: uso un gettone di ${String(accesso).length} caratteri (inizia per ${String(accesso).slice(0, 10)}), scadenza ${scade || 'ignota'}`);
+  console.log(`Bluetti: eta\u2019 del gettone ${eta == null ? 'ignota' : eta + ' min'}, lettura n. ${letturePerGettone} da quando gira questo contenitore`);
   let r = await chiedi('/api/bluiotdata/ha/v1/devices', accesso);
 
   // Primo rimedio: **riprovare lo stesso gettone.** Un rifiuto passeggero non
@@ -369,7 +413,7 @@ async function leggiDavvero({ fresco = false } = {}) {
     if (Date.now() - ultimoRinnovo < DISTANZA) {
       console.warn(`Bluetti: rifiutato, ma ho rinnovato meno di ${Math.round(DISTANZA / 60000)} minuti fa. Non insisto: riprovo al prossimo giro.`);
       cache = { quando: 0, dato: null };
-      return { collegato: true, errore: 'il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro' };
+      return ultimaBuona('il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro');
     }
     ultimoRinnovo = Date.now();
     const n = await rinnovaEVerifica(rinnovo);
@@ -378,7 +422,7 @@ async function leggiDavvero({ fresco = false } = {}) {
       r = n.risposta;
     } else if (n.esito === 'irraggiungibile') {
       // Non si sa se il permesso sia ancora buono, e nel dubbio **si tiene**.
-      return { collegato: true, errore: `non sono riuscito a rinnovare il permesso (${n.perche}): riprovo al prossimo giro` };
+      return ultimaBuona(`non sono riuscito a rinnovare il permesso (${n.perche}): riprovo al prossimo giro`);
     }
   }
   if (rifiutato(r)) {
@@ -399,7 +443,7 @@ async function leggiDavvero({ fresco = false } = {}) {
     // del proprietario.
     console.warn('Bluetti: il cloud rifiuta il permesso (805) anche dopo rinnovo e secondo tentativo. Tengo i gettoni e riprovo al prossimo giro.');
     cache = { quando: 0, dato: null };
-    return { collegato: true, errore: 'il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro' };
+    return ultimaBuona('il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro');
   }
   if (!r.dato || r.dato.msgCode !== 0) {
     return { collegato: true, errore: `il cloud ha risposto ${r.dato?.msgCode ?? r.http}: ${r.dato?.message || r.testo.slice(0, 120)}` };
@@ -454,6 +498,11 @@ export async function comanda(sn, codice, valore) {
 export async function registra() {
   const s = await statoBluetti({ fresco: true });
   if (!s.collegato || s.errore) return { quante: 0, errore: s.errore };
+  // Una lettura di ripiego non si riscrive. Senza questo paletto il giro
+  // periodico riscriverebbe ogni quarto d'ora la stessa lettura vecchia con
+  // `quando = adesso`: dopo un'ora la pagina direbbe «letto un minuto fa» di
+  // un dato di ieri, e il grafico diventerebbe una riga piatta inventata.
+  if (s.vecchia) return { quante: 0, errore: s.avviso };
   let quante = 0;
   for (const a of (s.apparecchi || [])) {
     await q(`INSERT INTO istantanee (apparecchio, fonte, dati, quando) VALUES ($1,'bluetti',$2,now())
