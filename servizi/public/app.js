@@ -83,6 +83,17 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
   const CX = 118, CY = 112, R = 86;
   const colore = atteso || pct == null ? 'var(--fioco)'
     : pct <= 20 ? 'var(--rosso)' : pct <= 45 ? 'var(--ambra)' : 'var(--verde)';
+  // La parte già consumata, in rosso attenuato.
+  //
+  // Attenuato e non pieno per una ragione che si vede solo provandolo: sotto
+  // il 20 % l'arco della carica è **già** rosso pieno, e se anche il consumato
+  // lo fosse l'anello diventerebbe tutto dello stesso colore — proprio nel
+  // momento in cui serve leggere quanto resta. Così invece il rosso acceso
+  // dice «quel che hai» e il rosso smorzato «quel che hai speso».
+  //
+  // A carica piena non si disegna: un arco di lunghezza zero in SVG può
+  // diventare un cerchio intero, cioè un anello tutto rosso su una batteria
+  // carica. Il contrario di quel che deve dire.
   const arco = (da, a, raggio) => {
     const [x1, y1] = PT(CX, CY, raggio, ANG(da));
     const [x2, y2] = PT(CX, CY, raggio, ANG(a));
@@ -124,6 +135,8 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
     <svg viewBox="0 0 236 152" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}">
       <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
       ${carica && !atteso ? `<path d="${arco(0, 100, R)}" stroke="var(--carica)" stroke-width="20" fill="none" stroke-linecap="round" class="alone"/>` : ''}
+      ${pct != null && !atteso && pct < 99.5
+        ? `<path class="consumato" d="${arco(pct, 100, R)}" stroke="var(--rosso)" stroke-opacity=".45" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
       ${pct != null && !atteso ? `<path d="${arco(0, pct, R)}" stroke="${colore}" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
       ${tacche}${scia}${lancetta}
       <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)">${pct == null ? '\u2014' : Math.round(pct)}</text>
