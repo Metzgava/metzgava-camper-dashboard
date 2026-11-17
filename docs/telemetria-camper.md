@@ -790,10 +790,10 @@ si apre con `https://www.amazon.it/dp/<codice>`.
 | 7b | Accoppiatore RJ12 6P6C **femmina-femmina**, 1:1 (InLine) | `B00342M2H0` | 4,68 € |
 | 8 | Kit Dupont 120 pezzi da 20 cm (40 M-M, 40 M-F, **40 F-F**) | `B01N40EK6M` | 9,99 € |
 | 9 | Scatola stagna 120x80x50 mm | `B0B7K4JFB9` | 3,60 € |
-| 10 | Cavo dati USB-A → USB-C, 50 cm | `B0G6472JMY` | 7,59 € |
+| 10 | Cavo dati USB-A → USB-C, 50 cm, **USB 2.0** (UGREEN) | `B07PPY9N62` | 5,99 € |
 | 11 | Prolunga USB-A maschio-femmina, 2 m (Amazon Basics) | `B00NH136GE` | 6,64 € |
 
-Totale **circa 127 €**.
+Totale **circa 125 €**.
 
 ### Il pezzo 11, e perche' c'e'
 
@@ -933,6 +933,35 @@ Se ne volesse uno che arriva domani c'e' `B0CFXZDBVY` (GTIWUNG, 240 cavetti,
 11,99 €, spedito da Amazon). **Non lo consiglio**: due euro per un giorno che
 non serve a niente, perche' la catena aspetta comunque il pezzo 3, che nel
 migliore dei casi arriva il 22.
+
+### Il pezzo 10: qui il cavo peggiore sulla carta e' quello giusto
+
+Il primo scelto (`B0G6472JMY`, 7,59 €) e' un cavo **USB 3.x da 10 Gbps con
+chip E-Marker**. Funzionerebbe, perche' un cavo USB-C porta comunque la
+coppia dati di USB 2.0. Ma e' sovradimensionato per quel che deve fare, e
+l'E-Marker e' l'unico componente attivo di tutta la catena di alimentazione:
+un pezzo in piu' che puo' avere un'opinione, su un collegamento che deve solo
+stare attaccato per anni.
+
+Sostituito con `B07PPY9N62` — UGREEN, 50 cm, **USB 2.0, 480 Mbps**, nylon,
+**5,99 €**, spedito da Amazon, **domani**, 35.366 recensioni a 4,6. I 480 Mbps
+non sono un compromesso: il ponte seriale della basetta ESP32 e' un **CP2102**,
+che e' USB 2.0 full speed, cioe' 12 Mbps. Quaranta volte meno di quel che
+questo cavo porta, e ottocento volte meno di quel che portava l'altro.
+
+Un euro e sessanta in meno, un giorno prima, e un componente in meno nella
+scatola.
+
+**Questo cavo fa due lavori, non uno.** In servizio sta fra lo splitter e
+l'ESP32 — ed e' per questo che il capo grosso e' USB-A, perche' USB-A e'
+quello che da' lo splitter. Ma e' anche il cavo da cui **entra il programma**
+nell'ESP32, la prima volta, da un computer.
+
+**Da verificare, e lo sa solo lui:** se il Mac ha solo porte USB-C, per
+programmare serve un adattatore o un cavo C-C. Probabilmente ce l'ha gia' in
+casa: gli iPhone dal 15 in su arrivano con un cavo USB-C a USB-C, e per
+caricare un programma in un ESP32 quello basta e avanza. Il cavo della lista
+resta comunque necessario, perche' nella scatola l'altro capo e' lo splitter.
 
 **I numeri.** ESP32 ~0,25 A a 5 V, step-up ~0,3 A: **~0,55 A** per la
 scatoletta. Lo step-up da' 12 V fino a 0,6 A, e il ricetrasmettitore ne vuole
