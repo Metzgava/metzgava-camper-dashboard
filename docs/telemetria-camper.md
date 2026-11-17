@@ -789,11 +789,12 @@ si apre con `https://www.amazon.it/dp/<codice>`.
 | 7a | Cavo RJ12 6P6C **maschio-maschio**, 3 m, 1:1 (InLine 18844) | `B000L13JSS` | 7,60 € |
 | 7b | Accoppiatore RJ12 6P6C **femmina-femmina**, 1:1 (InLine) | `B00342M2H0` | 4,68 € |
 | 8 | Kit Dupont 120 pezzi da 20 cm (40 M-M, 40 M-F, **40 F-F**) | `B01N40EK6M` | 9,99 € |
-| 9 | Scatola stagna 120x80x50 mm | `B0B7K4JFB9` | 3,60 € |
+| 9 | Scatola stagna 120x80x50 mm, IP56 (Vimar V55205) | `B01MUH3XTS` | 6,05 € |
 | 10 | Cavo dati USB-A → USB-C, 50 cm, **USB 2.0** (UGREEN) | `B07PPY9N62` | 5,99 € |
 | 11 | Prolunga USB-A maschio-femmina, 2 m (Amazon Basics) | `B00NH136GE` | 6,64 € |
 
-Totale **circa 125 €**.
+Totale **circa 128 €**, e stavolta e' un totale vero: **tutti e dodici sono
+spediti da Amazon**, nessuno ha spese di spedizione a parte.
 
 ### Il pezzo 11, e perche' c'e'
 
@@ -971,6 +972,50 @@ connettore che non si tocca e' un connettore che non si allenta.
 Unica verifica sul suo: che sia un cavo **dati**. Quello in dotazione agli
 iPhone lo e'; uno generico da sola ricarica no, ed e' l'errore che fa cercare
 per mezz'ora un guasto che non c'e'.
+
+### Il pezzo 9, e la verifica di tutti e dodici
+
+La scatola scelta costava 3,60 € **piu' 5,48 € di spedizione**, consegna 24
+novembre: 9,08 € veri. Sostituita con `B01MUH3XTS` — **Vimar V55205**, stesse
+misure esatte (120x80x50), IP56, **6,05 € tutto compreso**, spedita da
+Amazon, **domani**. Tre euro in meno, sei giorni prima, e una marca italiana
+con un catalogo dietro invece di un articolo anonimo. In magazzino ce ne sono
+sei.
+
+A questo punto valeva la pena riaprirli tutti, perche' il conto degli errori
+era diventato interessante: **quattro codici su dodici** avevano un problema
+di consegna o di spedizione nascosta, e nessuno dei quattro si vedeva dalla
+riga della tabella. Ecco come stanno al 17/11/2026:
+
+| # | Codice | Prezzo | Arriva |
+|---|---|---|---|
+| 1 | `B0D8T5XD3P` | 21,84 € | giovedi' 19 |
+| 2 | `B0HC67CFCG` | 24,01 € | sabato 21 |
+| 3 | `B0GTTSHJBV` | 15,27 € | **5 dicembre** — oppure 20,76 € il 22 novembre |
+| 4 | `B095HM4V6W` | 9,99 € | domani |
+| 5 | `B0GYR648B4` | 7,99 € | giovedi' 19 |
+| 6 | `B0DPPTLF11` | 7,59 € | domani |
+| 7a | `B000L13JSS` | 7,60 € | domani — **due in magazzino** |
+| 7b | `B00342M2H0` | 4,68 € | giovedi' 19 |
+| 8 | `B01N40EK6M` | 9,99 € | sabato 21 |
+| 9 | `B01MUH3XTS` | 6,05 € | domani — sei in magazzino |
+| 10 | `B07PPY9N62` | 5,99 € | domani |
+| 11 | `B00NH136GE` | 6,64 € | domani |
+
+**Resta una sola decisione aperta, e non e' un pezzo da cercare: e' il pezzo
+3.** Tutto il resto e' in casa entro sabato 21. La presa RJ12 → morsettiera a
+15,27 € arriva il 5 dicembre, cioe' **due settimane dopo l'ultimo degli
+altri**: finche' non c'e' quella, dodici pezzi su tredici stanno in un
+cassetto. I 5,49 € in piu' della versione spedita da Amazon comprano quelle
+due settimane, ed e' l'unico punto della lista dove pagare di piu' ha un
+senso misurabile.
+
+**La morale di questa tornata**, che vale per la prossima lista piu' che per
+questa: un codice Amazon non e' un pezzo. Il pezzo giusto con la spedizione
+sbagliata e' un pezzo sbagliato, e la riga della tabella — nome, codice,
+prezzo — non lo dice. Dei quattro guasti trovati, **tre erano spese di
+spedizione o consegne a un mese**, e uno era un componente di troppo dentro
+il cavo. Nessuno era «il pezzo non va».
 
 **I numeri.** ESP32 ~0,25 A a 5 V, step-up ~0,3 A: **~0,55 A** per la
 scatoletta. Lo step-up da' 12 V fino a 0,6 A, e il ricetrasmettitore ne vuole
