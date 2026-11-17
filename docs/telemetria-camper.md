@@ -982,6 +982,16 @@ Amazon, **domani**. Tre euro in meno, sei giorni prima, e una marca italiana
 con un catalogo dietro invece di un articolo anonimo. In magazzino ce ne sono
 sei.
 
+Seconda scelta, se la prima dal suo account risultasse tarda o esaurita:
+`B00EAQQFKO` — **Electraline 60558**, variante **120x80x50**, IP56, 8,90 €,
+venduta e spedita da Amazon, domani, 629 recensioni a 4,6. Attenzione a
+scegliere la misura: la stessa pagina vende anche 150x110x70 e 190x140x70.
+
+**La regola che si ricava**, e che vale per tutte e due: quella da 3,60 €
+tardava perche' il venditore era un terzo con spedizione a pagamento. Dove la
+scheda dice **«Speditore / Venditore: Amazon»** la consegna e' veloce e
+gratuita; dove dice un altro nome, il prezzo in tabella non e' il prezzo.
+
 A questo punto valeva la pena riaprirli tutti, perche' il conto degli errori
 era diventato interessante: **quattro codici su dodici** avevano un problema
 di consegna o di spedizione nascosta, e nessuno dei quattro si vedeva dalla
@@ -991,7 +1001,7 @@ riga della tabella. Ecco come stanno al 17/11/2026:
 |---|---|---|---|
 | 1 | `B0D8T5XD3P` | 21,84 € | giovedi' 19 |
 | 2 | `B0HC67CFCG` | 24,01 € | sabato 21 |
-| 3 | `B0GTTSHJBV` | 15,27 € | **5 dicembre** — oppure 20,76 € il 22 novembre |
+| 3 | `B0GTTSHJBV` | 15,27 € | sabato 21 — **letto dal suo account** |
 | 4 | `B095HM4V6W` | 9,99 € | domani |
 | 5 | `B0GYR648B4` | 7,99 € | giovedi' 19 |
 | 6 | `B0DPPTLF11` | 7,59 € | domani |
@@ -1002,13 +1012,17 @@ riga della tabella. Ecco come stanno al 17/11/2026:
 | 10 | `B07PPY9N62` | 5,99 € | domani |
 | 11 | `B00NH136GE` | 6,64 € | domani |
 
-**Resta una sola decisione aperta, e non e' un pezzo da cercare: e' il pezzo
-3.** Tutto il resto e' in casa entro sabato 21. La presa RJ12 → morsettiera a
-15,27 € arriva il 5 dicembre, cioe' **due settimane dopo l'ultimo degli
-altri**: finche' non c'e' quella, dodici pezzi su tredici stanno in un
-cassetto. I 5,49 € in piu' della versione spedita da Amazon comprano quelle
-due settimane, ed e' l'unico punto della lista dove pagare di piu' ha un
-senso misurabile.
+**Correzione, mezz'ora dopo: sul pezzo 3 avevo sbagliato.** Avevo scritto che
+arriva il 5 dicembre e che valeva la pena pagarlo 20,76 € per averlo il 22. Il
+proprietario, guardandolo **dal suo account**, vede **sabato 21 a 15,27 €**. La
+sua schermata vince sulla mia: io leggevo da una sessione senza login, su un
+indirizzo predefinito, e l'avevo anche scritto due paragrafi sopra — poi ho
+costruito una raccomandazione da 5,49 € sopra un dato che avevo appena
+dichiarato inaffidabile. Quei 5,49 € non servono.
+
+**Quindi non resta nessuna decisione aperta, e il collo di bottiglia era la
+scatola** — l'unico pezzo spedito da un venditore terzo con spese a parte, e
+l'unico che davvero arrivava il 24. Sostituita, arriva domani come gli altri.
 
 **La morale di questa tornata**, che vale per la prossima lista piu' che per
 questa: un codice Amazon non e' un pezzo. Il pezzo giusto con la spedizione
