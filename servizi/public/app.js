@@ -155,7 +155,7 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
            <div class="perche">se continua cos\u00ec, ${tendenza.verso === 'sale' ? 'piena' : 'a zero'} fra <b>${esc(dilloInOre(tendenza.ore_alla_meta))}</b> \u00b7 misurato su ${esc(dilloInOre(tendenza.finestra_ore))}</div>`;
 
   return `<div style="text-align:center">
-    <svg viewBox="0 0 236 170" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}${verso === 'carica' ? ', in carica' : verso === 'scarica' ? ', in scarica' : ''}">
+    <svg viewBox="0 0 236 182" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}${verso === 'carica' ? ', in carica' : verso === 'scarica' ? ', in scarica' : ''}">
       <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
       ${carica && !atteso ? `<path d="${arco(0, 100, R)}" stroke="var(--carica)" stroke-width="20" fill="none" stroke-linecap="round" class="alone"/>` : ''}
       ${pct != null && !atteso && pct < 99.5
@@ -164,7 +164,12 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
       ${tacche}${scia}${lancetta}
       <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)">${pct == null ? '\u2014' : Math.round(pct)}</text>
       <text x="${CX}" y="${CY + 48}" text-anchor="middle" font-size="11" fill="var(--fioco)">${pct == null ? '' : 'per cento'}</text>
-      ${conto ? `<text id="conto" class="conto" x="${CX}" y="${CY + 64}" text-anchor="middle" font-size="11" fill="var(--fioco)"></text>` : ''}
+      ${/* Le tre righe sotto il perno: numero a CY+34, «per cento» a CY+48,
+            contatore a CY+62. Il riquadro deve arrivare oltre l'ultima, o
+            l'SVG la taglia senza dire niente: e' successo due volte in
+            mezz'ora, con «per cento» e poi col contatore. Alzando una riga,
+            alzare anche il viewBox qui sopra. */ ''}
+      ${conto ? `<text id="conto" class="conto" x="${CX}" y="${CY + 62}" text-anchor="middle" font-size="11" fill="var(--fioco)"></text>` : ''}
     </svg>
     <div style="font-weight:600;margin-top:2px">${esc(nome)}</div>
     ${carica ? '<div class="carica-chip">\u26a1 in carica</div>' : ''}
