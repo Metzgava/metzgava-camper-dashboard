@@ -253,3 +253,26 @@ input:-webkit-autofill:active {
 @media (prefers-reduced-motion: reduce) {
   .alone { animation: none; opacity: .24 }
 }
+
+/* Il conto alla rovescia fino alla prossima lettura. Sta sulla stessa riga
+   dell'ora, in fondo alla testata: deve informare chi lo cerca e sparire per
+   chi non lo cerca. Negli ultimi dieci secondi si accende appena. */
+.conto { opacity: .75; }
+.conto.vicino { color: var(--testo); opacity: 1; font-variant-numeric: tabular-nums; }
+
+/* La lancetta che trema quando la carica si muove.
+   Mezzo grado e un secondo e mezzo: si vede con la coda dell'occhio e non
+   chiede attenzione. L'origine e' il perno del quadrante, in unita' del
+   viewBox, non il centro del riquadro: ruotare attorno al punto sbagliato
+   farebbe oscillare tutta la lancetta invece di farla vibrare sul perno. */
+.lancetta { transform-box: view-box; transform-origin: 118px 112px; }
+.lancetta.muove { animation: trema 1.6s ease-in-out infinite; }
+@keyframes trema {
+  0%, 100% { transform: rotate(-0.45deg); }
+  50%      { transform: rotate(0.45deg); }
+}
+/* Chi ha chiesto meno animazioni al sistema non deve vedere niente muoversi:
+   il colore della lancetta dice gia' tutto da solo. */
+@media (prefers-reduced-motion: reduce) {
+  .lancetta.muove { animation: none; }
+}

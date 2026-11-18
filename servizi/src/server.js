@@ -9,6 +9,7 @@ import { router as stato, aperte as statoAperte } from './routes/stato.js';
 import { router as taratura } from './routes/taratura.js';
 import { router as ingresso } from './routes/ingresso.js';
 import { registra, collegato } from './lib/bluetti.js';
+import { segnaGiro } from './lib/ritmo.js';
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -98,7 +99,10 @@ migrate().then(() => {
       const r = await registra();
       if (r.errore) console.warn('lettura Bluetti:', r.errore);
     };
-    const giro = () => leggi().catch(e => console.warn('lettura Bluetti:', e.message));
+    // Si segna il ritmo **prima** di leggere, non dopo: la pagina deve sapere
+    // quando scatta il giro, e una lettura che impiega dieci secondi non deve
+    // spostare in avanti il conto alla rovescia di dieci secondi a ogni volta.
+    const giro = () => { segnaGiro(); return leggi().catch(e => console.warn('lettura Bluetti:', e.message)); };
     setTimeout(giro, 20_000);
     setInterval(giro, passo * 60 * 1000);
   }

@@ -66,6 +66,19 @@ const etichetta = c => ETICHETTE[c]
 const BOLLI = { misurato: 'misurato', stima: 'stima', incompleto: 'incompleto' };
 const bollo = base => `<span class="bollo ${base}">${BOLLI[base] || base}</span>`;
 
+// Da che parte sta andando la Bluetti: entra piu' di quanto esce, o il
+// contrario. La soglia di 5 W toglie il rumore attorno allo zero — un
+// apparecchio acceso che non fa niente consuma qualche watt, e non e' una
+// scarica.
+const VERSO_W = 5;
+function versoBluetti(b) {
+  if (!b) return null;
+  const dentro = (b.fotovoltaico_w || 0) + (b.rete_w || 0);
+  const fuori = (b.uscita_ac_w || 0) + (b.uscita_dc_w || 0);
+  const netto = dentro - fuori;
+  return netto > VERSO_W ? 'carica' : netto < -VERSO_W ? 'scarica' : null;
+}
+
 // ---------- il manometro ----------
 //
 // Un quadrante con la lancetta, come quelli veri. Non mostra solo a che punto
@@ -79,7 +92,7 @@ const bollo = base => `<span class="bollo ${base}">${BOLLI[base] || base}</span>
 const ANG = p => 180 - 1.8 * Math.max(0, Math.min(100, p));          // gradi
 const PT = (cx, cy, r, g) => [cx + r * Math.cos(g * Math.PI / 180), cy - r * Math.sin(g * Math.PI / 180)];
 
-function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null }) {
+function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null, verso = null }) {
   const CX = 118, CY = 112, R = 86;
   const colore = atteso || pct == null ? 'var(--fioco)'
     : pct <= 20 ? 'var(--rosso)' : pct <= 45 ? 'var(--ambra)' : 'var(--verde)';
@@ -112,13 +125,23 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
   const scia = partenza == null ? '' :
     `<path d="${arco(Math.min(partenza, pct), Math.max(partenza, pct), R - 26)}" stroke="${colore}" stroke-opacity=".32" stroke-width="9" fill="none" stroke-linecap="round"/>`;
 
+  // La lancetta dice anche **da che parte sta andando**, con il colore e con un
+  // tremolio appena percettibile. Due sensi invece di uno: il colore si legge
+  // da fermo e a colpo d'occhio, il movimento si vede con la coda dell'occhio
+  // senza guardare. Ferma e nera vuol dire ferma davvero.
+  //
+  // Il tremolio e' mezzo grado scarso e dura un secondo e mezzo: deve dire
+  // «questa si sta muovendo», non chiedere attenzione. Chi ha chiesto meno
+  // animazioni al sistema non lo vede affatto.
+  const coloreLancetta = verso === 'carica' ? 'var(--verde)' : verso === 'scarica' ? 'var(--ambra)' : 'var(--testo)';
   let lancetta = '';
   if (!atteso && pct != null) {
     const [nx, ny] = PT(CX, CY, R - 20, ANG(pct));
     const [bx1, by1] = PT(CX, CY, 9, ANG(pct) + 90);
     const [bx2, by2] = PT(CX, CY, 9, ANG(pct) - 90);
-    lancetta = `<path d="M${bx1.toFixed(1)},${by1.toFixed(1)} L${nx.toFixed(1)},${ny.toFixed(1)} L${bx2.toFixed(1)},${by2.toFixed(1)} Z" fill="var(--testo)"/>
-      <circle cx="${CX}" cy="${CY}" r="7" fill="var(--testo)"/><circle cx="${CX}" cy="${CY}" r="3" fill="var(--carta)"/>`;
+    lancetta = `<g class="lancetta${verso ? ' muove' : ''}">
+      <path d="M${bx1.toFixed(1)},${by1.toFixed(1)} L${nx.toFixed(1)},${ny.toFixed(1)} L${bx2.toFixed(1)},${by2.toFixed(1)} Z" fill="${coloreLancetta}"/>
+      <circle cx="${CX}" cy="${CY}" r="7" fill="${coloreLancetta}"/><circle cx="${CX}" cy="${CY}" r="3" fill="var(--carta)"/></g>`;
   }
 
   const riga = atteso
@@ -132,7 +155,7 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
            <div class="perche">se continua cos\u00ec, ${tendenza.verso === 'sale' ? 'piena' : 'a zero'} fra <b>${esc(dilloInOre(tendenza.ore_alla_meta))}</b> \u00b7 misurato su ${esc(dilloInOre(tendenza.finestra_ore))}</div>`;
 
   return `<div style="text-align:center">
-    <svg viewBox="0 0 236 152" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}">
+    <svg viewBox="0 0 236 152" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}${verso === 'carica' ? ', in carica' : verso === 'scarica' ? ', in scarica' : ''}">
       <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
       ${carica && !atteso ? `<path d="${arco(0, 100, R)}" stroke="var(--carica)" stroke-width="20" fill="none" stroke-linecap="round" class="alone"/>` : ''}
       ${pct != null && !atteso && pct < 99.5
@@ -188,7 +211,7 @@ function guscio(dentro) {
       <header class="testata">
         <img src="icona.svg" alt="">
         <h1>Camper Servizi</h1>
-        <div class="quando">${dati?.letto_il ? 'letto alle ' + ora(dati.letto_il) : ''}<br>
+        <div class="quando">${dati?.letto_il ? 'letto alle ' + ora(dati.letto_il) : ''}<span id="conto" class="conto"></span><br>
           <button class="btn piccolo" id="rileggi" style="margin-top:4px">↻ rileggi</button></div>
       </header>
       <main id="vista">${dentro}</main>
@@ -219,7 +242,12 @@ function vistaAdesso() {
         ? `<div class="scheda"><div class="nota">Nessun apparecchio sul conto Bluetti.</div></div>`
         : `<div class="scheda">
             ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza,
-              carica: (dati.conti?.ingresso?.valore || 0) > 0 })}
+              carica: (dati.conti?.ingresso?.valore || 0) > 0,
+              // Il verso della lancetta e' il **netto**, non l'ingresso: col
+              // sole che entra e il frigo che tira, quel che conta per la
+              // carica e' chi dei due vince. Una lancetta verde su una
+              // batteria che si sta svuotando sarebbe una bugia col colore.
+              verso: versoBluetti(b) })}
             ${dati.bluetti?.vecchia ? `<div style="margin-top:12px">${fasciaVecchia()}</div>` : ''}
             ${dati.bluetti?.travaso ? `<div style="margin-top:12px">${fasciaTravaso()}</div>` : ''}
             <div class="riga" style="margin-top:14px">
@@ -263,7 +291,8 @@ function vistaAdesso() {
         tendenza: r?.tendenza, atteso: !r, perche: 'con la scatoletta',
         // Un filo di corrente positiva e' rumore attorno allo zero, non una
         // carica: sotto i 50 mA non si annuncia niente.
-        carica: d.ampere != null && d.ampere > 0.05 })}
+        carica: d.ampere != null && d.ampere > 0.05,
+        verso: d.ampere == null ? null : d.ampere > 0.05 ? 'carica' : d.ampere < -0.05 ? 'scarica' : null })}
       <div class="scheda" style="margin:8px 0 0;padding:10px 9px;margin-top:auto">
         <div class="eti">Carica residua</div>
         <div class="cifra" style="font-size:19px">${d.carica == null ? '<span class="vuoto">—</span>' : num(d.carica, 0) + ' %'}</div>
@@ -996,6 +1025,48 @@ async function controllaVersione() {
   // Un attimo perche' si legga l'avviso, e la ricarica senza la cache
   setTimeout(() => location.reload(), 900);
 }
+
+// ---------- il conto alla rovescia ----------
+//
+// Il server legge la Bluetti a intervalli suoi e dice in /stato quando tocca
+// alla prossima. La pagina lo mostra piccolo accanto all'ora, e allo scoccare
+// si ricarica da se': senza quello il numero scenderebbe e i dati resterebbero
+// fermi, che e' peggio di non avere il conto.
+//
+// Tre cautele, tutte imparate dal buon senso piu' che dai guasti:
+//
+// 1. **La grazia.** Il giro del server dura qualche secondo — e se il cloud
+//    rifiuta, aspetta sei secondi e riprova. Chiedere allo scoccare esatto
+//    riporterebbe il numero di prima. Si aspetta un momento.
+// 2. **Solo dove non si scrive.** `disegna()` rifa' tutta la pagina. In
+//    «Impianto» si compilano caselle, in «Comandi» si preme: una ricarica
+//    automatica sotto le dita cancellerebbe quel che si sta facendo. Li' il
+//    conto si vede ma non ricarica niente.
+// 3. **Non a scheda nascosta.** Un telefono in tasca non deve chiedere niente.
+const GRAZIA_S = 7;
+const STANZE_VIVE = ['#/adesso', '#/energia'];
+let ultimoAuto = 0;
+
+function battito() {
+  const el = $('#conto');
+  if (!el) return;
+  const p = dati?.prossima_lettura;
+  if (!p) { el.textContent = ''; return; }
+  const s = Math.round((new Date(p).getTime() - Date.now()) / 1000);
+  if (s > 0) {
+    el.textContent = ` \u00b7 ${s} s`;
+    el.className = 'conto' + (s <= 10 ? ' vicino' : '');
+    return;
+  }
+  el.textContent = ' \u00b7 aggiorno\u2026';
+  el.className = 'conto vicino';
+  if (s > -GRAZIA_S || document.hidden) return;
+  if (!STANZE_VIVE.some(v => (location.hash || '#/adesso').startsWith(v))) return;
+  if (Date.now() - ultimoAuto < 15000) return;
+  ultimoAuto = Date.now();
+  disegna().catch(() => { /* un giro saltato non e' un errore da mostrare */ });
+}
+setInterval(battito, 1000);
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) controllaVersione(); });
 window.addEventListener('focus', controllaVersione);

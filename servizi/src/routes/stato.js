@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { q, segna } from '../lib/db.js';
+import { passoMinuti, prossimoGiro } from '../lib/ritmo.js';
 import { statoBluetti, collegato, associa, comanda, COMANDI,
   indirizzoAutorizza, completaAutorizzazione } from '../lib/bluetti.js';
 import { tuttiIConti, impianto } from '../lib/conti.js';
@@ -99,8 +100,15 @@ router.get('/stato', wrap(async (req, res) => {
   for (const r of ultimi) {
     if (r.dati?.carica != null) r.tendenza = await tendenza(r.apparecchio);
   }
+  // Il ritmo del giro periodico: serve alla pagina per il conto alla
+  // rovescia e per ricaricarsi da se'. Puo' essere nullo — letture spente,
+  // oppure il contenitore e' appena ripartito e il primo giro non c'e'
+  // ancora stato: la pagina in quel caso non mostra niente, invece di
+  // mostrare un numero inventato.
   res.json({
     letto_il: new Date().toISOString(),
+    passo_minuti: passoMinuti(),
+    prossima_lettura: prossimoGiro()?.toISOString() || null,
     bluetti,
     conti,
     comandi: COMANDI,
