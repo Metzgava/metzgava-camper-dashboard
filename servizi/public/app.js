@@ -262,7 +262,11 @@ function vistaAdesso() {
               <div style="text-align:right"><div class="eti">Modalità</div>
                 <div class="sotto" style="font-size:14px;color:var(--testo)">${esc(b.modalita || '—')}</div></div>
             </div>
-            ${b.errore ? `<div class="avviso" style="margin-top:14px">${esc(b.errore)}</div>` : ''}
+            ${b.errore ? `<div class="avviso" style="margin-top:14px">${esc(b.errore)}
+              <div class="perche" style="margin-top:8px">Succede dopo un nuovo «Agree»: il permesso torna buono ma
+                l’apparecchio resta scollegato da questa app, e il loro cloud smette di mandarne i valori.
+                Il tasto qui sotto lo riaggancia senza rifare il collegamento.</div>
+              <button class="btn piccolo" id="riassocia" style="margin-top:10px">↺ Riassocia l’apparecchio</button></div>` : ''}
           </div>
           <div class="griglia stretta">
             <div class="scheda"><div class="eti">Entra</div><div class="cifra">${forse(dentro, ' W')}</div>
@@ -907,6 +911,22 @@ async function disegna() {
 function aggancia() {
   const r = $('#rileggi');
   if (r) r.onclick = sicuro(async () => { r.textContent = '…'; await api('/stato?fresco=1'); await disegna(); brindello('Riletto'); });
+
+  // Riagganciare l'apparecchio al conto: la rotta c'era dal primo giorno, il
+  // tasto no. Il 18/11 il proprietario ha rifatto l'Agree e la Bluetti e'
+  // sparita dai valori — elenco pieno, stati vuoti — e l'unico rimedio stava
+  // in un indirizzo che nessuna pagina chiamava.
+  const ra = $('#riassocia');
+  if (ra) ra.onclick = sicuro(async () => {
+    ra.disabled = true;
+    ra.textContent = 'Riaggancio\u2026';
+    const e = await api('/bluetti/associa', { method: 'POST' });
+    await disegna();
+    // Il loro cloud dice OK a qualunque seriale: la prova vera e' che dopo
+    // arrivino i numeri. Si riferisce quello, non la risposta.
+    brindello(e.arrivano_i_numeri ? 'Riagganciata: arrivano i numeri'
+      : 'Richiesta accettata, ma il cloud non manda ancora valori');
+  });
 
   for (const id of ['c-da', 'c-a', 'c-a-amp']) {
     const e = document.getElementById(id);
