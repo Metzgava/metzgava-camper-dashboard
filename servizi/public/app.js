@@ -169,7 +169,7 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
             l'SVG la taglia senza dire niente: e' successo due volte in
             mezz'ora, con «per cento» e poi col contatore. Alzando una riga,
             alzare anche il viewBox qui sopra. */ ''}
-      ${conto ? `<text id="conto" class="conto" x="${CX}" y="${CY + 63}" text-anchor="middle" font-size="13" fill="var(--fioco)"></text>` : ''}
+      ${conto ? `<text id="conto" class="conto" x="${CX}" y="${CY + 63}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--testo)"></text>` : ''}
     </svg>
     <div style="font-weight:600;margin-top:2px">${esc(nome)}</div>
     ${carica ? '<div class="carica-chip">\u26a1 in carica</div>' : ''}
