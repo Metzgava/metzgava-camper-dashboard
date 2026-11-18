@@ -1356,3 +1356,109 @@ codici verificati sta qui sopra ed e' buona finche' i prodotti restano in
 vendita; il vincolo della tappa 1 pure. L'unica cosa che scade sono i prezzi.
 E resta la domanda mai risolta, che e' anche la prima da risolvere: **se
 quello spinotto libero sia davvero il TIN-Bus.**
+
+## 18/11/2026: tre diagnosi sbagliate sulla Bluetti, e quella giusta
+
+Giornata di misure vere invece di ipotesi, resa possibile da una cosa banale:
+il ritmo di lettura portato da **quindici minuti a uno**. Con un righello
+lungo quindici minuti non si misura una cosa che dura pochi minuti, e per due
+giorni abbiamo dedotto dove si poteva osservare.
+
+### Quel che il loro cloud manda davvero: tredici grandezze, e le usiamo tutte
+
+Letto dai log il 18/11, per l'Elite 300 `EL3002605110301917`:
+
+```
+SOC  PVAllTotalPower  GridAllTotalPower  ACLoadAllTotalPower
+DCLoadAllTotalPower  ChgFullTime  DsgFullTime  SetCtrlAc
+SetCtrlDc  SetACECO  SetDCECO  SetSleepMode  SetCtrlWorkMode
+```
+
+Tredici, e **le usiamo tutte e tredici**. Non c'e' niente di scartato da
+andare a ripescare. Conseguenze dirette:
+
+- **nessun campo per l'alternatore**, nessun PV1/PV2, nessun ingresso DC
+  separato: c'e' un solo numero per tutto quel che entra dal DC;
+- **nessun interruttore inutilizzato** tranne `SetCtrlWorkMode`, la modalita'
+  di lavoro, che leggiamo ma non comandiamo;
+- quindi **il Charger 2 non si vede ne' si comanda da questo collegamento**.
+  Non e' codice da scrivere: il dato non passa di li'.
+
+Resta una prova da fare, che costa trenta secondi: **col motore acceso, di
+notte o in garage, guardare il fotovoltaico.** Se sale, l'alternatore entra
+dall'ingresso solare ed e' mescolato li' dentro. Se resta a zero, entra da una
+porta che il cloud non racconta affatto, e l'unica strada e' il Bluetooth dal
+Raspberry.
+
+### L'805 non e' una scadenza: e' intermittenza, circa una volta su due
+
+A un minuto di ritmo, sette letture di fila con lo **stesso** gettone, senza
+rinnovi:
+
+| lettura | eta' | esito |
+|---|---|---|
+| 1 | 1 min | passa |
+| 2 | 2 min | **805** |
+| 3 | 3 min | passa |
+| 4 | 4 min | **805** |
+| 5 | 5 min | passa |
+| 6 | 6 min | **805** |
+| 7 | 7 min | **805** |
+
+Non dipende dall'eta' e non dipende dal numero di letture. **Il loro gateway
+rifiuta circa meta' delle richieste, a caso**, e dopo i sei secondi di attesa
+lo stesso identico gettone funziona.
+
+Due mie conclusioni di oggi, scritte e poi smontate dai dati:
+
+1. «muore entro quindici minuti» — falso: altri gettoni hanno servito letture
+   a 21, 48 e **60 minuti** di eta';
+2. «muore dopo N letture» — falso: il settimo giro con lo stesso gettone va
+   benissimo.
+
+Le avevo costruite tutte e due generalizzando da quattro righe di log. La
+diagnosi giusta era gia' scritta nel sorgente il giorno prima — «805 non vuol
+dire che il permesso e' morto» — e l'ho scavalcata due volte in un pomeriggio.
+
+### L'Agree non ripara: rompe
+
+Alle 13:38-13:41 quattro letture di fila pulite. Alle **13:41:36** il
+proprietario preme «Collega» e rifa' l'Agree. Zero secondi dopo, il gettone
+appena emesso viene rifiutato dal loro stesso gateway; il freno sui rinnovi —
+che esiste per non invalidare la sessione — blocca il rimedio per dieci
+minuti; e per nove minuti l'apparecchio compare nell'elenco **senza mandare
+un solo valore**: quadrante con un trattino e l'avviso «l'apparecchio non e'
+associato, oppure non sta riferendo».
+
+Alle 13:50, scaduto il freno, e' tornato tutto da solo. **Nove minuti di buio
+causati dal rimedio, non dal guasto.**
+
+**E il guasto vero era di disegno, non del cloud.** La rotta per riagganciare
+l'apparecchio — `POST /bluetti/associa` — esisteva dal primo giorno, e
+**nessuna pagina la chiamava.** Davanti a un quadrante vuoto l'unica cosa
+premibile era «Collega la Bluetti», cioe' un altro Agree, cioe' la cosa che
+aveva appena rotto tutto. Il giro vizioso di ieri era probabilmente questo.
+
+Un rimedio che esiste e non si puo' raggiungere non e' un rimedio. Ora il
+tasto compare dentro l'avviso, quando serve, e riferisce la prova giusta: il
+loro cloud risponde «va bene» a qualunque seriale, quindi conta se **dopo
+arrivano i numeri**.
+
+### E un guasto mio, silenzioso, che e' costato venti minuti
+
+Pubblicato il conto alla rovescia e le lancette colorate, il proprietario ha
+ricaricato e non ha visto **niente**. Nessuno dei due pezzi era rotto.
+
+`index.html` chiamava `app.js?v=16` — un numero di versione **scritto a mano**
+— e i file erano serviti con un'ora di cache. Avevo cambiato il codice senza
+toccare quel numero.
+
+E' il tipo di guasto peggiore: **non da' nessun segnale.** La pubblicazione
+riesce, il server e' aggiornato, il sito risponde, e io avevo persino
+«verificato» che i file nuovi fossero serviti — vero, a chi li chiedeva. Il
+suo telefono non li chiedeva.
+
+Il rimedio non e' ricordarselo. L'impronta dei file c'era gia', la calcola
+`/api/health` all'avvio: ora `index.html` si serve sostituendo il `?v=` con
+quella. Cambia un file, cambia l'indirizzo, il browser riscarica. Il numero a
+mano non esiste piu' e non si puo' piu' dimenticare.
