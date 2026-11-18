@@ -10,6 +10,7 @@ import { router as taratura } from './routes/taratura.js';
 import { router as ingresso } from './routes/ingresso.js';
 import { registra, collegato } from './lib/bluetti.js';
 import { segnaGiro } from './lib/ritmo.js';
+import { conImpronta } from './lib/pagina.js';
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -54,6 +55,22 @@ app.use('/api', statoAperte);
 app.use('/api', auth);
 app.use('/api', stato);
 app.use('/api', taratura);
+
+// La pagina si serve a mano, per sostituire il `?v=` dei suoi file con
+// l'impronta. Deve stare **prima** di express.static, che altrimenti
+// risponderebbe lei a «/» con il file cosi' com'e' sul disco.
+//
+// Letta una volta sola all'avvio: pesa trecento byte, e a ogni pubblicazione
+// il contenitore riparte comunque.
+const PAGINA = (() => {
+  try { return conImpronta(fs.readFileSync(path.join(PUBBLICA, 'index.html'), 'utf8'), IMPRONTA); }
+  catch { return null; }
+})();
+app.get(['/', '/index.html'], (req, res, next) => {
+  if (!PAGINA) return next();
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  res.type('html').send(PAGINA);
+});
 
 // La pagina e il suo codice cambiano a ogni pubblicazione: vanno riconvalidati
 // a ogni visita, altrimenti dopo un aggiornamento il telefono continua a
