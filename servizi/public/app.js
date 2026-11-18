@@ -92,7 +92,7 @@ function versoBluetti(b) {
 const ANG = p => 180 - 1.8 * Math.max(0, Math.min(100, p));          // gradi
 const PT = (cx, cy, r, g) => [cx + r * Math.cos(g * Math.PI / 180), cy - r * Math.sin(g * Math.PI / 180)];
 
-function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null, verso = null }) {
+function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null, verso = null, conto = false }) {
   const CX = 118, CY = 112, R = 86;
   const colore = atteso || pct == null ? 'var(--fioco)'
     : pct <= 20 ? 'var(--rosso)' : pct <= 45 ? 'var(--ambra)' : 'var(--verde)';
@@ -155,7 +155,7 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
            <div class="perche">se continua cos\u00ec, ${tendenza.verso === 'sale' ? 'piena' : 'a zero'} fra <b>${esc(dilloInOre(tendenza.ore_alla_meta))}</b> \u00b7 misurato su ${esc(dilloInOre(tendenza.finestra_ore))}</div>`;
 
   return `<div style="text-align:center">
-    <svg viewBox="0 0 236 152" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}${verso === 'carica' ? ', in carica' : verso === 'scarica' ? ', in scarica' : ''}">
+    <svg viewBox="0 0 236 170" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}${verso === 'carica' ? ', in carica' : verso === 'scarica' ? ', in scarica' : ''}">
       <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
       ${carica && !atteso ? `<path d="${arco(0, 100, R)}" stroke="var(--carica)" stroke-width="20" fill="none" stroke-linecap="round" class="alone"/>` : ''}
       ${pct != null && !atteso && pct < 99.5
@@ -164,6 +164,7 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
       ${tacche}${scia}${lancetta}
       <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)">${pct == null ? '\u2014' : Math.round(pct)}</text>
       <text x="${CX}" y="${CY + 48}" text-anchor="middle" font-size="11" fill="var(--fioco)">${pct == null ? '' : 'per cento'}</text>
+      ${conto ? `<text id="conto" class="conto" x="${CX}" y="${CY + 64}" text-anchor="middle" font-size="11" fill="var(--fioco)"></text>` : ''}
     </svg>
     <div style="font-weight:600;margin-top:2px">${esc(nome)}</div>
     ${carica ? '<div class="carica-chip">\u26a1 in carica</div>' : ''}
@@ -211,7 +212,7 @@ function guscio(dentro) {
       <header class="testata">
         <img src="icona.svg" alt="">
         <h1>Camper Servizi</h1>
-        <div class="quando">${dati?.letto_il ? 'letto alle ' + ora(dati.letto_il) : ''}<span id="conto" class="conto"></span><br>
+        <div class="quando">${dati?.letto_il ? 'letto alle ' + ora(dati.letto_il) : ''}<br>
           <button class="btn piccolo" id="rileggi" style="margin-top:4px">↻ rileggi</button></div>
       </header>
       <main id="vista">${dentro}</main>
@@ -247,7 +248,7 @@ function vistaAdesso() {
               // sole che entra e il frigo che tira, quel che conta per la
               // carica e' chi dei due vince. Una lancetta verde su una
               // batteria che si sta svuotando sarebbe una bugia col colore.
-              verso: versoBluetti(b) })}
+              verso: versoBluetti(b), conto: true })}
             ${dati.bluetti?.vecchia ? `<div style="margin-top:12px">${fasciaVecchia()}</div>` : ''}
             ${dati.bluetti?.travaso ? `<div style="margin-top:12px">${fasciaTravaso()}</div>` : ''}
             <div class="riga" style="margin-top:14px">
@@ -1054,12 +1055,12 @@ function battito() {
   if (!p) { el.textContent = ''; return; }
   const s = Math.round((new Date(p).getTime() - Date.now()) / 1000);
   if (s > 0) {
-    el.textContent = ` \u00b7 ${s} s`;
-    el.className = 'conto' + (s <= 10 ? ' vicino' : '');
+    el.textContent = `\u21bb ${s} s`;
+    el.setAttribute('class', 'conto' + (s <= 10 ? ' vicino' : ''));
     return;
   }
-  el.textContent = ' \u00b7 aggiorno\u2026';
-  el.className = 'conto vicino';
+  el.textContent = '\u21bb aggiorno\u2026';
+  el.setAttribute('class', 'conto vicino');
   if (s > -GRAZIA_S || document.hidden) return;
   if (!STANZE_VIVE.some(v => (location.hash || '#/adesso').startsWith(v))) return;
   if (Date.now() - ultimoAuto < 15000) return;

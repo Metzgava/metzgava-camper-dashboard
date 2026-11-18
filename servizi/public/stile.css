@@ -257,8 +257,11 @@ input:-webkit-autofill:active {
 /* Il conto alla rovescia fino alla prossima lettura. Sta sulla stessa riga
    dell'ora, in fondo alla testata: deve informare chi lo cerca e sparire per
    chi non lo cerca. Negli ultimi dieci secondi si accende appena. */
-.conto { opacity: .75; }
-.conto.vicino { color: var(--testo); opacity: 1; font-variant-numeric: tabular-nums; }
+/* Sta dentro il quadrante, sotto «per cento»: e' un pezzo dello strumento, non
+   un'etichetta della testata. In SVG il colore del testo si da' con `fill`, e
+   `color` qui non avrebbe effetto. */
+.conto { opacity: .7; font-variant-numeric: tabular-nums; }
+.conto.vicino { fill: var(--testo); opacity: 1; }
 
 /* La lancetta che trema quando la carica si muove.
    Mezzo grado e un secondo e mezzo: si vede con la coda dell'occhio e non

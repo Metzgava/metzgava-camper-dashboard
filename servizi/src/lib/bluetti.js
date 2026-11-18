@@ -325,9 +325,23 @@ export const COMANDI = {
   sonno: { codice: 'SetSleepMode', nome: 'Modalita’ sonno', avviso: 'Mette la Bluetti a dormire: consuma meno e risponde meno.' },
 };
 
+// Quali grandezze manda davvero il loro cloud. Ne usiamo quindici e buttiamo
+// via tutto il resto senza mai averlo guardato: la potenza dell'alternatore,
+// gli ingressi DC separati, gli interruttori che non conosciamo stanno li'
+// dentro, se ci sono.
+//
+// Si scrive **solo quando l'elenco cambia**, non a ogni lettura: a un minuto
+// di ritmo sarebbero 1.440 righe identiche al giorno. Cosi' ne basta una.
+let codiciVisti = '';
+
 function traduci(a) {
   const v = {};
   for (const s of (a.stateList || [])) v[s.fnCode] = s.fnValue;
+  const codici = Object.keys(v).sort().join(',');
+  if (codici && codici !== codiciVisti) {
+    codiciVisti = codici;
+    console.log(`Bluetti: grandezze offerte da ${a.sn || 'apparecchio ignoto'} (${Object.keys(v).length}): ${Object.entries(v).map(([k, x]) => `${k}=${x}`).join(' ')}`);
+  }
   const autonomia = NUM(v.DsgFullTime);
   return {
     nome: a.name || a.sn,
