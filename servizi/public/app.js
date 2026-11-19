@@ -643,6 +643,7 @@ function vistaFlusso() {
             f.totale == null ? '—' : num(f.totale, 0) + ' W'}</text>
         </g>
       </svg>
+      ${f.ferma ? `<div class="perche" style="text-align:center;color:var(--ambra)">La figura &egrave; <b>ferma</b>: le ultime letture delle batterie sono di un pezzo fa, e far scorrere i puntini su numeri vecchi direbbe che sta entrando corrente adesso.</div>` : ''}
       ${qualcosaCarica ? '' : (f.altrove
         ? `<div class="perche" style="text-align:center">Le fonti producono, ma <b>nelle batterie non entra niente</b>: sono gi&agrave; cariche, e quella corrente sta andando ai consumi del camper invece che alla carica.</div>`
         : `<div class="perche" style="text-align:center">Nessuna fonte sta caricando: non &egrave; un guasto, &egrave; quel che succede a motore spento, senza sole e senza 220.</div>`)}

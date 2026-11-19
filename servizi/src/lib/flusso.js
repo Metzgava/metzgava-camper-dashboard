@@ -159,7 +159,21 @@ function numero(v) {
 // il totale, e il 19/11/2026 la figura spariva nello stato piu' comune della
 // giornata -- confondendo «non entra niente» con «non so niente», che e'
 // proprio la distinzione che il resto del progetto tiene separata dappertutto.
-export function ramiDellaCarica(fonti, { letture = false, bluetti = null } = {}) {
+// Oltre questa eta' la figura non si anima piu'. Mezz'ora, come per i
+// termometri: col passo a due minuti sono quindici letture perse, e uno o due
+// giri saltati sono normali.
+export const FERMA_DOPO_MINUTI = 30;
+
+export function ramiDellaCarica(fonti, { letture = false, bluetti = null,
+                                         minuti = null } = {}) {
+  // Un disegno che si muove su dati vecchi mente meglio di un numero fermo: i
+  // puntini che scorrono dicono «sta entrando corrente **adesso**» con piu'
+  // forza di quanta ne abbia uno zero immobile. Quindi oltre la mezz'ora i
+  // rami restano fermi, e i numeri restano scritti -- erano veri, solo di
+  // prima: e' l'eta' che va detta, non il valore che va nascosto.
+  //
+  // Non sapere l'eta' non vuol dire «vecchio»: si continua come prima, o una
+  // chiamata che si dimentica di passarla spegnerebbe la figura per sempre.
   const misurato = numero(fonti?.valore);
   // Senza letture delle Ective non c'e' niente da disegnare, e la pagina
   // mostra la spiegazione di cosa manca -- e' il `manca()` di conti.js.
@@ -205,6 +219,15 @@ export function ramiDellaCarica(fonti, { letture = false, bluetti = null } = {})
   // Il ramo della 220 dice da dove viene, quando si puo' sapere. La
   // **quantita'** resta una sottrazione: sapere da dove viene non la rende
   // misurata, e il bollino della stima resta.
+  const ferma = minuti != null && minuti > FERMA_DOPO_MINUTI;
+  if (ferma) {
+    for (const r of rami) {
+      r.attivo = false;
+      r.spessore = SPESSORE.min;
+      r.secondi = null;
+    }
+  }
+
   const origine = origineDella220(bluetti);
   for (const r of rami) {
     if (r.id !== 'rete') continue;
@@ -213,5 +236,8 @@ export function ramiDellaCarica(fonti, { letture = false, bluetti = null } = {})
     if (origine === 'bluetti') r.travaso = true;
   }
 
-  return altrove ? { totale, rami, altrove } : { totale, rami };
+  const fuori = { totale, rami };
+  if (altrove && !ferma) fuori.altrove = true;
+  if (ferma) fuori.ferma = true;
+  return fuori;
 }
