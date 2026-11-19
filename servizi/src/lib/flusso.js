@@ -33,7 +33,72 @@ const FONTI = [
   { id: 'rete', nome: 'Dalla 220', icona: '\u{1F50C}', campo: 'rete_w', certezza: 'dedotto' },
 ];
 
+// Sotto questa potenza e' rumore, non un flusso. Non e' inventata qui: sta in
+// `app.js` come `VERSO_W`, con la sua ragione -- un apparecchio acceso che non
+// fa niente consuma qualche watt, e non e' una scarica. Un ramo che si muove
+// per il rumore direbbe che sta succedendo qualcosa quando non succede niente.
+//
+// Vale per la Bluetti, che dichiara i suoi watt anche da ferma. Non per le
+// Ective, dove la corrente in ingresso e' gia' il fatto che interessa.
+export const SOGLIA_W = 5;
+
 const fra = (v, min, max) => Math.min(max, Math.max(min, v));
+
+// Come si vede un ramo che porta `watt` su un totale di `totale`. La scala e'
+// sempre sul totale del **proprio lato**: trecento watt in uscita e dieci in
+// entrata, con una scala sola, farebbero dell'entrata un filo invisibile --
+// mentre quei dieci watt sono tutto quel che entra.
+function aspetto(watt, totale, soglia = 0) {
+  const arrotonda = (v, n = 1) => Math.round(v * 10 ** n) / 10 ** n;
+  const attivo = watt > soglia && totale > 0;
+  const quota = attivo ? fra(watt / totale, 0, 1) : 0;
+  return {
+    attivo,
+    spessore: attivo
+      ? arrotonda(SPESSORE.min + (SPESSORE.max - SPESSORE.min) * quota)
+      : SPESSORE.min,
+    secondi: attivo
+      ? arrotonda(SECONDI.lento - (SECONDI.lento - SECONDI.veloce) * quota, 2)
+      : null,
+  };
+}
+
+// I due lati della Bluetti: cosa le entra e cosa le esce.
+//
+// Rispetto alle Ective cambia una cosa, ed e' importante: **tutti e quattro i
+// numeri sono misurati**, arrivano dal loro cloud cosi' come sono. Nessun ramo
+// dedotto, nessun bollino di stima -- la figura non deve aggiungere incertezza
+// dove non ce n'e'.
+const BLUETTI = {
+  entrata: [
+    { id: 'fotovoltaico', nome: 'Fotovoltaico', icona: '\u2600\uFE0F', campo: 'fotovoltaico_w' },
+    { id: 'rete', nome: 'Dalla rete', icona: '\u{1F50C}', campo: 'rete_w' },
+  ],
+  uscita: [
+    { id: 'ac', nome: '220 V', icona: '\u{1F50C}', campo: 'uscita_ac_w' },
+    { id: 'dc', nome: '12 V', icona: '\u{1F50B}', campo: 'uscita_dc_w' },
+  ],
+};
+
+function lato(elenco, b) {
+  const letti = elenco.map(({ campo, ...f }) => ({ ...f, watt: numero(b[campo]) }));
+  const totale = letti.reduce((s, r) => s + (r.watt > 0 ? r.watt : 0), 0);
+  return {
+    totale,
+    rami: letti.map(r => r.watt == null
+      ? { ...r, ignoto: true, attivo: false, spessore: SPESSORE.min, secondi: null }
+      : { ...r, ...aspetto(r.watt, totale, SOGLIA_W) }),
+  };
+}
+
+export function ramiDellaBluetti(b) {
+  if (!b) return null;
+  return {
+    carica: numero(b.carica),
+    entrata: lato(BLUETTI.entrata, b),
+    uscita: lato(BLUETTI.uscita, b),
+  };
+}
 
 // `null` quando non si sa, e non zero: prima regola del progetto. `Number(null)`
 // fa 0, quindi il controllo va fatto prima della conversione.

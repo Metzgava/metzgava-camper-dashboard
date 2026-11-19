@@ -211,6 +211,16 @@ router.get('/eventi', wrap(async (req, res) => {
 // Si manda un comando solo con `conferma: true` nel corpo. Non e' burocrazia:
 // un tocco per sbaglio sullo schermo del telefono, in tasca, spegnerebbe la
 // 220 del camper mentre il frigo e' acceso.
+// Perche' un comando e' stato rifiutato, detto al proprietario.
+//
+// `comanda()` mette la spiegazione in italiano nel campo `errore`; il cloud di
+// Bluetti, quando parla lui, riempie `messaggio` -- il 17/11 in cinese. Qui si
+// leggeva solo `messaggio`, quindi la frase scritta con cura veniva prodotta a
+// ogni rifiuto e **buttata via**, e restava la generica «Il cloud ha rifiutato
+// il comando»: vera, e inutile.
+export const motivoRifiuto = r =>
+  r?.errore || r?.messaggio || 'Il cloud ha rifiutato il comando';
+
 router.post('/comandi/:quale', wrap(async (req, res) => {
   const quale = String(req.params.quale);
   const def = COMANDI[quale];
@@ -224,7 +234,7 @@ router.post('/comandi/:quale', wrap(async (req, res) => {
   const acceso = req.body?.acceso === true;
   const r = await comanda(a.sn, def.codice, acceso ? 1 : 0);
   await segna('comando', `${def.nome} → ${acceso ? 'acceso' : 'spento'} su ${a.nome}: ${r.ok ? 'riuscito' : 'FALLITO — ' + (r.messaggio || '')}`, req.utente.email);
-  if (!r.ok) return res.status(502).json({ error: r.messaggio || 'Il cloud ha rifiutato il comando' });
+  if (!r.ok) return res.status(502).json({ error: motivoRifiuto(r) });
   res.json({ ok: true });
 }));
 

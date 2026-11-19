@@ -530,6 +530,21 @@ export async function associa(sns) {
 
 // Un comando all'apparecchio. Non si chiama da sola: la rotta lo fa solo
 // quando qualcuno ha confermato, e scrive negli eventi chi e cosa.
+// Cosa si legge quando il loro cloud rifiuta un comando.
+//
+// Diceva «il permesso Bluetti e' scaduto: ricollega dall'Impianto e riprova»,
+// e mandava a rifare un collegamento che quasi sempre non serve. Il percorso
+// delle letture lo aveva gia' scoperto, e ha un commento lungo che lo dice:
+// **805 non vuol dire che il permesso e' morto**. E' un rifiuto momentaneo del
+// loro cloud, e trenta secondi dopo passa.
+//
+// Due parti dello stesso programma credevano cose diverse sullo stesso codice
+// d'errore, e quella che sbagliava era proprio quella che parla col
+// proprietario. Il 19/11/2026 gli e' costato un quarto d'ora di comandi
+// premuti a vuoto.
+export const RIFIUTO_805 = 'il cloud Bluetti sta rifiutando in questo momento: '
+  + 'aspetta un minuto e riprova. Se insiste, ricollega dall\u2019Impianto.';
+
 export async function comanda(sn, codice, valore) {
   const { accesso } = await gettoni();
   if (!accesso) return { ok: false, errore: 'nessun gettone' };
@@ -548,7 +563,7 @@ export async function comanda(sn, codice, valore) {
   // si puo' pescare dall'archivio, un interruttore deve arrivare davvero
   // all'apparecchio.
   if (Number(r.dato?.msgCode) === 805 || r.http === 401) {
-    return { ok: false, errore: 'il permesso Bluetti e\u2019 scaduto: ricollega dall\u2019Impianto e riprova' };
+    return { ok: false, errore: RIFIUTO_805 };
   }
   // `Number()` e non `===`: il loro cloud manda msgCode anche come stringa, ed
   // e' l'inciampo che il 16/11 aveva tenuto nascosto il guasto per sei ore.
