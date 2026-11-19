@@ -25,7 +25,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import './aiuto/archivio-finto.js';
 
-const { sipuoRinnovare, DISTANZA, RIFIUTI_PER_INSISTERE } = await import('../src/lib/bluetti.js');
+const { sipuoRinnovare, dopoUnRifiuto, DISTANZA, RIFIUTI_PER_INSISTERE } =
+  await import('../src/lib/bluetti.js');
 
 const ADESSO = 1_000_000_000;
 
@@ -57,6 +58,53 @@ test('una lettura riuscita azzera il conto, e il freno torna a valere', () => {
 test('la soglia non è zero, o il freno non esisterebbe', () => {
   assert.ok(RIFIUTI_PER_INSISTERE >= 2,
     'con una soglia di uno, il primo rifiuto rinnoverebbe sempre: il freno sparirebbe');
+});
+
+test('trenta rifiuti di fila non fanno trenta rinnovi', () => {
+  // Difetto introdotto e visto in produzione un'ora dopo: alle 15:11 il
+  // registro del server diceva «27 rifiuti di fila. Rinnovo lo stesso».
+  // Ventisette.
+  //
+  // Superata la soglia, la condizione restava vera per sempre e si rinnovava
+  // a **ogni singola lettura**: la grandinata che il freno doveva evitare,
+  // reintrodotta dalla valvola che doveva evitare la paralisi. Scambiata una
+  // paralisi con un martellamento.
+  //
+  // La prova di prima non lo prendeva: la funzione pura era giusta, il
+  // difetto stava in chi la chiama. Quindi si prova la **sequenza**, che e'
+  // dove vive il comportamento.
+  let stato = { ultimoRinnovo: ADESSO - DISTANZA - 1, rifiutiDiFila: 0 };
+  let rinnovi = 0;
+  for (let i = 0; i < 30; i++) {
+    // Tutti i rifiuti dentro la stessa finestra: il tempo non aiuta mai.
+    stato = dopoUnRifiuto(stato, ADESSO + i * 1000);
+    if (stato.rinnova) rinnovi++;
+  }
+  assert.ok(rinnovi <= 7, `trenta rifiuti hanno fatto ${rinnovi} rinnovi: e’ una grandinata`);
+  assert.ok(rinnovi >= 5, `solo ${rinnovi} rinnovi su trenta rifiuti: e’ di nuovo immobilita’`);
+});
+
+test('il primo rinnovo arriva subito, se il tempo di guardia e’ passato', () => {
+  // La valvola non deve ritardare il caso normale: il primo rifiuto dopo
+  // dieci minuti di quiete rinnova al volo.
+  const s = dopoUnRifiuto({ ultimoRinnovo: ADESSO - DISTANZA - 1, rifiutiDiFila: 0 }, ADESSO);
+  assert.equal(s.rinnova, true);
+});
+
+test('dopo aver rinnovato, il conto riparte', () => {
+  const s = dopoUnRifiuto({ ultimoRinnovo: ADESSO - DISTANZA - 1, rifiutiDiFila: 0 }, ADESSO);
+  assert.equal(s.rifiutiDiFila, 0, 'senza azzerarlo si rinnova a ogni lettura');
+  assert.equal(s.ultimoRinnovo, ADESSO);
+});
+
+test('dentro la finestra servono altri cinque rifiuti per insistere', () => {
+  let stato = { ultimoRinnovo: ADESSO, rifiutiDiFila: 0 };
+  for (let i = 1; i < RIFIUTI_PER_INSISTERE; i++) {
+    stato = dopoUnRifiuto(stato, ADESSO + i);
+    assert.equal(stato.rinnova, false, `al rifiuto ${i} non doveva rinnovare`);
+  }
+  stato = dopoUnRifiuto(stato, ADESSO + RIFIUTI_PER_INSISTERE);
+  assert.equal(stato.rinnova, true, 'al quinto doveva insistere');
 });
 
 test('al primo avvio, senza nessun rinnovo alle spalle, si può rinnovare', () => {

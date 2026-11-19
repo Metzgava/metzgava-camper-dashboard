@@ -59,6 +59,30 @@ export function sipuoRinnovare({ adesso, ultimoRinnovo: quando, rifiutiDiFila: q
   if (adesso - quando >= distanza) return true;
   return quanti >= soglia;
 }
+
+// Lo stato dopo un rifiuto: quanti ne contiamo, se si rinnova, e da quando.
+//
+// **Qui sta il tetto all'insistenza**, e la prima stesura non ce l'aveva.
+// Superata la soglia la condizione restava vera per sempre, e si rinnovava a
+// ogni singola lettura: alle 15:11 del 19/11/2026 il registro del server
+// diceva «27 rifiuti di fila. Rinnovo lo stesso». Ventisette. Cioe' la
+// grandinata che il freno doveva evitare, reintrodotta dalla valvola che
+// doveva evitare la paralisi -- una paralisi scambiata con un martellamento.
+//
+// Il rimedio: dopo aver insistito il conto **riparte**, quindi per insistere
+// di nuovo servono altri cinque rifiuti. Trenta rifiuti di fila diventano sei
+// rinnovi invece di ventisei.
+//
+// Sta in una funzione sua perche' il difetto non era nella decisione singola
+// -- quella era giusta -- ma nella sequenza, ed e' la sequenza che va provata.
+export function dopoUnRifiuto(stato, adesso) {
+  const quanti = (stato?.rifiutiDiFila || 0) + 1;
+  const quando = stato?.ultimoRinnovo || 0;
+  if (!sipuoRinnovare({ adesso, ultimoRinnovo: quando, rifiutiDiFila: quanti })) {
+    return { ultimoRinnovo: quando, rifiutiDiFila: quanti, rinnova: false };
+  }
+  return { ultimoRinnovo: adesso, rifiutiDiFila: 0, rinnova: true };
+}
 // Una lettura per volta, e le altre aspettano quella in corso.
 //
 // Senza questo, due richieste contemporanee — il giro periodico e una pagina
@@ -509,15 +533,17 @@ async function leggiDavvero({ fresco = false } = {}) {
   // freno ogni lettura rifiutata ne faceva uno, e quando la pagina e' aperta
   // sono tre al minuto: una grandinata che non ha mai aiutato nessuno.
   if (rifiutato(r)) {
-    rifiutiDiFila++;
-    if (!sipuoRinnovare({ adesso: Date.now(), ultimoRinnovo, rifiutiDiFila })) {
+    const presto = Date.now() - ultimoRinnovo < DISTANZA;
+    const dopo = dopoUnRifiuto({ ultimoRinnovo, rifiutiDiFila }, Date.now());
+    rifiutiDiFila = dopo.rifiutiDiFila;
+    if (!dopo.rinnova) {
       console.warn(`Bluetti: rifiutato (${rifiutiDiFila} di fila), ma ho rinnovato meno di ${Math.round(DISTANZA / 60000)} minuti fa. Aspetto ancora: insisto al ${RIFIUTI_PER_INSISTERE}\u00b0.`);
       return ultimaBuona('il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro');
     }
-    if (Date.now() - ultimoRinnovo < DISTANZA) {
-      console.warn(`Bluetti: ${rifiutiDiFila} rifiuti di fila. Rinnovo lo stesso, anche se e\u2019 presto: il freno non deve diventare immobilita\u2019.`);
+    if (presto) {
+      console.warn('Bluetti: abbastanza rifiuti di fila. Rinnovo lo stesso, anche se e\u2019 presto: il freno non deve diventare immobilita\u2019.');
     }
-    ultimoRinnovo = Date.now();
+    ultimoRinnovo = dopo.ultimoRinnovo;
     const n = await rinnovaEVerifica(rinnovo);
     if (n.esito === 'ok') {
       accesso = n.accesso;
