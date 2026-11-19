@@ -45,7 +45,7 @@ from pathlib import Path
 QUI = Path(__file__).resolve().parent
 sys.path.insert(0, str(QUI.parent))
 
-from agente import termometri_scelti  # noqa: E402
+from agente import termometri_scelti, pacco_termometro  # noqa: E402
 
 
 class ProveTermometri(unittest.TestCase):
@@ -160,6 +160,59 @@ class ProveTermometri(unittest.TestCase):
         self.assertEqual(nostri, [])
         self.assertEqual(len(estranei), 1)
         self.assertEqual(assurdi, [])
+
+
+class ProvePacco(unittest.TestCase):
+    """Come si impacchetta un termometro per il server.
+
+    **Il tipo va scritto due volte**, e non e' una ripetizione per sbaglio: il
+    server, nell'istantanea, conserva soltanto `dati` -- e l'istantanea e' quel
+    che l'app mostra nel riquadro «adesso». Un `tipo` scritto solo accanto a
+    `dati` arriva al server, viene usato per lo storico, e **non arriva mai in
+    pagina**.
+
+    Il 19/11/2026 e' costato una sezione «Temperature» che diceva «nessun
+    termometro in elenco» mentre i tre termometri mandavano regolarmente: il
+    filtro della pagina cercava `dati.tipo`, che non c'era. Blink lo scrive due
+    volte dal primo giorno; i termometri no, e nessuno se ne era accorto perche'
+    nessuna pagina li guardava ancora.
+    """
+
+    def test_il_tipo_sta_anche_dentro_dati(self):
+        pacco = pacco_termometro("AA:BB:CC:00:00:01", "frigo",
+                                 {"temperatura": 4.5, "umidita": 61}, -55)
+        self.assertEqual(pacco["tipo"], "termometro")
+        self.assertEqual(pacco["dati"]["tipo"], "termometro",
+                         "senza questo la pagina non lo vede")
+
+    def test_il_nome_sta_anche_dentro_dati(self):
+        # Stessa ragione: la pagina legge l'etichetta da `dati`, non
+        # dall'identificativo, che e' un MAC senza i due punti.
+        pacco = pacco_termometro("AA:BB:CC:00:00:01", "frigo",
+                                 {"temperatura": 4.5}, None)
+        self.assertEqual(pacco["dati"]["nome"], "frigo")
+
+    def test_le_misure_sono_solo_numeri_da_mettere_in_archivio(self):
+        # `tipo` e `nome` non sono grandezze: il server le scarterebbe con una
+        # riga negli eventi a ogni giro, come gia' succedeva all'umidita'.
+        pacco = pacco_termometro("AA:BB:CC:00:00:01", "frigo",
+                                 {"temperatura": 4.5, "umidita": 61, "pila": 88}, -55)
+        self.assertEqual(set(pacco["misure"]),
+                         {"temperatura", "umidita", "pila", "rssi"})
+
+    def test_la_potenza_del_segnale_entra_nei_dati_e_nelle_misure(self):
+        pacco = pacco_termometro("AA:BB:CC:00:00:01", "frigo", {"temperatura": 4.5}, -55)
+        self.assertEqual(pacco["dati"]["rssi"], -55)
+        self.assertEqual(pacco["misure"]["rssi"], -55)
+
+    def test_senza_potenza_non_si_inventa_un_rssi(self):
+        pacco = pacco_termometro("AA:BB:CC:00:00:01", "frigo", {"temperatura": 4.5}, None)
+        self.assertNotIn("rssi", pacco["dati"])
+        self.assertNotIn("rssi", pacco["misure"])
+
+    def test_l_identificativo_viene_dall_indirizzo(self):
+        pacco = pacco_termometro("AA:BB:CC:00:00:01", "frigo", {"temperatura": 4.5}, None)
+        self.assertEqual(pacco["id"], "term-aabbcc000001")
 
 
 if __name__ == "__main__":

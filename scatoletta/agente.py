@@ -309,6 +309,39 @@ def termometri_scelti(sentiti, nomi):
             nostri.append((indirizzo, etichetta, letto))
     return nostri, estranei, assurdi
 
+def pacco_termometro(indirizzo, etichetta, letto, forza):
+    """Il pacchetto di un termometro, come lo aspetta il server.
+
+    **Il tipo e il nome si scrivono due volte**, e non e' una ripetizione per
+    sbaglio: nell'istantanea il server conserva soltanto `dati`, e l'istantanea
+    e' quel che l'app mostra nel riquadro «adesso». Un `tipo` scritto solo
+    accanto a `dati` serve allo storico e **non arriva mai in pagina**.
+
+    Il 19/11/2026 e' costato una sezione «Temperature» che diceva «nessun
+    termometro in elenco» mentre i tre termometri mandavano regolarmente: il
+    filtro della pagina cercava `dati.tipo`, che non c'era. Blink lo scrive due
+    volte dal primo giorno; i termometri no, e nessuno se ne era accorto perche'
+    nessuna pagina li guardava ancora.
+
+    In `misure` vanno solo i numeri da mettere in archivio: `tipo` e `nome` non
+    sono grandezze, e il server li scarterebbe con una riga negli eventi a ogni
+    giro -- com'e' successo all'umidita' per settimane.
+    """
+    misure = {k: v for k, v in letto.items()
+              if k in ("temperatura", "umidita", "pila")}
+    dati = dict(letto, tipo="termometro", nome=etichetta)
+    if forza is not None:
+        dati["rssi"] = forza
+        misure["rssi"] = forza
+    return {
+        "id": "term-" + indirizzo.replace(":", "").lower(),
+        "nome": etichetta,
+        "tipo": "termometro",
+        "dati": dati,
+        "misure": misure,
+    }
+
+
 def _le(h: str, i: int, n: int, signed=False):
     """n byte a partire dal carattere i, byte invertiti."""
     b = bytes.fromhex(h[i:i + n * 2])
@@ -446,17 +479,10 @@ async def giro_bluetooth(conf):
                  f" ({nome})" if nome and nome != indirizzo else "",
                  f" {t} gradi" if t is not None else "")
     for indirizzo, etichetta, letto in nostri:
-        forza = potenze.get(indirizzo)
         # `pila` entra nello storico insieme alle altre: una tensione che scende
         # e' quel che dice di cambiare la batteria prima che il sensore taccia.
-        misure = {k: v for k, v in letto.items() if k in ("temperatura", "umidita", "pila")}
-        if forza is not None:
-            letto = dict(letto, rssi=forza)
-            misure["rssi"] = forza
-        trovati[etichetta] = {
-            "id": "term-" + indirizzo.replace(":", "").lower(), "nome": etichetta,
-            "tipo": "termometro", "dati": letto, "misure": misure,
-        }
+        trovati[etichetta] = pacco_termometro(indirizzo, etichetta, letto,
+                                              potenze.get(indirizzo))
 
     # --- 2. le Ective: collegarsi e stare ad ascoltare ---
     vicini = await BleakScanner.discover(timeout=conf.get("secondi_ricerca", 8))
