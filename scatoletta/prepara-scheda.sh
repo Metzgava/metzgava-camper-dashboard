@@ -87,12 +87,13 @@ mkdir -p "$SCHEDA/scatoletta"
 # partita e avrebbe perso le telecamere al primo giro, in camper, con la
 # scheda gia' infilata. Ora l'elenco e' uno, e `prove/test_scheda.py` lo
 # controlla.
-PEZZI="agente.py blink.py blink-accedi.py aggiungi-rete.sh installa.sh"
+PEZZI="agente.py blink.py blink-accedi.py aggiungi-rete.sh aggiungi-victron.sh elenca-victron.py installa.sh"
 for pezzo in $PEZZI; do
   cp "$DOVE/$pezzo" "$SCHEDA/scatoletta/$pezzo"
 done
 cp "$CONFIG" "$SCHEDA/scatoletta/config.json"
-chmod +x "$SCHEDA/scatoletta/installa.sh" "$SCHEDA/scatoletta/aggiungi-rete.sh" 2>/dev/null || true
+chmod +x "$SCHEDA/scatoletta/installa.sh" "$SCHEDA/scatoletta/aggiungi-rete.sh" \
+         "$SCHEDA/scatoletta/aggiungi-victron.sh" 2>/dev/null || true
 
 # La partizione di avvio e' FAT: non tiene i permessi e la legge chiunque
 # infili la scheda in un computer. La chiave della porta ci passa, e va bene

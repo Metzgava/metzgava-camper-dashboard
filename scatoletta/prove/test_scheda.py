@@ -27,6 +27,8 @@ SERVONO = [
     "blink.py",         # le telecamere: `agente.py` lo importa
     "blink-accedi.py",  # l'accesso una volta sola, si lancia a mano
     "aggiungi-rete.sh", # la seconda rete WiFi
+    "aggiungi-victron.sh",  # la chiave di cifratura di una Victron
+    "elenca-victron.py",    # quel che `aggiungi-victron.sh` chiama per sentirle
     "installa.sh",      # il servizio di sistema
     "config.json",      # la configurazione
 ]
