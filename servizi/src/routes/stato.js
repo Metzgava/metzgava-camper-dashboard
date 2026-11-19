@@ -25,16 +25,16 @@ const wrap = f => (req, res, next) => Promise.resolve(f(req, res, next)).catch(n
 // Gli apparecchi che esistono nel camper ma che ancora non parlano con noi.
 // Elencarli non e' un difetto: e' la differenza fra «non c'e'» e «non lo so».
 const ATTESI = [
-  { id: 'ective', nome: 'Batterie Ective', icona: '\u{1F50B}',
+  { id: 'ective', nome: 'Batterie Ective', icona: '\u{1F50B}', spia: /^NWJ/i,
     perche: 'Parlano solo via Bluetooth, dieci metri di raggio. Arrivano con la scatoletta in camper.',
     cosa: 'volt, ampere, carica, le quattro celle, temperatura, cicli' },
-  { id: 'smartsolar', nome: 'SmartSolar MPPT', icona: '☀️',
+  { id: 'smartsolar', nome: 'SmartSolar MPPT', icona: '☀️', spia: /smartsolar/i,
     perche: 'Annunci Bluetooth cifrati: si leggono solo da vicino. Chiave gia’ in mano.',
     cosa: 'volt, ampere, watt dai pannelli, resa del giorno' },
-  { id: 'orion', nome: 'Orion XS', icona: '\u{1F501}',
+  { id: 'orion', nome: 'Orion XS', icona: '\u{1F501}', spia: /orion/i,
     perche: 'Come sopra. Decodificato e verificato il 16/11/2026.',
     cosa: 'volt e ampere dei due lati, stato della carica' },
-  { id: 'allarme', nome: 'Centrale d’allarme', icona: '\u{1F6A8}',
+  { id: 'allarme', nome: 'Centrale d’allarme', icona: '\u{1F6A8}', spia: /^allarme$/i,
     perche: 'Si legge in locale sulla rete del camper, protocollo 3.5. Arriva con la scatoletta.',
     cosa: 'inserito o no, se e’ scattato e da quale zona, batteria' },
   { id: 'starlink', nome: 'Starlink', icona: '\u{1F6F0}️',
@@ -50,6 +50,29 @@ const ATTESI = [
 // Con meno di un quarto d'ora di storia **non si dichiara niente**: due
 // letture vicine fanno pendenze assurde, e una previsione sbagliata e' peggio
 // di nessuna previsione.
+// Chi e' ancora atteso, cioe' chi non si e' ancora fatto sentire.
+//
+// L'elenco era fisso, e chi cominciava a parlare restava dentro. Il
+// 19/11/2026, mezz'ora dopo aver messo le chiavi, SmartSolar e Orion XS
+// mandavano volt e ampere e la pagina continuava a dire che sarebbero arrivati
+// con la scatoletta: lo stesso apparecchio due volte, una come dato e una come
+// promessa. Solo le Ective venivano nascoste, da un filtro scritto a mano
+// nell'app -- perche' non si chiamano «ective», si chiamano NWJ2022...
+//
+// Un elenco di promesse che non si accorge di essere stato mantenuto invecchia
+// male: ogni apparecchio nuovo chiederebbe di ricordarsi di togliere una riga,
+// e nessuno si ricorda. Quindi ogni atteso porta la propria spia, e chi non ne
+// ha resta atteso per sempre -- Starlink si legge solo dalla rete del piatto, e
+// nessuna istantanea potra' mai somigliarle.
+//
+// La spia non viene spedita al browser: un'espressione regolare in JSON
+// diventa `{}`, inutile da una parte e confondente dall'altra.
+export function ancoraAttesi(attesi, istantanee) {
+  return (attesi || [])
+    .filter(a => !a.spia || !(istantanee || []).some(r => a.spia.test(String(r.apparecchio || ''))))
+    .map(({ spia, ...resto }) => resto);
+}
+
 async function tendenza(apparecchio) {
   const righe = (await q(`SELECT quando, valore FROM misure
     WHERE apparecchio=$1 AND grandezza='carica' AND quando > now() - interval '8 hours'
@@ -114,7 +137,7 @@ router.get('/stato', wrap(async (req, res) => {
     comandi: COMANDI,
     collegamento,
     impianto: fissi,
-    attesi: ATTESI,
+    attesi: ancoraAttesi(ATTESI, ultimi),
     istantanee: ultimi,
   });
 }));

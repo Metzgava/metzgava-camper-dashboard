@@ -322,7 +322,10 @@ function vistaAdesso() {
       <div class="perche" style="text-align:center;margin-top:6px">Stesso quadrante della Bluetti, stessa lancetta: appena il Raspberry sarà a bordo si accendono.</div>`}
     </div>`;
 
-  const attesi = (dati.attesi || []).filter(a => a.id !== 'ective').map(a => `<div class="scheda atteso">
+  // Nessun filtro qui: il server manda solo chi e' ancora atteso davvero,
+  // riconoscendo chi ha cominciato a parlare. Prima c'era un
+  // `a.id !== 'ective'` scritto a mano, e SmartSolar e Orion no.
+  const attesi = (dati.attesi || []).map(a => `<div class="scheda atteso">
       <div class="riga" style="border:0;padding:0">
         <div class="cresci"><div class="cifra">${a.icona} ${esc(a.nome)}</div>
           <div class="perche">${esc(a.perche)}</div>
@@ -335,6 +338,7 @@ function vistaAdesso() {
     <div class="titolo">Batterie di servizio</div>
     ${ective}
 ${catena()}
+    ${vistaTemperature()}
     ${vistaTelecamere()}
     ${vistaSegnale()}
         <div class="titolo">Non ancora collegati</div>
@@ -491,6 +495,65 @@ function dataCorta(quando) {
   } catch {
     return '—';
   }
+}
+
+// ---------- le temperature ----------
+//
+// I termometri mandano tre cose che cambiano a velocita' diverse: la
+// temperatura, che si guarda; l'umidita', che spiega la condensa prima che si
+// veda sulle pareti; e la carica della pila, che dice quando cambiarla prima
+// che il sensore taccia.
+//
+// Tre scelte che sembrano dettagli.
+//
+// 1. **L'eta' della lettura sta accanto al numero, non in fondo alla scheda.**
+//    Un termometro che tace da tre ore mostra comunque un numero plausibile --
+//    dieci gradi sono dieci gradi -- e nessuno si accorgerebbe che e' la
+//    temperatura di stamattina. Sopra la mezz'ora, cioe' sei giri di
+//    scatoletta, l'eta' si colora: uno o due giri persi sono normali, sei no.
+// 2. **Se l'elenco e' vuoto la sezione non sparisce: spiega.** Sparendo
+//    direbbe «non hai termometri», mentre la verita' e' «non sono ancora in
+//    elenco», e sono due cose diverse. Il 19/11/2026 la scatoletta sentiva
+//    quattro sensori e non ne mandava nessuno, e dalla pagina non si capiva
+//    perche'.
+// 3. **Niente zero al posto del non so.** Un sensore che non manda la
+//    temperatura mostra una lineetta. Zero gradi e' una notizia, non
+//    un'assenza di notizie.
+function vistaTemperature() {
+  const term = (dati.istantanee || []).filter(r => r.dati?.tipo === 'termometro')
+    .sort((a, b) => String(a.dati.nome || a.apparecchio).localeCompare(String(b.dati.nome || b.apparecchio)));
+  if (!term.length) {
+    return `<div class="titolo">Temperature</div>
+      <div class="scheda">
+        <div class="riga"><div class="cresci">
+          <div class="eti">Nessun termometro in elenco</div>
+          <div class="perche">La scatoletta sente i sensori che le stanno intorno, ma manda solo quelli che le hai indicato: le misure degli altri non sono tue da conservare. Si aggiungono alla voce <code>termometri</code> di <code>config.json</code>, un indirizzo per riga, col nome che vuoi leggere qui.</div>
+        </div></div>
+      </div>`;
+  }
+  const adesso = Date.now();
+  return `<div class="titolo">Temperature</div>
+    <div class="scheda">
+      ${term.map(r => {
+        const d = r.dati;
+        const minuti = (adesso - new Date(r.quando).getTime()) / 60000;
+        const stanca = minuti > 30;
+        const sotto = [
+          d.umidita == null ? '' : `${num(d.umidita, 0)}% di umidit\u00e0`,
+          d.pila == null ? '' : `pila ${num(d.pila, 0)}%`,
+          d.rssi == null ? '' : antenna(d.rssi),
+        ].filter(Boolean).join(' \u00b7 ');
+        return `<div class="riga">
+          <div class="cresci"><div class="eti">${esc(d.nome || r.apparecchio)}</div>
+            <div class="perche">${sotto}</div></div>
+          <div style="text-align:right">
+            <div class="cifra" style="font-size:22px">${d.temperatura == null
+              ? '<span class="vuoto">\u2014</span>' : num(d.temperatura, 1) + ' \u00b0C'}</div>
+            <div class="perche"${stanca ? ' style="color:var(--ambra)"' : ''}>${esc(dilloInMinuti(minuti))}</div></div>
+        </div>`;
+      }).join('')}
+      <div class="nota" style="margin:8px 0 0">L\u2019umidit\u00e0 non e\u2019 un ornamento: sopra il 70% in cellula la condensa si forma sulle pareti fredde, e il numero lo dice prima che si veda.</div>
+    </div>`;
 }
 
 function vistaSegnale() {
