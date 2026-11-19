@@ -379,8 +379,14 @@ def ective_leggi(flusso: str):
 # Il giro della radio
 # ----------------------------------------------------------------------------
 
-async def giro_bluetooth(conf):
-    from bleak import BleakScanner, BleakClient
+async def ascolta_annunci(conf, secondi=None):
+    """Solo ascolto: chi grida i suoi dati a chiunque passi.
+
+    Victron e termometri mandano annunci ogni pochi secondi e non vanno
+    interrogati. Questa fase non si collega a niente, e per questo puo' durare
+    pochi secondi -- e' la base del giro svelto.
+    """
+    from bleak import BleakScanner
 
     trovati = {}
     chiavi = {k.lower(): v for k, v in (conf.get("victron") or {}).items()}
@@ -426,7 +432,12 @@ async def giro_bluetooth(conf):
 
     scanner = BleakScanner(detection_callback=senti)
     await scanner.start()
-    await asyncio.sleep(conf.get("secondi_annunci", 12))
+    # Quanto si ascolta. Il giro lento si prende i suoi dodici secondi; quello
+    # svelto ne chiede meno, perche' deve stare dentro un passo da dieci. Si
+    # perde qualche annuncio, ma chi grida ogni due o tre secondi lo si
+    # risente al giro dopo -- che adesso e' fra dieci secondi, non fra due
+    # minuti.
+    await asyncio.sleep(secondi or conf.get("secondi_annunci", 12))
     await scanner.stop()
 
     for indirizzo, (nome, grezzo) in annunci.items():
@@ -483,6 +494,15 @@ async def giro_bluetooth(conf):
         # e' quel che dice di cambiare la batteria prima che il sensore taccia.
         trovati[etichetta] = pacco_termometro(indirizzo, etichetta, letto,
                                               potenze.get(indirizzo))
+
+    return trovati, potenze
+
+
+async def giro_bluetooth(conf):
+    """Il giro intero: gli annunci, poi le Ective -- che vanno interrogate."""
+    from bleak import BleakScanner, BleakClient
+    trovati, potenze = await ascolta_annunci(conf)
+    prefissi_ective = conf.get("ective_prefissi") or ["NWJ"]
 
     # --- 2. le Ective: collegarsi e stare ad ascoltare ---
     vicini = await BleakScanner.discover(timeout=conf.get("secondi_ricerca", 8))
@@ -640,6 +660,62 @@ def svuota_coda(conf) -> int:
 
 # ----------------------------------------------------------------------------
 
+# ----------------------------------------------------------------------------
+# Il vivo: due ritmi invece di uno
+# ----------------------------------------------------------------------------
+#
+# Disegno: docs/superpowers/specs/2026-11-19-dal-vivo-design.md
+#
+# Il fatto che decide tutto non e' software, e' aritmetica: un giro completo
+# dura piu' di un minuto, e quasi tutto quel tempo se ne va nei due
+# collegamenti alle Ective. **Un giro da dieci secondi che legge tutto non
+# esiste.**
+#
+# Quindi due ritmi. Il giro svelto ascolta solo chi grida -- Victron e
+# termometri mandano annunci a chiunque passi -- e non si collega a niente. Il
+# giro lento resta quello di sempre, con le Ective, l'allarme e le Blink.
+
+SVELTO_MINIMO = 6        # sotto, i giri si accavallano: l'ascolto dura comunque
+SVELTO_MASSIMO = 120     # oltre, non e' «svelto»: e' un errore del server
+
+
+def passo_dal_server(risposta):
+    """Quanti secondi fra un giro svelto e l'altro, o None per il proprio passo.
+
+    `None` non vuol dire «fermati»: vuol dire **tieni il tuo passo**, quello di
+    `config.json`. Il server non possiede un numero che non gli appartiene.
+
+    Ogni risposta strana porta al lento: il passo svelto costa corrente alla
+    batteria servizi, e nessuno se ne accorgerebbe finche' il camper non resta
+    al buio.
+    """
+    if not isinstance(risposta, dict):
+        return None
+    valore = risposta.get("secondi")
+    if isinstance(valore, bool) or not isinstance(valore, (int, float)):
+        return None
+    if valore != valore or valore <= 0 or valore > SVELTO_MASSIMO:   # NaN compreso
+        return None
+    return max(int(valore), SVELTO_MINIMO)
+
+
+async def giro_svelto(conf, secondi_ascolto=5):
+    """Un giro corto: solo gli annunci, e via.
+
+    Non si collega a niente e non tocca ne' le webcam ne' la centrale: quelle
+    stanno nel giro lento. Un giro svelto che si collegasse non si romperebbe
+    -- rallenterebbe -- e un passo da dieci secondi con un minuto di
+    collegamenti dentro vuol dire giri accavallati, radio sempre accesa e
+    batteria che si svuota in silenzio.
+    """
+    trovati, _potenze = await ascolta_annunci(conf, secondi=secondi_ascolto)
+    apparecchi = list(trovati.values())
+    if not apparecchi:
+        return None
+    pacco = {"fonte": conf.get("nome", "scatoletta"), "apparecchi": apparecchi}
+    return spedisci(conf, pacco)
+
+
 async def un_giro(conf):
     apparecchi = []
     try:
@@ -786,14 +862,76 @@ def configurazione_fresca(precedente):
     return letta
 
 
+# La radio e' una sola: i due ritmi non possono scandire insieme. Chi arriva
+# mentre l'altro ascolta **salta il proprio turno** invece di mettersi in coda:
+# un giro svelto in ritardo di un minuto non e' piu' svelto, e accodarlo
+# vorrebbe dire una raffica di giri arretrati appena la radio si libera.
+RADIO = None
+
+
+def chiede_il_vivo(conf):
+    """Quanti secondi di passo chiede il server, o None.
+
+    Una richiesta minuscola ogni quindici secondi. Il WiFi e' gia' acceso e
+    una riga di HTTP e' una frazione di quel che costa una scansione
+    Bluetooth -- ma il traffico lo paga il 4G del camper, quindi la risposta
+    deve restare una riga.
+    """
+    import urllib.request
+    indirizzo = conf["server"].rstrip("/") + "/api/ingresso/ritmo"
+    richiesta = urllib.request.Request(
+        indirizzo, headers={"Authorization": "Bearer " + conf["chiave"]})
+    try:
+        with urllib.request.urlopen(richiesta, timeout=8) as r:
+            return passo_dal_server(json.loads(r.read()))
+    except Exception:                                 # noqa: BLE001
+        # Muto. **Si sbaglia verso il lento**: un guasto di rete non deve
+        # lasciare la radio al massimo mentre il camper e' lontano.
+        return None
+
+
+async def ciclo_svelto(conf_viva):
+    """Chiede ogni quindici secondi se qualcuno guarda, e se si' va svelto."""
+    acceso = False
+    while True:
+        conf = conf_viva()
+        passo = await asyncio.get_running_loop().run_in_executor(
+            None, chiede_il_vivo, conf)
+        if passo is None:
+            if acceso:
+                log.info("nessuno guarda piu': torno al passo normale")
+            acceso = False
+            await asyncio.sleep(15)
+            continue
+        if not acceso:
+            log.info("qualcuno guarda: passo svelto, un giro ogni %d secondi", passo)
+            acceso = True
+        if RADIO.locked():
+            # Il giro lento sta usando la radio: si salta, non si accoda.
+            await asyncio.sleep(passo)
+            continue
+        async with RADIO:
+            try:
+                await giro_svelto(conf)
+            except Exception as e:                    # noqa: BLE001
+                log.warning("giro svelto fallito: %s", e)
+        await asyncio.sleep(passo)
+
+
 async def main():
+    global RADIO
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if not CONFIG.exists():
         log.error("manca %s: copia config.json.esempio e riempilo", CONFIG)
         sys.exit(1)
+    RADIO = asyncio.Lock()
     conf = json.loads(CONFIG.read_text())
     passo = passo_di(conf)
     log.info("scatoletta avviata, un giro ogni %d minuti verso %s", passo // 60, conf["server"])
+    # Il giro svelto vive a parte e non aspetta quello lento. Gli si passa una
+    # funzione invece della configurazione, cosi' vede anche i cambiamenti
+    # riletti dal giro lento senza doverseli passare a mano.
+    asyncio.create_task(ciclo_svelto(lambda: conf))
     while True:
         inizio = time.time()
         risposta = None
@@ -805,7 +943,8 @@ async def main():
         if passo != prima:
             log.info("passo cambiato: un giro ogni %d minuti", passo // 60)
         try:
-            risposta = await un_giro(conf)
+            async with RADIO:
+                risposta = await un_giro(conf)
         except Exception as e:                        # noqa: BLE001
             log.exception("giro fallito: %s", e)
         # Il passo e' fra un inizio e l'altro, non fra una fine e l'altra:
