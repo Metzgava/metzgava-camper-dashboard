@@ -232,6 +232,15 @@ function vistaAdesso() {
 
   const dentro = b ? (b.fotovoltaico_w || 0) + (b.rete_w || 0) : null;
   const fuori = b ? (b.uscita_ac_w || 0) + (b.uscita_dc_w || 0) : null;
+  // L'eta' va scritta **accanto al numero**, non solo nella fascia sopra. Il
+  // 19/11/2026 la Bluetti e' rimasta ferma sei minuti su una lettura presa un
+  // istante prima che il 220 venisse acceso: quadrante al 100%, entra 0,
+  // esce 0, mentre erogava quattrocento watt. La fascia c'era e lo diceva, ma
+  // stava sotto il quadrante -- e un manometro che segna 100% lo credi prima
+  // di leggere la riga piccola che lo smentisce.
+  const eta = dati.bluetti?.vecchia
+    ? ` <span style="color:var(--ambra);font-weight:600">· ${esc(dilloInMinuti(dati.bluetti.minuti))}</span>`
+    : '';
 
   // Anche quando non e' collegata, la Bluetti si disegna come quadrante: cosi'
   // la pagina ha sempre la stessa forma e si capisce a colpo d'occhio che cosa
@@ -247,6 +256,7 @@ function vistaAdesso() {
       : !b
         ? `<div class="scheda"><div class="nota">Nessun apparecchio sul conto Bluetti.</div></div>`
         : `<div class="scheda">
+            ${dati.bluetti?.vecchia ? fasciaVecchia() : ''}
             ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza,
               carica: (dati.conti?.ingresso?.valore || 0) > 0,
               // Il verso della lancetta e' il **netto**, non l'ingresso: col
@@ -254,7 +264,6 @@ function vistaAdesso() {
               // carica e' chi dei due vince. Una lancetta verde su una
               // batteria che si sta svuotando sarebbe una bugia col colore.
               verso: versoBluetti(b), conto: true })}
-            ${dati.bluetti?.vecchia ? `<div style="margin-top:12px">${fasciaVecchia()}</div>` : ''}
             ${dati.bluetti?.travaso ? `<div style="margin-top:12px">${fasciaTravaso()}</div>` : ''}
             <div class="riga" style="margin-top:14px">
               <div class="cresci"><div class="eti">Col consumo di adesso</div>
@@ -274,11 +283,11 @@ function vistaAdesso() {
               <button class="btn piccolo" id="riassocia" style="margin-top:10px">↺ Riassocia l’apparecchio</button></div>` : ''}
           </div>
           <div class="griglia stretta">
-            <div class="scheda"><div class="eti">Entra</div><div class="cifra">${forse(dentro, ' W')}</div>
+            <div class="scheda"><div class="eti">Entra${eta}</div><div class="cifra">${forse(dentro, ' W')}</div>
               <div class="sotto">☀️ ${forse(b.fotovoltaico_w, ' W')}<br>🔌 ${forse(b.rete_w, ' W')}</div></div>
-            <div class="scheda"><div class="eti">Esce</div><div class="cifra">${forse(fuori, ' W')}</div>
+            <div class="scheda"><div class="eti">Esce${eta}</div><div class="cifra">${forse(fuori, ' W')}</div>
               <div class="sotto">220 V ${forse(b.uscita_ac_w, ' W')}<br>12 V ${forse(b.uscita_dc_w, ' W')}</div></div>
-            <div class="scheda"><div class="eti">Carica residua</div>
+            <div class="scheda"><div class="eti">Carica residua${eta}</div>
               <div class="cifra">${b.carica == null ? '<span class="vuoto">—</span>' : num(b.carica, 0) + ' %'}</div>
               <div class="sotto">${c.carica_residua?.detto ? esc(c.carica_residua.detto) : '<span class="vuoto">—</span>'}<br>${bollo(c.carica_residua?.base || 'incompleto')}</div></div>
           </div>`;

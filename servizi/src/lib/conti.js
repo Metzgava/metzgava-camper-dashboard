@@ -37,6 +37,27 @@ export function dilloInOre(ore) {
   return `${Math.round(ore / 24)} giorni`;
 }
 
+// Se la lettura della Bluetti e' di ripiego, i conti che la mescolano con le
+// Ective non si fanno.
+//
+// Il 19/11/2026 il proprietario ha acceso il 220 dalla Bluetti e ha letto
+// «esce 0 W, arriva 201 W»: una frase impossibile. Non era un errore di
+// misura. Il cloud di Bluetti rifiutava da sei minuti e il server mostrava
+// correttamente l'ultima lettura buona -- quella di diciassette secondi
+// **prima** che il 220 venisse acceso. La Bluetti era ferma a un istante in
+// cui non erogava niente, le Ective arrivavano fresche di due minuti dalla
+// scatoletta, e il conto «quanto ne arriva» veniva fatto fra i due.
+//
+// Il dato non manca: e' vecchio. E' il confronto fra due istanti diversi a
+// essere falso, e va detto cosi'.
+export function bluettiNonConfrontabile(bluetti) {
+  if (!bluetti?.vecchia) return null;
+  const eta = bluetti.minuti == null ? null : `di ${bluetti.minuti} minuti fa`;
+  return 'la Bluetti non si legge in questo momento: l\u2019ultima lettura buona e\u2019 '
+    + `${eta || 'di prima'}, e confrontarla con le letture fresche delle Ective `
+    + 'darebbe un conto falso';
+}
+
 export async function tuttiIConti(bluetti) {
   const { mappa: m } = await impianto();
   const b = (bluetti?.apparecchi || [])[0] || null;
@@ -221,7 +242,10 @@ export async function tuttiIConti(bluetti) {
   out.fonti_ective.rete_w = dalla220;
 
   const esceAc = b?.uscita_ac_w ?? null;
-  out.catena = esceAc == null
+  const nonConfrontabile = bluettiNonConfrontabile(bluetti);
+  out.catena = nonConfrontabile
+    ? manca('%', ['una lettura fresca della Bluetti'], nonConfrontabile)
+    : esceAc == null
     ? manca('%', ['letture della Bluetti'], 'Serve il collegamento al cloud.')
     : dalla220 == null
       ? manca('%', ['letture delle Ective'],
@@ -236,7 +260,10 @@ export async function tuttiIConti(bluetti) {
             perche: `${Math.round(esceAc)} W escono dalla Bluetti, ${Math.round(dalla220)} W arrivano alle Ective`,
             detto: `${Math.round(dalla220 / esceAc * 100)} % arriva alle batterie`,
           });
-  out.catena.esce_w = esceAc;
+  // Con una lettura di ripiego anche questo numero va taciuto: messo accanto
+  // ai watt freschi delle Ective, uno zero di sei minuti fa non e' un dato,
+  // e' una contraddizione.
+  out.catena.esce_w = nonConfrontabile ? null : esceAc;
   out.catena.entra_w = dalla220;
 
   // ---- quanta Bluetti serve per le Ective ----
