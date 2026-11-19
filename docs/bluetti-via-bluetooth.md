@@ -95,3 +95,69 @@ chiusa comunque.
 I **comandi** sono un discorso separato dalle **letture**. Leggere un
 apparecchio con un protocollo ricavato è un conto; scrivergli un interruttore
 che regge i 220 V del camper è un altro. Si decide dopo, e separatamente.
+
+---
+
+# L'esito della sonda — 19/11/2026, dal camper
+
+Le due misure e la sonda sono state fatte. **La strada è aperta.**
+
+## Le misure
+
+```
+architettura:  aarch64          libc: GLIBC 2.41 (Debian)
+EL3002605110301917     -43 dBm   costruttore: BLUETTF  → cifratura SÌ
+CHARGER 22617110080795 -53 dBm   costruttore: BLUETTF  → cifratura SÌ
+```
+
+Quindi la strada **ufficiale è chiusa per noi**, e non per congettura: chiesto
+al loro server, `aarch64` esiste solo in versione musl.
+
+```
+.../bluetti_ble_linux_aarch64_313_musl.so  → 200
+.../bluetti_ble_linux_aarch64_313_gnu.so   → 404
+.../bluetti_ble_linux_x86_64_313_gnu.so    → 200
+```
+
+Raspberry Pi OS è glibc. La loro integrazione è pensata per Home Assistant OS,
+che gira su Alpine, e Alpine è musl.
+
+## La sonda: la cifratura in Python funziona
+
+Presa da `sq7lrx/bluetti-elite200v2-mqtt`, letta prima di eseguirla — nessuna
+rete, nessun processo, nessuna scrittura su disco; dipende da `cryptography`
+(già presente, la usiamo per le Victron) e da `pyasn1`.
+
+Su **tutti e due** gli apparecchi:
+
+```
+cifratura dall'annuncio: True
+*** STRETTA DI MANO RIUSCITA ***
+```
+
+Lo scambio ECDH si chiude e nasce la chiave di sessione. Nessuna chiave da
+estrarre dal telefono, nessun file di chiavi, nessun binario da scaricare,
+nessun contenitore: le costanti stanno nel sorgente e sono quelle del firmware.
+
+E i registri si leggono davvero. L'Elite 300, registro 110:
+
+```
+01 03 0c 4c45 3033 0030 ...
+```
+
+Invertendo i byte di ogni registro, come vuole il MODBUS: **`EL300`**. È il
+modello, nello stesso posto in cui lo cerca il codice ufficiale di Bluetti.
+
+Il CHARGER risponde alla stessa stretta di mano ma ha il registro 110 a zero:
+ha una mappa sua, da ricostruire a parte.
+
+## Cosa resta da fare
+
+Sapere **quale registro contiene cosa**. La stretta di mano e il trasporto sono
+risolti; manca la mappa — carica, watt in ingresso e in uscita, stato. I
+progetti della comunità ne hanno una per l'Elite 200 V2, che è della stessa
+generazione: si parte da lì e si verifica valore per valore contro quel che
+dice il cloud, finché il cloud funziona.
+
+E resta la regola di sempre: **leggere e comandare sono due decisioni
+separate**. Questa sonda legge e basta.
