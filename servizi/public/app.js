@@ -325,11 +325,23 @@ function vistaAdesso() {
   // Nessun filtro qui: il server manda solo chi e' ancora atteso davvero,
   // riconoscendo chi ha cominciato a parlare. Prima c'era un
   // `a.id !== 'ective'` scritto a mano, e SmartSolar e Orion no.
+  // Due condizioni diverse, scritte diverse. Chi non ha parlato mai e' un
+  // lavoro da fare, e porta la spiegazione di cosa manca. Chi ha parlato e ora
+  // tace e' un guasto o una distanza, e quel che serve sapere e' **da quanto**:
+  // dieci minuti sono un collegamento che non si e' agganciato, dieci ore sono
+  // la scatoletta spenta.
+  //
+  // Fino al 19/11/2026 erano la stessa riga, e diceva «arriveranno qui quando
+  // la scatoletta sara' a bordo» -- falso da quando la scatoletta e' a bordo.
   const attesi = (dati.attesi || []).map(a => `<div class="scheda atteso">
       <div class="riga" style="border:0;padding:0">
         <div class="cresci"><div class="cifra">${a.icona} ${esc(a.nome)}</div>
-          <div class="perche">${esc(a.perche)}</div>
-          <div class="perche">Dirà: ${esc(a.cosa)}</div></div>
+          ${a.tace_da_minuti == null
+            ? `<div class="perche">${esc(a.perche)}</div>
+               <div class="perche">Dirà: ${esc(a.cosa)}</div>`
+            : `<div class="perche" style="color:var(--ambra)">Ha parlato, e tace da <b>${esc(dilloInMinuti(a.tace_da_minuti))}</b></div>
+               <div class="perche">Non mostro i suoi ultimi numeri: a questa distanza di tempo sarebbero una fotografia vecchia spacciata per adesso.</div>`}
+        </div>
       </div></div>`).join('');
 
   return `<div class="titolo">Stazione di accumulo</div>
@@ -341,8 +353,8 @@ ${catena()}
     ${vistaTemperature()}
     ${vistaTelecamere()}
     ${vistaSegnale()}
-        <div class="titolo">Non ancora collegati</div>
-    <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono e sono già stati letti una volta, il 16 novembre, col computer dentro al camper. Parlano solo da vicino: arriveranno qui quando la scatoletta sarà a bordo. Finché non ci sono, <b>non mostro numeri</b>: sarebbero vecchi di settimane.</div>
+        <div class="titolo">${(dati.attesi || []).some(a => a.tace_da_minuti != null) ? 'Apparecchi che non parlano' : 'Non ancora collegati'}</div>
+    <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono in camper ma qui non ci sono: alcuni non hanno ancora parlato, altri hanno parlato e ora tacciono — e c’è scritto quale dei due. Finché non ci sono, <b>non mostro numeri</b>: un ultimo valore vecchio di ore, messo dove si guarda «adesso», è peggio di una casella vuota.</div>
     ${attesi}`;
 }
 

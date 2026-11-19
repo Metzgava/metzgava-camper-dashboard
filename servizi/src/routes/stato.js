@@ -67,10 +67,32 @@ const ATTESI = [
 //
 // La spia non viene spedita al browser: un'espressione regolare in JSON
 // diventa `{}`, inutile da una parte e confondente dall'altra.
-export function ancoraAttesi(attesi, istantanee) {
-  return (attesi || [])
-    .filter(a => !a.spia || !(istantanee || []).some(r => a.spia.test(String(r.apparecchio || ''))))
-    .map(({ spia, ...resto }) => resto);
+// Mezz'ora e' molti giri: col passo a due minuti sono quindici letture perse.
+// Uno o due giri persi sono normali -- un collegamento Bluetooth non si aggancia
+// sempre al primo colpo -- e non devono far comparire un allarme.
+const SILENZIO_MINUTI = 30;
+
+export function ancoraAttesi(attesi, istantanee, adesso = Date.now()) {
+  const fuori = [];
+  for (const { spia, ...resto } of (attesi || [])) {
+    const suo = spia && (istantanee || []).find(r => spia.test(String(r.apparecchio || '')));
+    if (!suo) {
+      // Non ha parlato mai. Non «tace»: non ha ancora cominciato.
+      fuori.push(resto);
+      continue;
+    }
+    // Nel dubbio non si grida al silenzio: un'istantanea senza data si
+    // considera fresca, perche' un falso allarme fa perdere fiducia a tutti
+    // gli altri avvisi della pagina.
+    if (suo.quando == null) continue;
+    const minuti = (adesso - new Date(suo.quando).getTime()) / 60000;
+    if (!Number.isFinite(minuti) || minuti < SILENZIO_MINUTI) continue;
+    // Ha parlato e ora tace. Rientra nell'elenco -- non ci sono numeri suoi da
+    // mostrare -- ma portandosi dietro da quanto, perche' la pagina lo scriva
+    // con le parole giuste.
+    fuori.push({ ...resto, tace_da_minuti: minuti });
+  }
+  return fuori;
 }
 
 async function tendenza(apparecchio) {

@@ -69,3 +69,56 @@ test('la spia non viene spedita al browser', () => {
 test('senza nessuna istantanea restano tutti', () => {
   assert.deepEqual(ids(ancoraAttesi(ATTESI, [])), ['ective', 'smartsolar', 'starlink']);
 });
+
+// --- chi ha parlato e ora tace ---
+//
+// Un apparecchio che tace rientra in questo elenco, ed e' giusto: non ci sono
+// numeri suoi da mostrare. Ma rientrava con il testo di chi non ha parlato
+// mai -- «arriveranno qui quando la scatoletta sara' a bordo» -- che dal
+// 19/11/2026 e' falso: la scatoletta e' a bordo.
+//
+// Uno che ha parlato e ora tace non e' nella stessa condizione di uno che non
+// ha parlato mai. Il primo e' un guasto o una distanza; il secondo e' un
+// lavoro da fare. Dirli con le stesse parole e' una bugia involontaria.
+
+const minutiFa = n => new Date(Date.now() - n * 60000);
+
+test('chi ha parlato poco fa non e’ nell’elenco', () => {
+  const fuori = ancoraAttesi(ATTESI, [
+    { apparecchio: 'SmartSolar HQ2222PUNT4', quando: minutiFa(3) }]);
+  assert.ok(!ids(fuori).includes('smartsolar'));
+});
+
+test('chi tace da un pezzo rientra, e dice da quanto', () => {
+  const fuori = ancoraAttesi(ATTESI, [
+    { apparecchio: 'SmartSolar HQ2222PUNT4', quando: minutiFa(180) }]);
+  const suo = fuori.find(a => a.id === 'smartsolar');
+  assert.ok(suo, 'un apparecchio che tace deve comparire: non ci sono suoi numeri da mostrare');
+  assert.ok(suo.tace_da_minuti >= 179 && suo.tace_da_minuti <= 181, suo.tace_da_minuti);
+});
+
+test('chi non ha parlato mai non dice da quanto tace', () => {
+  // Non tace: non ha ancora cominciato. Sono due cose diverse, e la pagina le
+  // scrive diverse.
+  const suo = ancoraAttesi(ATTESI, []).find(a => a.id === 'smartsolar');
+  assert.equal(suo.tace_da_minuti, undefined);
+});
+
+test('il confine del silenzio sta a mezz’ora', () => {
+  // Mezz'ora e' molti giri: col passo a due minuti sono quindici letture
+  // perse. Uno o due giri persi sono normali e non devono far comparire un
+  // allarme.
+  const fresco = ancoraAttesi(ATTESI, [
+    { apparecchio: 'SmartSolar HQ2222PUNT4', quando: minutiFa(29) }]);
+  assert.ok(!ids(fresco).includes('smartsolar'));
+  const vecchio = ancoraAttesi(ATTESI, [
+    { apparecchio: 'SmartSolar HQ2222PUNT4', quando: minutiFa(31) }]);
+  assert.ok(ids(vecchio).includes('smartsolar'));
+});
+
+test('un’istantanea senza data si considera fresca', () => {
+  // Nel dubbio non si grida al silenzio: un falso allarme fa perdere fiducia
+  // a tutti gli altri avvisi della pagina.
+  const fuori = ancoraAttesi(ATTESI, [{ apparecchio: 'SmartSolar HQ2222PUNT4' }]);
+  assert.ok(!ids(fuori).includes('smartsolar'));
+});
