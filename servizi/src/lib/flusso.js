@@ -43,11 +43,21 @@ function numero(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-export function ramiDellaCarica(fonti) {
-  const totale = numero(fonti?.valore);
-  // E' il `manca()` di conti.js: senza letture delle Ective non c'e' niente da
-  // disegnare, e la pagina mostra la spiegazione di cosa manca.
-  if (totale == null) return null;
+// `letture` dice se le Ective si stanno leggendo, ed e' necessario perche' il
+// totale non basta a distinguere i due casi.
+//
+// `sommaPos` in conti.js torna **null**, non zero, quando nessun valore e'
+// positivo: a camper fermo con le batterie piene il totale e' null esattamente
+// come quando le Ective non si leggono affatto. La prima stesura guardava solo
+// il totale, e il 19/11/2026 la figura spariva nello stato piu' comune della
+// giornata -- confondendo «non entra niente» con «non so niente», che e'
+// proprio la distinzione che il resto del progetto tiene separata dappertutto.
+export function ramiDellaCarica(fonti, { letture = false } = {}) {
+  const misurato = numero(fonti?.valore);
+  // Senza letture delle Ective non c'e' niente da disegnare, e la pagina
+  // mostra la spiegazione di cosa manca -- e' il `manca()` di conti.js.
+  if (misurato == null && !letture) return null;
+  const totale = misurato == null ? 0 : misurato;
 
   const rami = FONTI.map(({ campo, ...f }) => {
     const watt = numero(fonti[campo]);
@@ -79,5 +89,11 @@ export function ramiDellaCarica(fonti) {
     };
   });
 
-  return { totale, rami };
+  // Una fonte che produce mentre nelle batterie non entra niente: quella
+  // corrente non sparisce, va ai consumi del camper. Il numero della fonte
+  // resta scritto, il ramo no -- e la pagina puo' dire dove sta andando,
+  // invece di lasciare un sei watt senza spiegazione accanto a uno zero.
+  const altrove = totale <= 0 && rami.some(r => (r.watt ?? 0) > 0);
+
+  return altrove ? { totale, rami, altrove } : { totale, rami };
 }

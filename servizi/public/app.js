@@ -615,7 +615,9 @@ function vistaFlusso() {
             f.totale == null ? '—' : num(f.totale, 0) + ' W'}</text>
         </g>
       </svg>
-      ${qualcosaCarica ? '' : `<div class="perche" style="text-align:center">Nessuna fonte sta caricando: non &egrave; un guasto, &egrave; quel che succede a motore spento, senza sole e senza 220.</div>`}
+      ${qualcosaCarica ? '' : (f.altrove
+        ? `<div class="perche" style="text-align:center">Le fonti producono, ma <b>nelle batterie non entra niente</b>: sono gi&agrave; cariche, e quella corrente sta andando ai consumi del camper invece che alla carica.</div>`
+        : `<div class="perche" style="text-align:center">Nessuna fonte sta caricando: non &egrave; un guasto, &egrave; quel che succede a motore spento, senza sole e senza 220.</div>`)}
       ${f.rami.some(r => r.attivo && r.certezza === 'dedotto')
         ? `<div class="nota" style="margin-top:8px">La parte <b>dalla 220</b> ha il tratteggio a puntini perch&eacute; non si misura: &egrave; il totale meno sole e alternatore. Se ci fosse una quarta fonte che non vediamo, finirebbe l&igrave;. ${bollo('stima')}</div>`
         : ''}

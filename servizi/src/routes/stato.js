@@ -163,7 +163,10 @@ router.get('/stato', wrap(async (req, res) => {
     attesi: ancoraAttesi(ATTESI, ultimi),
     // Lo schema di cosa carica le batterie, gia' masticato: la pagina lo
     // disegna e non fa conti. La logica sta in lib/flusso.js, con le prove.
-    flusso: ramiDellaCarica(conti.fonti_ective),
+    // `letture`: il totale da solo non distingue «non entra niente» da «non so
+    // niente», perche' sommaPos torna null in entrambi i casi.
+    flusso: ramiDellaCarica(conti.fonti_ective,
+      { letture: ultimi.some(r => r.dati?.celle_mv) }),
     istantanee: ultimi,
   });
 }));

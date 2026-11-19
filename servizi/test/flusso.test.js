@@ -109,3 +109,42 @@ test('una corrente negativa non e’ una carica', () => {
 test('porta con se’ il totale, per scriverlo sul nodo delle batterie', () => {
   assert.equal(ramiDellaCarica(fonti(6, 0, 1)).totale, 7);
 });
+
+// --- «non entra niente» non e' «non so niente» ---
+//
+// `sommaPos` in conti.js torna **null**, non zero, quando nessun valore e'
+// positivo. Quindi a camper fermo con le batterie piene il totale e' null
+// esattamente come quando le Ective non si leggono affatto.
+//
+// La prima stesura di questa funzione guardava solo il totale, e la figura
+// spariva nello stato piu' comune della giornata. Sono le due condizioni che
+// in tutto il resto del progetto teniamo separate, e qui le avevo confuse.
+
+test('con le letture ma senza carica la figura si disegna, ferma', () => {
+  const fuori = ramiDellaCarica({ valore: null, sole_w: null, motore_w: null, rete_w: null },
+                                { letture: true });
+  assert.ok(fuori, 'la figura deve esserci: sparire direbbe «non lo so»');
+  assert.equal(fuori.totale, 0);
+  assert.equal(fuori.rami.filter(r => r.attivo).length, 0);
+});
+
+test('senza letture non si disegna niente, come prima', () => {
+  assert.equal(ramiDellaCarica({ valore: null }, { letture: false }), null);
+  assert.equal(ramiDellaCarica({ valore: null }), null);
+});
+
+test('una fonte che produce mentre nelle batterie non entra niente si vede', () => {
+  // Il caso vero del 19/11: i pannelli davano sei watt e le Ective, piene,
+  // non ne prendevano. Quella corrente non sparisce: va ai consumi del
+  // camper. Il numero della fonte resta, il ramo no.
+  const fuori = ramiDellaCarica({ valore: null, sole_w: 6, motore_w: 0, rete_w: null },
+                                { letture: true });
+  const sole = fuori.rami.find(r => r.id === 'sole');
+  assert.equal(sole.watt, 6, 'il sole produce sei watt e va scritto');
+  assert.equal(sole.attivo, false, 'ma nelle batterie non sta entrando');
+  assert.equal(fuori.altrove, true, 'la pagina deve poter dire dove va');
+});
+
+test('quando entra corrente non c’e’ niente da dire sull’altrove', () => {
+  assert.notEqual(ramiDellaCarica(fonti(6, 0, 1)).altrove, true);
+});
