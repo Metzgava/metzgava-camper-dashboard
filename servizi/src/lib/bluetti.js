@@ -29,6 +29,36 @@ const RESPIRO = 60_000;
 let cache = { quando: 0, dato: null };
 // Quando si e' rinnovato l'ultima volta, per non farlo due volte di fila.
 let ultimoRinnovo = 0;
+// Quanti rifiuti di fila senza che una lettura sia andata a buon fine.
+let rifiutiDiFila = 0;
+
+// Il freno sui rinnovi, e la valvola che lo apre.
+//
+// Il freno esiste per una ragione buona: senza, ogni lettura rifiutata faceva
+// un rinnovo, e con la pagina aperta sono tre al minuto -- una grandinata sul
+// loro cloud che non ha mai aiutato nessuno.
+//
+// Il 19/11/2026 quel freno e' diventato il guasto. Il cloud ha cominciato a
+// rifiutare alle 13:59:30; alle 14:17:52 il server ha rinnovato e **il gettone
+// nuovo e' stato rifiutato lo stesso**; da li' in poi «ho rinnovato meno di
+// dieci minuti fa, non insisto», per ventotto minuti. Se ne e' usciti solo
+// perche' una pubblicazione ha riavviato il processo per caso, azzerando il
+// freno: il rinnovo successivo e' passato al primo colpo.
+//
+// Senza quel riavvio il proprietario sarebbe rimasto fermo altri dieci minuti
+// almeno, guardando una Bluetti al 100% che stava erogando quattrocento watt.
+//
+// Quindi la prudenza resta, ma non diventa immobilita': se i rifiuti si
+// accumulano si riprova anche dentro i dieci minuti. Un rinnovo in piu' ogni
+// tanto costa al loro cloud molto meno di mezz'ora di dati fermi a noi.
+export const DISTANZA = 10 * 60 * 1000;
+export const RIFIUTI_PER_INSISTERE = 5;
+
+export function sipuoRinnovare({ adesso, ultimoRinnovo: quando, rifiutiDiFila: quanti,
+                                 distanza = DISTANZA, soglia = RIFIUTI_PER_INSISTERE }) {
+  if (adesso - quando >= distanza) return true;
+  return quanti >= soglia;
+}
 // Una lettura per volta, e le altre aspettano quella in corso.
 //
 // Senza questo, due richieste contemporanee — il giro periodico e una pagina
@@ -393,7 +423,6 @@ async function leggiDavvero({ fresco = false } = {}) {
   const MARGINE = vita && vita > 0 ? Math.max(10 * 60 * 1000, vita * 0.2) : 3 * 24 * 3600 * 1000;
   // E non due rinnovi di fila: due richieste contemporanee che usano lo stesso
   // gettone di rinnovo sono il modo classico di far invalidare la sessione.
-  const DISTANZA = 10 * 60 * 1000;
   if (scade && new Date(scade).getTime() - Date.now() < MARGINE && rinnovo
       && Date.now() - ultimoRinnovo > DISTANZA) {
     const n = await rinnovaEVerifica(rinnovo);
@@ -460,9 +489,13 @@ async function leggiDavvero({ fresco = false } = {}) {
   // freno ogni lettura rifiutata ne faceva uno, e quando la pagina e' aperta
   // sono tre al minuto: una grandinata che non ha mai aiutato nessuno.
   if (rifiutato(r)) {
-    if (Date.now() - ultimoRinnovo < DISTANZA) {
-      console.warn(`Bluetti: rifiutato, ma ho rinnovato meno di ${Math.round(DISTANZA / 60000)} minuti fa. Non insisto: riprovo al prossimo giro.`);
+    rifiutiDiFila++;
+    if (!sipuoRinnovare({ adesso: Date.now(), ultimoRinnovo, rifiutiDiFila })) {
+      console.warn(`Bluetti: rifiutato (${rifiutiDiFila} di fila), ma ho rinnovato meno di ${Math.round(DISTANZA / 60000)} minuti fa. Aspetto ancora: insisto al ${RIFIUTI_PER_INSISTERE}\u00b0.`);
       return ultimaBuona('il cloud Bluetti rifiuta il permesso in questo momento: riprovo al prossimo giro');
+    }
+    if (Date.now() - ultimoRinnovo < DISTANZA) {
+      console.warn(`Bluetti: ${rifiutiDiFila} rifiuti di fila. Rinnovo lo stesso, anche se e\u2019 presto: il freno non deve diventare immobilita\u2019.`);
     }
     ultimoRinnovo = Date.now();
     const n = await rinnovaEVerifica(rinnovo);
@@ -498,6 +531,9 @@ async function leggiDavvero({ fresco = false } = {}) {
   }
 
   const elenco = r.dato.data || [];
+  // Una lettura buona azzera il conto: il freno torna a valere pieno, e la
+  // valvola si riapre solo se ricominciano i rifiuti.
+  rifiutiDiFila = 0;
   console.log(`Bluetti: lettura riuscita, ${elenco.length} apparecchi nell\u2019elenco`);
   if (!elenco.length) return { collegato: true, quando: new Date().toISOString(), apparecchi: [] };
 
