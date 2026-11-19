@@ -118,7 +118,11 @@ $SUDO chmod 600 "$FILE"
 $SUDO chown root:root "$FILE" 2>/dev/null || true
 unset PSK CONTENUTO
 
-nmcli connection reload
+# Con sudo: `nmcli connection reload` tocca la configurazione di sistema e
+# senza i diritti di root risponde «access denied». Il 19/11 e' andata cosi':
+# file scritto, rete non vista da NetworkManager, e lo script morto li' per via
+# di `set -e` -- saltando anche l'elenco finale, che avrebbe mostrato il guaio.
+$SUDO nmcli connection reload
 
 echo
 echo "Fatto. Le reti che la scatoletta conosce, in ordine di preferenza:"

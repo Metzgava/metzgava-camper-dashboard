@@ -41,14 +41,31 @@ def falso_nmcli(dove: Path) -> Path:
     return cestino
 
 
-def lancia(risposte: str, dove: Path):
+def falso_sudo(dove: Path, cestino: Path) -> Path:
+    """Un `sudo` che scrive nel diario chi gli e' stato chiesto di eseguire, e
+    poi lo esegue davvero. Serve a distinguere i comandi che passano da sudo da
+    quelli che non ci passano -- distinzione che con `SUDO=""` si perde, e che
+    il 19/11 e' costata una rete non aggiunta."""
+    finto = cestino / "sudo"
+    finto.write_text(
+        '#!/bin/bash\n'
+        f'echo "sudo $*" >> "{dove}/diario"\n'
+        'exec "$@"\n'
+    )
+    finto.chmod(0o755)
+    return finto
+
+
+def lancia(risposte: str, dove: Path, con_sudo: bool = False):
     cestino = falso_nmcli(dove)
+    if con_sudo:
+        falso_sudo(dove, cestino)
     nm = dove / "system-connections"
     nm.mkdir(parents=True, exist_ok=True)
     amb = dict(os.environ)
     amb["PATH"] = f"{cestino}:{amb['PATH']}"
     amb["NM_DIR"] = str(nm)
-    amb["SUDO"] = ""          # nelle prove non si chiama sudo
+    amb["SUDO"] = "sudo" if con_sudo else ""
     return subprocess.run(["bash", str(SCRIPT)], input=risposte, text=True,
                           capture_output=True, env=amb, timeout=30)
 
@@ -88,6 +105,25 @@ class ProveAggiungiRete(unittest.TestCase):
     def test_dice_a_networkmanager_di_rileggere(self):
         lancia("StarlinkCamper\nsegretissima\nn\n", self.dove)
         self.assertIn("connection reload", (self.dove / "diario").read_text())
+
+    def test_la_rilettura_passa_da_sudo(self):
+        # Il 19/11, aggiungendo `bergamobile` sulla scatoletta vera:
+        #
+        #     Error: failed to reload connections: access denied.
+        #
+        # `nmcli connection reload` tocca la configurazione di sistema e vuole
+        # i diritti di root. Senza, il profilo appena scritto resta sul disco
+        # **senza che NetworkManager lo veda**: la rete risulta aggiunta, il
+        # file c'e', e `nmcli connection show` non la elenca. E siccome lo
+        # script muore li' per via di `set -e`, salta anche l'elenco finale
+        # che avrebbe mostrato il guaio.
+        #
+        # La prova di sopra non lo prendeva: con `SUDO=""` non c'e' modo di
+        # distinguere un comando che passa da sudo da uno che non ci passa, e
+        # passava mostrando soltanto che `reload` veniva chiesto a qualcuno.
+        lancia("StarlinkCamper\nsegretissima\nn\n", self.dove, con_sudo=True)
+        self.assertIn("sudo nmcli connection reload",
+                      (self.dove / "diario").read_text())
 
     def test_preferita_prende_la_priorita_piu_alta(self):
         lancia("StarlinkCamper\nsegretissima\ns\n", self.dove)
