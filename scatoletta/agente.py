@@ -229,6 +229,27 @@ def switchbot_leggi(costruttore, servizio=None):
 
 FFE4 = "0000ffe4-0000-1000-8000-00805f9b34fb"
 
+
+def termometri_scelti(sentiti, nomi):
+    """Divide i termometri sentiti in «nostri» e «estranei».
+
+    `sentiti` e' quel che arriva dall'ascolto: indirizzo -> (nome, letture).
+    `nomi` e' l'elenco di `config.json`: indirizzo -> come lo chiami tu.
+
+    Si spediscono solo quelli in elenco. Gli altri non si buttano in silenzio:
+    tornano fra gli estranei per finire nel diario, perche' quando comprerai i
+    tuoi termometri l'unico modo di scoprire il loro indirizzo e' sentirli.
+    """
+    elenco = {k.lower(): v for k, v in (nomi or {}).items()}
+    nostri, estranei = [], []
+    for indirizzo, (nome, letto) in sentiti.items():
+        etichetta = elenco.get(indirizzo.lower())
+        if etichetta:
+            nostri.append((indirizzo, etichetta, letto))
+        else:
+            estranei.append((indirizzo, nome or indirizzo, letto))
+    return nostri, estranei
+
 def _le(h: str, i: int, n: int, signed=False):
     """n byte a partire dal carattere i, byte invertiti."""
     b = bytes.fromhex(h[i:i + n * 2])
@@ -349,11 +370,18 @@ async def giro_bluetooth(conf):
                                           "tipo": "victron", "dati": d, "misure": misure}
 
     # --- i termometri sentiti nello stesso ascolto ---
-    nomi = {k.lower(): v for k, v in (conf.get("termometri") or {}).items()}
-    for indirizzo, (nome, letto) in termometri.items():
-        # Senza un nome dato da te resta il suo indirizzo: meglio un nome brutto
-        # che un sensore anonimo in mezzo agli altri.
-        etichetta = nomi.get(indirizzo.lower()) or nome or indirizzo
+    # Solo i nostri: i sensori BTHome e ATC trasmettono in chiaro a chiunque
+    # passi, e il primo giro col Bluetooth acceso ha raccolto quello di un
+    # vicino. Gli estranei si scrivono nel diario e si scartano.
+    nostri, estranei = termometri_scelti(termometri, conf.get("termometri"))
+    for indirizzo, nome, letto in estranei:
+        t = letto.get("temperatura")
+        log.info("termometro non in elenco, scartato: %s%s%s — se e' tuo, "
+                 "aggiungilo a «termometri» in config.json",
+                 indirizzo,
+                 f" ({nome})" if nome and nome != indirizzo else "",
+                 f" {t} gradi" if t is not None else "")
+    for indirizzo, etichetta, letto in nostri:
         forza = potenze.get(indirizzo)
         # `pila` entra nello storico insieme alle altre: una tensione che scende
         # e' quel che dice di cambiare la batteria prima che il sensore taccia.
