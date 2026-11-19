@@ -396,11 +396,31 @@ function traduci(a) {
 
 // ---------- quel che serve a chi chiama ----------
 
-export async function statoBluetti(opzioni = {}) {
+// `leggi` si puo' scavalcare per le prove: serve a far esplodere la lettura
+// senza avere un cloud che esplode.
+export async function statoBluetti(opzioni = {}, leggi = leggiDavvero) {
   // Chi arriva mentre un'altra lettura e' in corso aspetta quella, invece di
   // partirne una seconda che si pestera' i piedi con la prima sul rinnovo.
   if (inCorso) return inCorso;
-  inCorso = leggiDavvero(opzioni).finally(() => { inCorso = null; });
+  // **Questa funzione non rifiuta mai.** Il 19/11/2026 il gateway di Bluetti
+  // e' andato in timeout e il lancio e' risalito fino alla rotta: `/api/stato`
+  // ha risposto 500 per sedici secondi, e con lui sono spariti dalla pagina le
+  // Ective, i termometri, le Victron e la scatoletta -- tutto quel che con
+  // Bluetti non c'entra niente.
+  //
+  // Il ripiego esisteva gia' e funzionava bene per i **rifiuti**: si mostra
+  // l'ultima lettura buona con la sua eta'. Ma un rifiuto torna una risposta,
+  // mentre un timeout lancia. La differenza e' tutta tecnica e non interessa a
+  // nessuno: per chi guarda la pagina sono la stessa cosa -- la Bluetti non si
+  // legge -- e vanno trattati allo stesso modo.
+  inCorso = Promise.resolve()
+    .then(() => leggi(opzioni))
+    .catch(e => ultimaBuona(
+      `non sono riuscito a parlare col cloud Bluetti (${e?.message || e}): riprovo al prossimo giro`)
+      // Se nemmeno l'archivio risponde non resta niente da dire, ma si dice
+      // **qualcosa**: un oggetto che la pagina sa disegnare, non un'eccezione.
+      .catch(() => ({ collegato: true, errore: 'il cloud Bluetti non risponde e non ho letture in archivio' })))
+    .finally(() => { inCorso = null; });
   return inCorso;
 }
 
