@@ -13,7 +13,7 @@ import { statoBluetti, collegato, associa, comanda, COMANDI,
   indirizzoAutorizza, completaAutorizzazione } from '../lib/bluetti.js';
 import { tuttiIConti, impianto } from '../lib/conti.js';
 import { leggiTravaso } from '../lib/travaso.js';
-import { ramiDellaCarica } from '../lib/flusso.js';
+import { ramiDellaCarica, ramiDellaBluetti } from '../lib/flusso.js';
 import { serveAccesso } from './auth.js';
 
 // Le rotte normali stanno dietro al login. Una sola no, e sotto si dice perche'.
@@ -167,6 +167,11 @@ router.get('/stato', wrap(async (req, res) => {
     // niente», perche' sommaPos torna null in entrambi i casi.
     flusso: ramiDellaCarica(conti.fonti_ective,
       { letture: ultimi.some(r => r.dati?.celle_mv) }),
+    // La stessa figura per la Bluetti: due ingressi, due uscite. L'eta' della
+    // lettura viaggia a parte, in `bluetti.vecchia`, e la pagina la scrive
+    // accanto ai numeri -- il 19/11 una lettura ferma di sei minuti mostrava
+    // una Bluetti al 100% mentre erogava quattrocento watt.
+    flusso_bluetti: ramiDellaBluetti((bluetti?.apparecchi || [])[0]),
     istantanee: ultimi,
   });
 }));

@@ -360,6 +360,7 @@ function vistaAdesso() {
     ${ective}
 ${catena()}
     ${vistaFlusso()}
+    ${vistaFlussoBluetti()}
     ${vistaTemperature()}
     ${vistaTelecamere()}
     ${vistaSegnale()}
@@ -630,6 +631,79 @@ function vistaFlusso() {
       ${f.rami.some(r => r.attivo && r.certezza === 'dedotto')
         ? `<div class="nota" style="margin-top:8px">La parte <b>dalla 220</b> ha il tratteggio a puntini perch&eacute; non si misura: &egrave; il totale meno sole e alternatore. Se ci fosse una quarta fonte che non vediamo, finirebbe l&igrave;. ${bollo('stima')}</div>`
         : ''}
+    </div>`;
+}
+
+// ---------- il flusso della Bluetti ----------
+//
+// La stessa figura di «Cosa carica le batterie», specchiata: due ingressi a
+// sinistra, la Bluetti al centro con la sua carica, due uscite a destra.
+//
+// Due differenze, ed entrambe sono informazione.
+//
+// 1. **Nessun ramo dedotto.** I quattro numeri li misura il loro cloud, e la
+//    figura non deve mettere bollini di stima dove non servono. Qui non c'e'
+//    nessuna sottrazione come quella della 220 lato Ective.
+// 2. **L'eta' della lettura si scrive sopra la figura.** Quando il cloud
+//    rifiuta, questi numeri sono gli ultimi buoni, e possono essere di
+//    parecchi minuti prima: il 19/11/2026 una figura immobile avrebbe detto
+//    «non entra ne' esce niente» mentre la Bluetti erogava quattrocento watt.
+//    Senza l'eta', un disegno fermo e' una bugia piu' convincente di un numero
+//    fermo.
+function vistaFlussoBluetti() {
+  const f = dati.flusso_bluetti;
+  if (!f) return '';
+  const vecchia = dati.bluetti?.vecchia;
+  // Il centro va tenuto largo: con il nodo stretto la percentuale finiva
+  // addosso ai capi dei rami, e si leggevano l'una sopra gli altri.
+  const CY = n => 30 + n * 52, MY = CY(0.5);
+  const X0 = 70, X1 = 96, X2 = 140, X3 = 166;
+
+  const colonna = (lato, rami, verso) => rami.map((r, i) => {
+    const y = CY(i);
+    const via = verso === 'entra'
+      ? `M${X0},${y} C${X0 + 14},${y} ${X1 - 14},${MY} ${X1},${MY}`
+      : `M${X2},${MY} C${X2 + 14},${MY} ${X3 - 14},${y} ${X3},${y}`;
+    const colore = r.attivo ? 'var(--verde)' : 'var(--bordo)';
+    return `<g>
+      <path d="${via}" stroke="${colore}" stroke-width="${r.spessore}" fill="none"
+        stroke-linecap="round" opacity="${r.attivo ? 1 : (r.ignoto ? .35 : .55)}"
+        ${r.ignoto && !r.attivo ? 'stroke-dasharray="3 5"' : ''}/>
+      ${r.attivo ? `<path d="${via}" stroke="var(--carta)" stroke-width="${Math.max(1.5, r.spessore - 3)}"
+        fill="none" stroke-linecap="round" stroke-dasharray="7 7" class="scorre"
+        style="animation-duration:${r.secondi}s"/>` : ''}
+    </g>`;
+  }).join('');
+
+  const etichette = (rami, x, ancora) => rami.map((r, i) => {
+    const y = CY(i);
+    return `<g text-anchor="${ancora}">
+      <text x="${x}" y="${y - 2}" font-size="10" fill="var(--fioco)">${esc(r.nome)}</text>
+      <text x="${x}" y="${y + 11}" font-size="12.5" font-weight="600"
+        fill="${r.attivo ? 'var(--verde)' : 'var(--fioco)'}">${
+        r.watt == null ? '—' : num(r.watt, 0) + ' W'}</text>
+    </g>`;
+  }).join('');
+
+  const muove = [...f.entrata.rami, ...f.uscita.rami].some(r => r.attivo);
+  return `<div class="titolo">Dentro e fuori dalla Bluetti</div>
+    <div class="scheda">
+      ${vecchia ? fasciaVecchia() : ''}
+      <svg viewBox="0 0 236 114" style="width:100%;max-width:340px;height:auto;display:block;margin:0 auto"
+        aria-label="${muove ? 'la Bluetti sta scambiando corrente' : 'niente entra e niente esce'}">
+        ${colonna('entrata', f.entrata.rami, 'entra')}
+        ${colonna('uscita', f.uscita.rami, 'esce')}
+        ${etichette(f.entrata.rami, 66, 'end')}
+        ${etichette(f.uscita.rami, 170, 'start')}
+        <g text-anchor="middle">
+          <text x="118" y="${MY - 10}" font-size="16">\u{1F50B}</text>
+          <text x="118" y="${MY + 16}" font-size="13" font-weight="700"
+            fill="${vecchia ? 'var(--fioco)' : 'var(--testo)'}">${
+            f.carica == null ? '—' : num(f.carica, 0) + ' %'}</text>
+        </g>
+      </svg>
+      ${muove ? '' : `<div class="perche" style="text-align:center">Non entra e non esce niente${
+        vecchia ? ' <b>secondo l’ultima lettura buona</b>, che non &egrave; di adesso' : ''}.</div>`}
     </div>`;
 }
 
