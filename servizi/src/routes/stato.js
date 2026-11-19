@@ -165,8 +165,13 @@ router.get('/stato', wrap(async (req, res) => {
     // disegna e non fa conti. La logica sta in lib/flusso.js, con le prove.
     // `letture`: il totale da solo non distingue «non entra niente» da «non so
     // niente», perche' sommaPos torna null in entrambi i casi.
-    flusso: ramiDellaCarica(conti.fonti_ective,
-      { letture: ultimi.some(r => r.dati?.celle_mv) }),
+    flusso: ramiDellaCarica(conti.fonti_ective, {
+      letture: ultimi.some(r => r.dati?.celle_mv),
+      // Serve a dire **da dove viene** la 220 che carica le Ective: dalla
+      // colonnina o dalla Bluetti. `vecchia` viaggia con lei, perche' su una
+      // lettura vecchia non si attribuisce niente.
+      bluetti: { ...((bluetti?.apparecchi || [])[0] || {}), vecchia: !!bluetti?.vecchia },
+    }),
     // La stessa figura per la Bluetti: due ingressi, due uscite. L'eta' della
     // lettura viaggia a parte, in `bluetti.vecchia`, e la pagina la scrive
     // accanto ai numeri -- il 19/11 una lettura ferma di sei minuti mostrava

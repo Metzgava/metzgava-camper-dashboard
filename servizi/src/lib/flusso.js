@@ -19,6 +19,8 @@
 // 19/11/2026 i pannelli davano sei watt sotto la pioggia, e su una scala
 // assoluta sarebbero stati un filo immobile. Erano sei watt su sette: quasi
 // tutto quel che entrava, e si devono vedere.
+import { SOGLIA_W as SOGLIA_TRAVASO_W, SOGLIA_RETE_W } from './travaso.js';
+
 export const SPESSORE = { min: 2, max: 8 };
 export const SECONDI = { lento: 3, veloce: 0.8 };
 
@@ -42,7 +44,47 @@ const FONTI = [
 // Ective, dove la corrente in ingresso e' gia' il fatto che interessa.
 export const SOGLIA_W = 5;
 
+// Le stesse di `travaso.js`, e per le stesse ragioni gia' scritte li'. Qui si
+// ripetono i nomi e non i numeri: una soglia che vive in due posti con due
+// valori diversi e' il modo di far dire a due parti della pagina cose
+// contrarie sullo stesso istante.
+// `export ... from` rigira il nome a chi importa ma **non** lo porta nello
+// scope di questo file: dentro `origineDella220` le soglie erano indefinite, e
+// le prove lo hanno preso subito. Si importa e si riesporta.
+export { SOGLIA_TRAVASO_W, SOGLIA_RETE_W };
+
 const fra = (v, min, max) => Math.min(max, Math.max(min, v));
+
+// Chi sta facendo la 220 che carica le Ective.
+//
+// Il ramo si chiamava «Dalla 220» e taceva su chi quella 220 la facesse, e
+// sono due situazioni opposte. Dalla **colonnina**: energia che arriva da
+// fuori, non costa niente al camper, e intanto si carica anche la Bluetti.
+// Dalla **Bluetti**: non e' energia nuova, e' energia spostata da una batteria
+// all'altra, e per strada se ne perde un quinto fra inverter e caricatore.
+//
+// La regola non e' nuova: e' quella di `travaso.js`, «eroga e non riceve», con
+// le sue soglie gia' motivate -- sotto i 150 W l'uscita 220 non e' un
+// apparecchio che lavora, sopra i 50 W in ingresso c'e' la rete e la corrente
+// la paga la colonnina.
+//
+// Su una lettura vecchia non si attribuisce niente. Il 19/11/2026 una lettura
+// di sei minuti fa, messa accanto a watt freschi, aveva gia' prodotto un
+// «esce 0, arriva 201»: battezzare la sorgente su un dato vecchio sarebbe lo
+// stesso errore, travestito meglio.
+function origineDella220(b) {
+  if (!b || b.vecchia) return null;
+  const rete = numero(b.rete_w) ?? 0;
+  const esce = numero(b.uscita_ac_w) ?? 0;
+  if (rete >= SOGLIA_RETE_W) return 'colonnina';
+  if (esce >= SOGLIA_TRAVASO_W) return 'bluetti';
+  return null;
+}
+
+const NOME_220 = {
+  colonnina: 'Dalla colonnina',
+  bluetti: 'Dalla Bluetti',
+};
 
 // Come si vede un ramo che porta `watt` su un totale di `totale`. La scala e'
 // sempre sul totale del **proprio lato**: trecento watt in uscita e dieci in
@@ -117,7 +159,7 @@ function numero(v) {
 // il totale, e il 19/11/2026 la figura spariva nello stato piu' comune della
 // giornata -- confondendo «non entra niente» con «non so niente», che e'
 // proprio la distinzione che il resto del progetto tiene separata dappertutto.
-export function ramiDellaCarica(fonti, { letture = false } = {}) {
+export function ramiDellaCarica(fonti, { letture = false, bluetti = null } = {}) {
   const misurato = numero(fonti?.valore);
   // Senza letture delle Ective non c'e' niente da disegnare, e la pagina
   // mostra la spiegazione di cosa manca -- e' il `manca()` di conti.js.
@@ -159,6 +201,17 @@ export function ramiDellaCarica(fonti, { letture = false } = {}) {
   // resta scritto, il ramo no -- e la pagina puo' dire dove sta andando,
   // invece di lasciare un sei watt senza spiegazione accanto a uno zero.
   const altrove = totale <= 0 && rami.some(r => (r.watt ?? 0) > 0);
+
+  // Il ramo della 220 dice da dove viene, quando si puo' sapere. La
+  // **quantita'** resta una sottrazione: sapere da dove viene non la rende
+  // misurata, e il bollino della stima resta.
+  const origine = origineDella220(bluetti);
+  for (const r of rami) {
+    if (r.id !== 'rete') continue;
+    r.origine = origine;
+    if (origine) r.nome = NOME_220[origine];
+    if (origine === 'bluetti') r.travaso = true;
+  }
 
   return altrove ? { totale, rami, altrove } : { totale, rami };
 }
