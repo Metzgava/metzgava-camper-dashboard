@@ -705,17 +705,79 @@ def passo_taratura(risposta):
     return secondi
 
 
+# ----------------------------------------------------------------------------
+# La configurazione, riletta a ogni giro
+# ----------------------------------------------------------------------------
+#
+# Si leggeva una volta sola, all'avvio. Ogni cambiamento -- un termometro in
+# piu', un nome da correggere, il passo da accorciare -- chiedeva un riavvio del
+# servizio; un riavvio chiede `sudo`, e `sudo` chiede la password.
+#
+# Il 19/11/2026 questo e' costato due volte la stessa cosa: la password del
+# proprietario finita scritta in chiaro nel terminale, battuta un istante prima
+# o un istante dopo la richiesta. Non e' un difetto suo. E' un difetto di un
+# apparecchio che pretende un riavvio per rileggere venti righe di testo.
+#
+# Rileggere costa una lettura di file ogni cinque minuti, cioe' niente. Ma una
+# configurazione rotta non deve buttare via quella buona: il file si riscrive a
+# mano, e un `{` dimenticato a meta' spedizione fermerebbe la scatoletta in
+# camper, lontano da chi puo' sistemarla. Si tira avanti con l'ultima che
+# funzionava, e lo si scrive nel diario.
+
+PASSO_RISERVA = 300
+
+
+def passo_di(conf):
+    """Secondi fra un giro e l'altro, da `minuti`.
+
+    Uno zero o un numero negativo vorrebbe dire radio sempre accesa e batteria
+    servizi consumata in un giorno: si torna alla riserva invece di obbedire a
+    un errore di battitura.
+    """
+    try:
+        secondi = int(conf.get("minuti", 5)) * 60
+    except (TypeError, ValueError):
+        return PASSO_RISERVA
+    return secondi if secondi > 0 else PASSO_RISERVA
+
+
+def configurazione_fresca(precedente):
+    """Rilegge `config.json`. Se non si puo', torna quella di prima."""
+    try:
+        letta = json.loads(CONFIG.read_text())
+        if not isinstance(letta, dict):
+            raise ValueError("non e' un oggetto")
+        # Senza `server` o senza `chiave` non si saprebbe dove mandare le
+        # letture: rotta quanto un JSON malformato, e si rifiuta allo stesso
+        # modo.
+        for necessaria in ("server", "chiave"):
+            if not letta.get(necessaria):
+                raise ValueError(f"manca «{necessaria}»")
+    except Exception as e:                            # noqa: BLE001
+        log.warning("config.json non si rilegge (%s): tiro avanti con "
+                    "l'ultima buona", e)
+        return precedente
+    return letta
+
+
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if not CONFIG.exists():
         log.error("manca %s: copia config.json.esempio e riempilo", CONFIG)
         sys.exit(1)
     conf = json.loads(CONFIG.read_text())
-    passo = int(conf.get("minuti", 5)) * 60
+    passo = passo_di(conf)
     log.info("scatoletta avviata, un giro ogni %d minuti verso %s", passo // 60, conf["server"])
     while True:
         inizio = time.time()
         risposta = None
+        # Prima del giro, non dopo: cosi' un termometro aggiunto adesso entra
+        # nel giro che comincia, e non in quello successivo.
+        prima = passo
+        conf = configurazione_fresca(conf)
+        passo = passo_di(conf)
+        if passo != prima:
+            log.info("passo cambiato: un giro ogni %d minuti", passo // 60)
         try:
             risposta = await un_giro(conf)
         except Exception as e:                        # noqa: BLE001
