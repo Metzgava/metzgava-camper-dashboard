@@ -48,6 +48,35 @@ case "$CHIAVE" in
   ""|METTI-QUI-*) echo "!! In $CONFIG la voce \"chiave\" e' ancora da riempire."; exit 1;;
 esac
 
+# --- chi e' la scatoletta ---
+# Si legge dalla scheda **prima** di copiare. Due motivi: senza queste due cose
+# la riga da incollare non si puo' scrivere, e soprattutto la loro assenza vuol
+# dire che Imager ha scartato l'ingranaggio delle impostazioni -- una scheda
+# senza utente, senza password e senza WiFi, che fa partire il Raspberry e lo
+# lascia irraggiungibile per sempre. Meglio accorgersene adesso, col lettore
+# ancora infilato nel Mac, che dopo, con la scheda dentro una scatola chiusa.
+UTENTE=$(python3 "$DOVE/identita-scheda.py" utente "$SCHEDA" || true)
+NOME=$(python3 "$DOVE/identita-scheda.py" nome "$SCHEDA" || true)
+if [ -z "$UTENTE" ] || [ -z "$NOME" ]; then
+  MANCA="il nome utente e il nome di rete"
+  [ -n "$UTENTE" ] && MANCA="il nome di rete"
+  [ -n "$NOME" ] && MANCA="il nome utente"
+  echo "!! Non riesco a ricavare $MANCA dalla scheda: non copio niente." >&2
+  echo >&2
+  echo "   Sulla partizione di avvio non ci sono le impostazioni di Imager:" >&2
+  echo "   ne' i file del formato vecchio (userconf.txt, firstrun.sh) ne'" >&2
+  echo "   quelli di cloud-init (user-data) di Imager 2." >&2
+  echo >&2
+  echo "   Vuol dire che Imager ha scritto il sistema e ha buttato via" >&2
+  echo "   l'ingranaggio: niente utente, niente password, niente WiFi," >&2
+  echo "   niente SSH. Il Raspberry parte e non lo raggiungi piu'." >&2
+  echo >&2
+  echo "   Riscrivi la scheda, e alla domanda con i tre pulsanti premi" >&2
+  echo "   MODIFICA IMPOSTAZIONI, compila, SALVA, e solo allora SI'." >&2
+  echo "   Premere NO e' esattamente quel che porta qui." >&2
+  exit 1
+fi
+
 # --- la copia ---
 echo "== Copio la scatoletta su $SCHEDA =="
 mkdir -p "$SCHEDA/scatoletta"
@@ -69,19 +98,6 @@ chmod +x "$SCHEDA/scatoletta/installa.sh" "$SCHEDA/scatoletta/aggiungi-rete.sh" 
 # infili la scheda in un computer. La chiave della porta ci passa, e va bene
 # cosi' — serve solo a scrivere misure — ma e' giusto saperlo.
 echo "   $PEZZI config.json"
-
-UTENTE=$(python3 - "$SCHEDA" <<'PY'
-import re, sys, pathlib
-# Imager scrive l'utente in userconf.txt (nome:hash). Serve solo per scrivere
-# la riga di comando giusta: se non c'e', si mette un segnaposto.
-p = pathlib.Path(sys.argv[1]) / "userconf.txt"
-print(p.read_text().split(":")[0].strip() if p.exists() else "UTENTE")
-PY
-)
-# Il nome con cui risponde sulla rete lo decide Imager, non il nostro
-# config.json: sta scritto dentro firstrun.sh. Se non lo si trova si mette
-# quello del config, che e' meglio di un segnaposto ma puo' non combaciare.
-NOME=$(python3 "$DOVE/nome-di-rete.py" "$SCHEDA" "$CONFIG")
 
 cat > "$SCHEDA/scatoletta/COME-SI-FINISCE.txt" <<NOTA
 Scatoletta del camper — ultimo passo

@@ -58,6 +58,35 @@ dopo, da ferma, con `./aggiungi-rete.sh` (vedi «Una seconda rete WiFi» più
 sotto), e da quel momento aggancia da sé quella che trova. È esattamente il
 problema per cui quello script esiste.
 
+**E deve essere una rete a 2,4 GHz.** Il Pi Zero 2 W ha un'antenna che
+funziona solo su quella banda: una rete a 5 GHz per lui non esiste, non la
+vede nemmeno nell'elenco. Il 18/11 è costata mezz'ora — la scatoletta si è
+accesa, ha espanso la partizione, è arrivata in fondo all'avvio, e non è mai
+comparsa in rete. Il sintomo è identico a quello della rete sbagliata, e
+nessuno dei due dà un errore da nessuna parte: il LED lampeggia, il sistema
+funziona, e non c'è niente da leggere.
+
+Molti router pubblicano due nomi — `casa` e `casa-5G`, oppure due reti con
+nomi diversi — e **non è detto che quello senza suffisso sia il 2,4**. Qui
+era il contrario: `bergava` era il 5 GHz e il 2,4 si chiamava `BERGAVA iot`.
+Il controllo è sul telefono, prima di scrivere la scheda.
+
+**Il nome va copiato carattere per carattere.** `bergava iot` e `BERGAVA iot`
+sono due reti diverse per un Raspberry. Si guarda l'elenco WiFi del telefono
+e si copia quel che c'è scritto, maiuscole e spazi compresi — non quel che si
+ricorda.
+
+**Se la rete a 2,4 GHz è una rete separata** — quelle che si chiamano `iot` o
+`ospiti` quasi sempre lo sono — la scatoletta prende un indirizzo su un'altra
+sottorete, e allora `bergava-scatoletta.local` **non risponde più dal Mac**:
+il meccanismo dei nomi `.local` non attraversa il confine fra due reti. Non è
+un guasto e non impedisce niente: si entra con l'indirizzo numerico
+(`ssh metz@10.10.3.x`), che si trova passando in rassegna quella sottorete.
+Il primo controllo da fare è se il Mac ci arriva affatto: si prende
+l'indirizzo del telefono collegato a quella rete e si prova a chiamarlo.
+
+In camper la complicazione sparisce, perché lì tutto sta sulla stessa rete.
+
 ### 2. Il config
 
 ```bash
