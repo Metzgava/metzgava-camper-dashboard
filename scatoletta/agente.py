@@ -230,25 +230,84 @@ def switchbot_leggi(costruttore, servizio=None):
 FFE4 = "0000ffe4-0000-1000-8000-00805f9b34fb"
 
 
+# La scala credibile di quel che manda un termometro. Sono gli stessi limiti
+# che il server applica in `AMMESSE` (servizi/src/routes/ingresso.js): la
+# scatoletta non deve essere piu' severa di lui, o scarterebbe letture che
+# l'archivio prenderebbe.
+#
+# Perche' il controllo serve anche qui, se il server ce l'ha. Perche' lui lo fa
+# a meta': rifiuta la misura fuori scala nello storico e scrive comunque
+# l'istantanea, che e' quel che l'app mostra nel riquadro «adesso». Il 19/11 un
+# sensore diceva 127.0 gradi -- il valore che quei sensori mandano quando non
+# hanno una lettura -- e se fosse stato uno dei nostri sarebbe finito sotto gli
+# occhi. La regola 2 dice che una lettura fuori scala non si spedisce: questa e'
+# la riga che la scrive.
+SCALA = {
+    "temperatura": (-40, 90),
+    "umidita": (0, 100),
+    "pila": (0, 100),
+    "rssi": (-120, 0),
+}
+
+
+def fuori_scala(letto):
+    """Le grandezze di questa lettura che dicono cose impossibili.
+
+    Torna una lista di `(grandezza, valore)`, vuota se la lettura e' credibile.
+    Una grandezza senza scala non ferma niente: i sensori mandano anche cose
+    che non spediamo, e non avere un limite per loro non e' un motivo per
+    buttare la temperatura.
+    """
+    fuori = []
+    for grandezza, valore in letto.items():
+        limiti = SCALA.get(grandezza)
+        if not limiti:
+            continue
+        try:
+            v = float(valore)
+        except (TypeError, ValueError):
+            fuori.append((grandezza, valore))
+            continue
+        if v < limiti[0] or v > limiti[1]:
+            fuori.append((grandezza, valore))
+    return fuori
+
+
 def termometri_scelti(sentiti, nomi):
-    """Divide i termometri sentiti in «nostri» e «estranei».
+    """Divide i termometri sentiti in tre: nostri, estranei, assurdi.
 
     `sentiti` e' quel che arriva dall'ascolto: indirizzo -> (nome, letture).
     `nomi` e' l'elenco di `config.json`: indirizzo -> come lo chiami tu.
 
     Si spediscono solo quelli in elenco. Gli altri non si buttano in silenzio:
-    tornano fra gli estranei per finire nel diario, perche' quando comprerai i
-    tuoi termometri l'unico modo di scoprire il loro indirizzo e' sentirli.
+    tornano fra gli `estranei` per finire nel diario, perche' quando comprerai
+    i tuoi termometri l'unico modo di scoprire il loro indirizzo e' sentirli.
+
+    Gli `assurdi` sono i nostri che dicono cose impossibili: tornano come
+    `(indirizzo, etichetta, letto, fuori)` dove `fuori` elenca le grandezze
+    sbagliate e il loro valore -- nel diario «fuori scala» senza il numero non
+    dice se e' il sensore che tace o il decodificatore che ha perso un byte.
+
+    Di un assurdo si butta **tutta** la lettura, non solo il valore sbagliato:
+    un byte perso sposta i byte dopo, e l'umidita' di un pacchetto con la
+    temperatura sbagliata non e' piu' attendibile di lei.
+
+    Un estraneo che dice assurdita' resta un estraneo: e' il caso vero del
+    19/11, e «non e' tuo» e' il motivo piu' utile da leggere nel diario.
     """
     elenco = {k.lower(): v for k, v in (nomi or {}).items()}
-    nostri, estranei = [], []
+    nostri, estranei, assurdi = [], [], []
     for indirizzo, (nome, letto) in sentiti.items():
         etichetta = elenco.get(indirizzo.lower())
-        if etichetta:
-            nostri.append((indirizzo, etichetta, letto))
-        else:
+        if not etichetta:
             estranei.append((indirizzo, nome or indirizzo, letto))
-    return nostri, estranei
+            continue
+        fuori = fuori_scala(letto)
+        if fuori:
+            assurdi.append((indirizzo, etichetta, letto, fuori))
+        else:
+            nostri.append((indirizzo, etichetta, letto))
+    return nostri, estranei, assurdi
 
 def _le(h: str, i: int, n: int, signed=False):
     """n byte a partire dal carattere i, byte invertiti."""
@@ -373,7 +432,12 @@ async def giro_bluetooth(conf):
     # Solo i nostri: i sensori BTHome e ATC trasmettono in chiaro a chiunque
     # passi, e il primo giro col Bluetooth acceso ha raccolto quello di un
     # vicino. Gli estranei si scrivono nel diario e si scartano.
-    nostri, estranei = termometri_scelti(termometri, conf.get("termometri"))
+    nostri, estranei, assurdi = termometri_scelti(termometri,
+                                                  conf.get("termometri"))
+    for indirizzo, etichetta, _letto, fuori in assurdi:
+        log.warning("lettura fuori scala, non spedita: %s (%s) — %s",
+                    indirizzo, etichetta,
+                    ", ".join(f"{g}={v}" for g, v in fuori))
     for indirizzo, nome, letto in estranei:
         t = letto.get("temperatura")
         log.info("termometro non in elenco, scartato: %s%s%s — se e' tuo, "
