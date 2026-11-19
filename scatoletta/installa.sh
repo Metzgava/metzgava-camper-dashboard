@@ -27,6 +27,34 @@ sudo apt-get install -y -qq python3-venv python3-pip bluez
 # Il Bluetooth deve essere acceso e restare acceso anche dopo un riavvio.
 sudo systemctl enable --now bluetooth
 
+# Accendere il servizio non basta: su Raspberry Pi OS Lite la **radio** nasce
+# bloccata da un interruttore software, e il servizio attivo non lo dice. Il
+# quadro e' tutto verde e non funziona niente -- chip presente, programma
+# interno caricato, `scatoletta.service` attivo, e `bluetoothctl show` che
+# risponde `Powered: no / PowerState: off-blocked`.
+#
+# E' costato la notte del 18/11: una riga di errore ogni cinque minuti, per
+# dieci ore, con tutto il resto in ordine. Sulle versioni con interfaccia
+# grafica lo sblocca il programma di configurazione al primo avvio; su Lite
+# non lo fa nessuno, e va fatto qui.
+#
+# `rfkill` non e' installato su Lite, ma il suo interruttore e' un file: si
+# scrive quello. Lo stato lo conserva systemd-rfkill, quindi si fa una volta
+# sola e vale anche dopo i riavvii.
+echo "-- sblocco la radio Bluetooth (su Lite nasce bloccata)"
+for INTERRUTTORE in /sys/class/rfkill/rfkill*; do
+  [ -e "$INTERRUTTORE/type" ] || continue
+  if [ "$(cat "$INTERRUTTORE/type")" = "bluetooth" ]; then
+    echo 0 | sudo tee "$INTERRUTTORE/soft" >/dev/null
+  fi
+done
+sudo systemctl restart bluetooth
+# Il tempo che bluetoothd riprenda l'adattatore: senza, il `power on` arriva
+# prima che ci sia qualcosa da accendere.
+sleep 3
+bluetoothctl power on >/dev/null 2>&1 || true
+bluetoothctl show 2>/dev/null | grep -E "Powered|PowerState" || true
+
 # --- 2. l'ambiente Python ---
 # In un ambiente a parte, non nel Python di sistema: su Raspberry Pi OS quello
 # e' protetto apposta, e mescolarci dentro roba e' il modo classico per
