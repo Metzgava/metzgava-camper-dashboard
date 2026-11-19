@@ -161,3 +161,65 @@ dice il cloud, finché il cloud funziona.
 
 E resta la regola di sempre: **leggere e comandare sono due decisioni
 separate**. Questa sonda legge e basta.
+
+---
+
+# La mappa dei registri — prime due coppie, 19/11/2026
+
+Due fotografie dei registri dell'Elite 300 via Bluetooth, confrontate con i
+numeri che l'app di Bluetti mostrava nello stesso minuto.
+
+| | 220 chiusa (17:16) | 220 aperta (17:20) |
+|---|---|---|
+| **l'app dice** | carica 81%, tutto a 0 | carica 81%, **uscita 220 V = 433 W** |
+| `[142]` | — | **433** |
+| `[102]` | 81 | 81 |
+| `[104]` `[105]` | 30520 | 518 |
+| `[100]` | 996 | 988 |
+| `[101]` | 3 | 293 |
+| `[148]` | 65535 | 246 |
+| `[167]` | 31850 | 31860 |
+| `[103]` `[124]` `[161]` `[188]` | — | 2, 2, 1, 136 |
+
+## Identificati
+
+**`[142]` — watt in uscita sulla 220.** Valeva zero a inverter spento ed e'
+comparso valendo **esattamente 433**, il numero dell'app. Nessuna ambiguita'.
+
+**`[102]` — la carica, in percentuale.** Vale 81 in entrambe, come l'app. Due
+misure concordi: battezzato.
+
+## Quasi certi
+
+**`[104]` e `[105]` — l'autonomia, in minuti.** Da 30520 (ventun giorni: a
+riposo, cioe' «praticamente infinita») a **518**, otto ore e mezza — quanto
+dura una Elite 300 erogando 433 W. Il salto ha senso solo per questo.
+
+**`[100]` — la tensione della batteria, per dieci.** Da 99,6 a 98,8 V: scesa
+di otto decimi **sotto carico**, come fa una batteria a cui si chiede mezzo
+kilowatt. E novantanove volt dice che l'Elite 300 e' un sistema a 102,4 V.
+
+**`[148]`** — da 65535 (cioe' −1, «non lo so») a 246 quando l'inverter si e'
+acceso.
+
+## Costanti riconoscibili
+
+`[169]=230` la tensione di rete, `[170]=5000` la frequenza (50,00 Hz),
+`[152]=[156]=225` probabilmente 22,5 °C, `[110..112]` = `EL300`, il modello.
+
+## La mappa del territorio, avuta gratis
+
+Le risposte `018302c0f1` non sono guasti: `0x83` e' l'errore MODBUS e `0x02`
+significa **indirizzo inesistente**. Quindi i registri validi stanno in tre
+zone: circa **0-19, 100-124, 140-188**. Il resto non esiste.
+
+## Cosa manca
+
+**Una terza coppia con un carico diverso.** Serve a confermare che `[142]`
+segue il valore nuovo, e a separare `[100]`, `[101]` e `[148]`, che finora si
+sono mossi tutti insieme una volta sola. Va bene qualunque carico che resti
+acceso due minuti -- il bollitore no, va a termostato e stacca da solo.
+
+E mancano ancora i **watt in ingresso**: in nessuna delle due fotografie
+entrava corrente nella Bluetti. Serve una coppia con la colonnina attaccata o
+il sole che carica.
