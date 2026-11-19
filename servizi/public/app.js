@@ -92,7 +92,19 @@ function versoBluetti(b) {
 const ANG = p => 180 - 1.8 * Math.max(0, Math.min(100, p));          // gradi
 const PT = (cx, cy, r, g) => [cx + r * Math.cos(g * Math.PI / 180), cy - r * Math.sin(g * Math.PI / 180)];
 
-function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null, verso = null, conto = false }) {
+// `eta`: quanto e' vecchia questa lettura, se e' vecchia. Va **sul quadrante**,
+// non solo in una fascia sopra o in una riga sotto.
+//
+// Il 19/11/2026 il cloud di Bluetti e' stato in avaria due ore. Il quadrante
+// segnava 95% -- vero, ma di novanta minuti prima -- e nell'angolo della
+// pagina c'era scritto «dal vivo», che parla per tutta la pagina mentre il
+// vivo riguarda solo quel che legge la scatoletta. Il proprietario ha detto:
+// «vedo dal vivo ma non puo' essere 95%».
+//
+// Aveva ragione. Un quadrante e' la cosa piu' convincente che ci sia in una
+// pagina: la lancetta, il colore, l'arco. Se quel che mostra e' vecchio, deve
+// dirlo **li'**, dove si guarda -- non altrove, dove si legge dopo.
+function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null, verso = null, conto = false, eta = null }) {
   const CX = 118, CY = 112, R = 86;
   const colore = atteso || pct == null ? 'var(--fioco)'
     : pct <= 20 ? 'var(--rosso)' : pct <= 45 ? 'var(--ambra)' : 'var(--verde)';
@@ -133,7 +145,10 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
   // Il tremolio e' mezzo grado scarso e dura un secondo e mezzo: deve dire
   // «questa si sta muovendo», non chiedere attenzione. Chi ha chiesto meno
   // animazioni al sistema non lo vede affatto.
-  const coloreLancetta = verso === 'carica' ? 'var(--verde)' : verso === 'scarica' ? 'var(--ambra)' : 'var(--testo)';
+  // Con una lettura vecchia la lancetta non ha piu' un verso da dichiarare:
+  // quel che diceva e' di prima. Si smorza invece di affermare.
+  const coloreLancetta = eta ? 'var(--fioco)'
+    : verso === 'carica' ? 'var(--verde)' : verso === 'scarica' ? 'var(--ambra)' : 'var(--testo)';
   let lancetta = '';
   if (!atteso && pct != null) {
     const [nx, ny] = PT(CX, CY, R - 20, ANG(pct));
@@ -144,7 +159,9 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
       <circle cx="${CX}" cy="${CY}" r="7" fill="${coloreLancetta}"/><circle cx="${CX}" cy="${CY}" r="3" fill="var(--carta)"/></g>`;
   }
 
-  const riga = atteso
+  const riga = eta
+    ? `<div class="perche" style="color:var(--ambra);font-weight:600">\u25cb non e&rsquo; di adesso: ${esc(eta)}</div>`
+    : atteso
     ? `<div class="perche">${esc(perche)}</div>`
     : !tendenza || tendenza.nota
       ? `<div class="perche">${esc(tendenza?.nota || '')}</div>`
@@ -258,6 +275,7 @@ function vistaAdesso() {
         : `<div class="scheda">
             ${dati.bluetti?.vecchia ? fasciaVecchia() : ''}
             ${manometro({ pct: b.carica, nome: b.nome + (b.in_linea === false ? ' · spenta' : ''), tendenza: b.tendenza,
+              eta: dati.bluetti?.vecchia ? dilloInMinuti(dati.bluetti.minuti) : null,
               carica: (dati.conti?.ingresso?.valore || 0) > 0,
               // Il verso della lancetta e' il **netto**, non l'ingresso: col
               // sole che entra e il frigo che tira, quel che conta per la
