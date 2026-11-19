@@ -14,7 +14,7 @@ import { statoBluetti, collegato, associa, comanda, COMANDI,
 import { tuttiIConti, impianto } from '../lib/conti.js';
 import { leggiTravaso } from '../lib/travaso.js';
 import { ramiDellaCarica, ramiDellaBluetti } from '../lib/flusso.js';
-import { segnaOcchiata } from '../lib/occhiata.js';
+import { segnaOcchiata, ritmoRichiesto, ultimaOcchiata } from '../lib/occhiata.js';
 import { serveAccesso } from './auth.js';
 
 // Le rotte normali stanno dietro al login. Una sola no, e sotto si dice perche'.
@@ -159,6 +159,11 @@ router.get('/stato', wrap(async (req, res) => {
   res.json({
     letto_il: new Date().toISOString(),
     passo_minuti: passoMinuti(),
+    // Il passo che la scatoletta sta tenendo adesso: quando qualcuno guarda
+    // va svelta, e la pagina deve aggiornarsi altrettanto spesso -- altrimenti
+    // i dati arrivano freschi al server e invecchiano aspettando di essere
+    // mostrati.
+    vivo: ritmoRichiesto(ultimaOcchiata()).secondi,
     prossima_lettura: prossimoGiro()?.toISOString() || null,
     bluetti,
     conti,

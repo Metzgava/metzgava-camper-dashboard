@@ -1337,22 +1337,48 @@ let ultimoAuto = 0;
 function battito() {
   const el = $('#conto');
   if (!el) return;
+  const vivo = !!dati?.vivo;
   const p = dati?.prossima_lettura;
-  if (!p) { el.textContent = ''; return; }
-  const s = Math.round((new Date(p).getTime() - Date.now()) / 1000);
-  if (s > 0) {
+  const s = p ? Math.round((new Date(p).getTime() - Date.now()) / 1000) : null;
+
+  // Cosa si scrive nell'angolo.
+  if (vivo) {
+    // Col vivo non c'e' nessun conto alla rovescia da fare: non si aspetta
+    // niente, i numeri arrivano.
+    el.textContent = '\u25cf dal vivo';
+    el.setAttribute('class', 'conto vicino');
+  } else if (s == null) {
+    el.textContent = '';
+    return;
+  } else if (s > 0) {
     el.textContent = `\u21bb ${s} s`;
     el.setAttribute('class', 'conto' + (s <= 10 ? ' vicino' : ''));
     return;
+  } else {
+    el.textContent = '\u21bb aggiorno\u2026';
+    el.setAttribute('class', 'conto vicino');
   }
-  el.textContent = '\u21bb aggiorno\u2026';
-  el.setAttribute('class', 'conto vicino');
-  if (s > -GRAZIA_S || document.hidden) return;
+
+  // E quando si richiede.
+  //
+  // `document.hidden` e' il paletto che conta, e viene prima di tutto: appena
+  // il telefono va in tasca si smette di chiedere, e dopo novanta secondi di
+  // silenzio la scatoletta torna lenta da se'. Nessuno deve scaricare la
+  // batteria del camper per aver lasciato una pagina aperta.
+  if (document.hidden) return;
   if (!STANZE_VIVE.some(v => (location.hash || '#/adesso').startsWith(v))) return;
-  if (Date.now() - ultimoAuto < 15000) return;
+  // Senza il vivo si aspetta che la lettura sia scaduta; col vivo no, perche'
+  // non c'e' una prossima lettura da aspettare -- la scatoletta ne manda una
+  // ogni dieci secondi.
+  if (!vivo && (s == null || s > -GRAZIA_S)) return;
+  // Due secondi e mezzo col vivo, quindici senza. Aspettarne quindici mentre
+  // la scatoletta manda ogni dieci vorrebbe dire dati freschi fatti
+  // invecchiare qui dentro.
+  if (Date.now() - ultimoAuto < (vivo ? 2500 : 15000)) return;
   ultimoAuto = Date.now();
   disegna().catch(() => { /* un giro saltato non e' un errore da mostrare */ });
 }
+
 setInterval(battito, 1000);
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) controllaVersione(); });
