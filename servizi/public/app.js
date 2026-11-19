@@ -350,6 +350,7 @@ function vistaAdesso() {
     <div class="titolo">Batterie di servizio</div>
     ${ective}
 ${catena()}
+    ${vistaFlusso()}
     ${vistaTemperature()}
     ${vistaTelecamere()}
     ${vistaSegnale()}
@@ -531,6 +532,96 @@ function dataCorta(quando) {
 // 3. **Niente zero al posto del non so.** Un sensore che non manda la
 //    temperatura mostra una lineetta. Zero gradi e' una notizia, non
 //    un'assenza di notizie.
+// ---------- cosa carica le batterie ----------
+//
+// Tre fonti a sinistra, le Ective a destra, un ramo per fonte. Un ramo che
+// porta corrente e' verde con i puntini che scorrono verso le batterie: piu'
+// spesso e piu' veloce quando i watt sono tanti. Un ramo fermo e' sottile e
+// immobile.
+//
+// I conti -- quali rami, quanto spessi, quanto veloci -- li fa il server in
+// `lib/flusso.js`, dove ci sono le prove. Qui si disegna e basta.
+//
+// Tre scelte.
+//
+// 1. **Il ramo della 220 e' tratteggiato a puntini anche quando e' attivo**, e
+//    porta il bollino della stima. Quei watt non si misurano: si ottengono
+//    togliendo sole e alternatore dal totale, e potrebbero venire da una terza
+//    fonte che non vediamo. Un'animazione uguale su tutti direbbe «so tutto e
+//    tutto allo stesso modo», e sarebbe falso.
+// 2. **Quando non carica niente la figura non sparisce**: resta grigia e
+//    immobile col totale a zero. Sparire direbbe «non lo so», che e' un'altra
+//    cosa -- la stessa regola della sezione Temperature.
+// 3. **Chi ha chiesto meno animazioni al sistema** non vede scorrere niente:
+//    il ramo attivo resta verde e pieno, con una freccia ferma al centro. Si
+//    perde il movimento, non l'informazione. Lo fanno gia' l'alone e la
+//    lancetta, in stile.css.
+function vistaFlusso() {
+  const f = dati.flusso;
+  // Niente letture delle Ective: la figura non si disegna affatto, e la
+  // spiegazione di cosa manca la da' gia' la sezione dei conti.
+  if (!f || !Array.isArray(f.rami)) return '';
+
+  // La geometria, in coordinate del disegno (viewBox 236 x 148): a sinistra la
+  // colonna delle fonti, al centro i rami, a destra le batterie. I punti di
+  // controllo stanno DENTRO il tratto: messi oltre il punto d'arrivo fanno una
+  // pancia che si accavalla invece di una convergenza.
+  const L = 10, X0 = 104, X1 = 172, CY = n => 28 + n * 44, BY = CY(1);
+  const qualcosaCarica = f.rami.some(r => r.attivo);
+
+  const rami = f.rami.map((r, i) => {
+    const y = CY(i);
+    // Una curva, non una spezzata: le linee dritte in un disegno di flusso
+    // sembrano un circuito, e questo non e' uno schema elettrico.
+    const via = `M${X0},${y} C${X0 + 28},${y} ${X1 - 28},${BY} ${X1},${BY}`;
+    const colore = r.attivo ? 'var(--verde)' : 'var(--bordo)';
+    // Il tratteggio del ramo dedotto e' fatto di punti; quello degli altri di
+    // linee. Si distingue anche da fermo, non solo dal movimento.
+    const passo = r.certezza === 'dedotto' ? '2 7' : '7 7';
+    return `<g>
+      <path d="${via}" stroke="${colore}" stroke-width="${r.spessore}" fill="none"
+        stroke-linecap="round" opacity="${r.attivo ? 1 : (r.ignoto ? .35 : .55)}"
+        ${r.ignoto && !r.attivo ? 'stroke-dasharray="3 5"' : ''}/>
+      ${r.attivo ? `<path d="${via}" stroke="var(--carta)" stroke-width="${Math.max(1.5, r.spessore - 3)}"
+        fill="none" stroke-linecap="round" stroke-dasharray="${passo}" class="scorre"
+        style="animation-duration:${r.secondi}s"/>` : ''}
+    </g>`;
+  }).join('');
+
+  const nodi = f.rami.map((r, i) => {
+    const y = CY(i);
+    return `<g>
+      <text x="${L}" y="${y + 5}" font-size="14">${r.icona}</text>
+      <text x="${L + 20}" y="${y - 2}" font-size="10" fill="var(--fioco)">${esc(r.nome)}</text>
+      <text x="${L + 20}" y="${y + 11}" font-size="12.5" font-weight="600"
+        fill="${r.attivo ? 'var(--verde)' : 'var(--fioco)'}">${
+        r.watt == null ? '—' : num(r.watt, 0) + ' W'}</text>
+    </g>`;
+  }).join('');
+
+  return `<div class="titolo">Cosa carica le batterie</div>
+    <div class="scheda">
+      <svg viewBox="0 0 236 148" style="width:100%;max-width:320px;height:auto;display:block;margin:0 auto"
+        aria-label="${qualcosaCarica
+          ? esc(f.rami.filter(r => r.attivo).map(r => `${r.nome} ${Math.round(r.watt)} watt`).join(', '))
+          : 'nessuna fonte sta caricando'}">
+        ${rami}
+        ${nodi}
+        <g text-anchor="middle">
+          <text x="202" y="${BY - 14}" font-size="16">\u{1F50B}</text>
+          <text x="202" y="${BY + 2}" font-size="10" fill="var(--fioco)">Ective</text>
+          <text x="202" y="${BY + 17}" font-size="14" font-weight="700"
+            fill="${qualcosaCarica ? 'var(--verde)' : 'var(--fioco)'}">${
+            f.totale == null ? '—' : num(f.totale, 0) + ' W'}</text>
+        </g>
+      </svg>
+      ${qualcosaCarica ? '' : `<div class="perche" style="text-align:center">Nessuna fonte sta caricando: non &egrave; un guasto, &egrave; quel che succede a motore spento, senza sole e senza 220.</div>`}
+      ${f.rami.some(r => r.attivo && r.certezza === 'dedotto')
+        ? `<div class="nota" style="margin-top:8px">La parte <b>dalla 220</b> ha il tratteggio a puntini perch&eacute; non si misura: &egrave; il totale meno sole e alternatore. Se ci fosse una quarta fonte che non vediamo, finirebbe l&igrave;. ${bollo('stima')}</div>`
+        : ''}
+    </div>`;
+}
+
 function vistaTemperature() {
   const term = (dati.istantanee || []).filter(r => r.dati?.tipo === 'termometro')
     .sort((a, b) => String(a.dati.nome || a.apparecchio).localeCompare(String(b.dati.nome || b.apparecchio)));

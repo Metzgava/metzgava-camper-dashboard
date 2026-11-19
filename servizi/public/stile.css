@@ -279,3 +279,21 @@ input:-webkit-autofill:active {
 @media (prefers-reduced-motion: reduce) {
   .lancetta.muove { animation: none; }
 }
+
+/* I puntini che scorrono lungo un ramo che porta corrente. Si muove il
+   tratteggio, non il tracciato: una sola proprieta' animata, nessun ridisegno
+   del percorso, e su un telefono vecchio non costa niente.
+
+   Il verso: `stroke-dashoffset` che cala muove i punti **nel senso del
+   tracciato**, e i tracciati sono disegnati dalla fonte verso le batterie.
+   Quindi i puntini vanno dove va la corrente -- che e' l'unica cosa che questa
+   animazione deve dire. */
+.scorre { animation: scorri linear infinite; }
+@keyframes scorri { to { stroke-dashoffset: -28 } }
+
+/* Chi ha chiesto meno animazioni al sistema non vede scorrere niente: il ramo
+   attivo resta verde e pieno, col suo spessore. Si perde il movimento, non
+   l'informazione -- come l'alone e la lancetta qui sopra. */
+@media (prefers-reduced-motion: reduce) {
+  .scorre { animation: none; opacity: .5 }
+}

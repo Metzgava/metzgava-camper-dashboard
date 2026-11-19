@@ -13,6 +13,7 @@ import { statoBluetti, collegato, associa, comanda, COMANDI,
   indirizzoAutorizza, completaAutorizzazione } from '../lib/bluetti.js';
 import { tuttiIConti, impianto } from '../lib/conti.js';
 import { leggiTravaso } from '../lib/travaso.js';
+import { ramiDellaCarica } from '../lib/flusso.js';
 import { serveAccesso } from './auth.js';
 
 // Le rotte normali stanno dietro al login. Una sola no, e sotto si dice perche'.
@@ -160,6 +161,9 @@ router.get('/stato', wrap(async (req, res) => {
     collegamento,
     impianto: fissi,
     attesi: ancoraAttesi(ATTESI, ultimi),
+    // Lo schema di cosa carica le batterie, gia' masticato: la pagina lo
+    // disegna e non fa conti. La logica sta in lib/flusso.js, con le prove.
+    flusso: ramiDellaCarica(conti.fonti_ective),
     istantanee: ultimi,
   });
 }));
