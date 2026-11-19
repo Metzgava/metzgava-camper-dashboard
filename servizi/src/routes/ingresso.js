@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { q, segna } from '../lib/db.js';
 import { sessioneAttiva } from './taratura.js';
+import { ritmoRichiesto, ultimaOcchiata } from '../lib/occhiata.js';
 
 export const router = Router();
 const wrap = f => (req, res, next) => Promise.resolve(f(req, res, next)).catch(next);
@@ -136,3 +137,16 @@ router.post('/', wrap(async (req, res) => {
 // La scatoletta chiede «ci sei?» prima di mettersi a leggere, cosi' non
 // raccoglie dati per mezz'ora e poi scopre che non puo' spedirli.
 router.get('/prova', (req, res) => res.json({ ok: true }));
+
+// Che passo tenere: svelto mentre qualcuno guarda la pagina, altrimenti il
+// suo. La scatoletta lo chiede ogni quindici secondi, quindi la risposta e'
+// una riga -- moltiplicata per quattro al minuto per sempre, qualunque grasso
+// lo paga il 4G del camper.
+//
+// Sta **dentro questo router**, cioe' dietro la chiave della scatoletta: senza,
+// chiunque passi potrebbe far accelerare la radio del camper da lontano e
+// consumarne la batteria servizi, senza nemmeno dover entrare.
+router.get('/ritmo', (req, res) => {
+  const { secondi } = ritmoRichiesto(ultimaOcchiata());
+  res.json({ secondi });
+});

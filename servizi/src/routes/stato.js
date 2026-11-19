@@ -14,6 +14,7 @@ import { statoBluetti, collegato, associa, comanda, COMANDI,
 import { tuttiIConti, impianto } from '../lib/conti.js';
 import { leggiTravaso } from '../lib/travaso.js';
 import { ramiDellaCarica, ramiDellaBluetti } from '../lib/flusso.js';
+import { segnaOcchiata } from '../lib/occhiata.js';
 import { serveAccesso } from './auth.js';
 
 // Le rotte normali stanno dietro al login. Una sola no, e sotto si dice perche'.
@@ -121,6 +122,10 @@ async function tendenza(apparecchio) {
 }
 
 router.get('/stato', wrap(async (req, res) => {
+  // Qualcuno sta guardando: da qui la scatoletta capisce che deve andare
+  // svelta. Solo in memoria -- una scrittura ogni tre secondi su un dato che
+  // fra un minuto non serve piu' sarebbe uno spreco.
+  segnaOcchiata();
   const bluetti = await statoBluetti({ fresco: req.query.fresco === '1' });
   const conti = await tuttiIConti(bluetti);
   const collegamento = { collegato: await collegato(), indirizzo: await conLasciapassare(req) };
