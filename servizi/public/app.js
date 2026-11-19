@@ -1353,6 +1353,31 @@ const GRAZIA_S = 7;
 const STANZE_VIVE = ['#/adesso', '#/energia'];
 let ultimoAuto = 0;
 
+// Mentre qualcuno tocca la pagina, la pagina non si ridisegna.
+//
+// Col vivo acceso `#/adesso` si rifa' ogni due secondi e mezzo, e si rifa'
+// **sostituendo tutto**: ogni tasto viene distrutto e ricreato. Su un telefono
+// un tocco dura qualche decimo di secondo, e se il ridisegno capita in mezzo
+// il tocco cade su un elemento che non esiste piu' -- non succede niente, e
+// sembra un tasto rotto.
+//
+// Il 19/11/2026 e' successo con «Riassocia l'apparecchio»: premuto piu' volte,
+// nessuna richiesta mai arrivata al server. E valeva per tutti i comandi di
+// quella vista, interruttori della 220 compresi.
+//
+// Prima del vivo la pagina si rifaceva al massimo ogni quindici secondi e il
+// problema non si vedeva: l'ho creato accendendo il vivo.
+//
+// Dieci secondi di quiete dopo l'ultimo tocco. Chi guarda e basta non tocca
+// niente e vede i numeri muoversi; chi sta usando un tasto ha il tempo di
+// premerlo, leggere la conferma e rispondere.
+let ultimoTocco = 0;
+for (const evento of ['pointerdown', 'touchstart', 'keydown']) {
+  document.addEventListener(evento, () => { ultimoTocco = Date.now(); },
+    { passive: true, capture: true });
+}
+const QUIETE_MS = 10_000;
+
 function battito() {
   const el = $('#conto');
   if (!el) return;
@@ -1386,6 +1411,10 @@ function battito() {
   // batteria del camper per aver lasciato una pagina aperta.
   if (document.hidden) return;
   if (!STANZE_VIVE.some(v => (location.hash || '#/adesso').startsWith(v))) return;
+  // Non si ridisegna sotto le dita di nessuno, ne' mentre una conferma aspetta
+  // una risposta: quella e' un riquadro che il ridisegno porterebbe via.
+  if (Date.now() - ultimoTocco < QUIETE_MS) return;
+  if (document.querySelector('.conferma, dialog[open]')) return;
   // Senza il vivo si aspetta che la lettura sia scaduta; col vivo no, perche'
   // non c'e' una prossima lettura da aspettare -- la scatoletta ne manda una
   // ogni dieci secondi.
