@@ -345,3 +345,18 @@ le coppie che cercavamo da ieri, e l'ha trovato il proprietario.
 Nessuna delle fotografie di oggi ha mostrato un registro che valesse 632 o 670.
 Il registro dei watt in ingresso **non e' ancora trovato**, e non va indovinato:
 un numero plausibile e sbagliato e' il risultato peggiore possibile.
+
+## Una strada che sembra una scorciatoia e non lo e'
+
+«Se non si annuncia, collegati per indirizzo»: su Linux **non funziona**.
+`BleakClient(indirizzo)` su BlueZ fa comunque una scansione per trovare
+l'apparecchio, e risponde `BleakDeviceNotFoundError`. Quindi non si puo'
+distinguere «non si annuncia ma accetterebbe un cliente» da «non c'e'»: la
+prova ricade nella domanda di partenza.
+
+## E una terza spiegazione, la piu' semplice
+
+La Bluetti potrebbe essersi **spenta da se'**. Un apparecchio spento non si
+annuncia, e non serve nessuna teoria sui posti occupati. Da remoto non si
+distingue: lo dice la vigilia, se la Bluetti ricompare, o uno sguardo al suo
+pannello.
