@@ -1,0 +1,205 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Prove di rifondi</title>
+<!--
+  Le prove di public/rifondi.js, in un browser vero.
+
+  Perche' non in `npm test`: rifondi manipola il DOM — identita' dei nodi,
+  spazio dei nomi dell'SVG, fuoco e valore di una casella mentre ci si scrive
+  dentro. Un DOM finto risponderebbe di si' a tutte queste cose senza che
+  nessuna sia vera. Qui si prova sulla cosa.
+
+  Come si lancia:
+
+      cd servizi && python3 -m http.server 4477
+      poi si apre  http://localhost:4477/test/rifondi.prova.html
+
+  Verde in cima: passano tutte. Rosso: c'e' scritto quale e perche'.
+-->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+  #sommario { font-weight: 700; font-size: 1.2rem; padding: .6rem .9rem; border-radius: .5rem; }
+  .ok { background: #e6f6e6; color: #13521a; }
+  .no { background: #fde8e8; color: #7a1414; }
+  li { margin: .2rem 0; }
+  li.no { color: #7a1414; font-weight: 600; }
+  code { background: #f2f2f2; padding: 0 .2rem; border-radius: .2rem; }
+</style>
+
+<h1>Prove di <code>rifondi</code></h1>
+<div id="sommario">in corso…</div>
+<ul id="elenco"></ul>
+<div id="banco" style="position:absolute;left:-9999px;top:0"></div>
+
+<script type="module">
+import { rifondi } from '../public/rifondi.js';
+
+const esiti = [];
+function prova(nome, f) {
+  try { f(); esiti.push([nome, null]); }
+  catch (e) { esiti.push([nome, e.message || String(e)]); }
+}
+function uguale(a, b, che) {
+  if (a !== b) throw new Error(`${che}: aspettavo ${JSON.stringify(b)}, ho ${JSON.stringify(a)}`);
+}
+function vero(c, che) { if (!c) throw new Error(che); }
+
+// Ogni prova parte da un contenitore pulito dentro #banco.
+const banco = document.querySelector('#banco');
+function dato(html) {
+  const d = document.createElement('div');
+  d.innerHTML = html;
+  banco.appendChild(d);
+  return d;
+}
+
+prova('un HTML identico non tocca nessun nodo', () => {
+  const v = dato('<p>uno</p><p>due</p>');
+  const primo = v.children[0], secondo = v.children[1];
+  rifondi(v, '<p>uno</p><p>due</p>');
+  vero(v.children[0] === primo, 'il primo paragrafo e&rsquo; stato sostituito');
+  vero(v.children[1] === secondo, 'il secondo paragrafo e&rsquo; stato sostituito');
+});
+
+prova('un numero che cambia aggiorna il testo e non il nodo', () => {
+  const v = dato('<span class="watt">120</span>');
+  const s = v.children[0];
+  rifondi(v, '<span class="watt">340</span>');
+  vero(v.children[0] === s, 'il nodo e&rsquo; stato sostituito invece di aggiornato');
+  uguale(s.textContent, '340', 'il testo');
+});
+
+prova('un attributo che cambia si aggiorna, gli altri restano', () => {
+  const v = dato('<div id="q" class="a" data-tieni="x">c</div>');
+  const d = v.children[0];
+  rifondi(v, '<div id="q" class="b" data-tieni="x">c</div>');
+  vero(v.children[0] === d, 'il nodo e&rsquo; stato sostituito');
+  uguale(d.getAttribute('class'), 'b', 'la classe');
+  uguale(d.getAttribute('data-tieni'), 'x', 'l&rsquo;attributo da tenere');
+});
+
+prova('un attributo che sparisce lo si toglie', () => {
+  const v = dato('<div class="a" hidden>c</div>');
+  rifondi(v, '<div class="a">c</div>');
+  vero(!v.children[0].hasAttribute('hidden'), 'hidden e&rsquo; rimasto');
+});
+
+prova('un figlio in piu&rsquo; si aggiunge senza toccare i fratelli', () => {
+  const v = dato('<p>uno</p>');
+  const primo = v.children[0];
+  rifondi(v, '<p>uno</p><p>due</p>');
+  uguale(v.children.length, 2, 'quanti figli');
+  vero(v.children[0] === primo, 'il fratello e&rsquo; stato sostituito');
+  uguale(v.children[1].textContent, 'due', 'il figlio nuovo');
+});
+
+prova('un figlio in meno si toglie senza toccare i fratelli', () => {
+  const v = dato('<p>uno</p><p>due</p>');
+  const primo = v.children[0];
+  rifondi(v, '<p>uno</p>');
+  uguale(v.children.length, 1, 'quanti figli');
+  vero(v.children[0] === primo, 'il fratello e&rsquo; stato sostituito');
+});
+
+prova('un elemento di tipo diverso si sostituisce', () => {
+  const v = dato('<p>x</p>');
+  rifondi(v, '<div>x</div>');
+  uguale(v.children[0].tagName, 'DIV', 'il tipo');
+});
+
+prova('un tasto sopravvive al ridisegno con il suo gestore', () => {
+  // E' il guasto del 19/11/2026: col vivo acceso la pagina si rifaceva
+  // sostituendo tutto, e un tocco finiva su un tasto che non esisteva piu'.
+  const v = dato('<div><span>120 W</span><button id="t">Premi</button></div>');
+  const tasto = v.querySelector('#t');
+  let premuto = 0;
+  tasto.onclick = () => { premuto++; };
+  rifondi(v, '<div><span>340 W</span><button id="t">Premi</button></div>');
+  vero(v.querySelector('#t') === tasto, 'il tasto e&rsquo; stato distrutto');
+  v.querySelector('#t').click();
+  uguale(premuto, 1, 'le pressioni arrivate');
+});
+
+prova('i nodi con id sopravvivono a un cambio d&rsquo;ordine', () => {
+  const v = dato('<div id="a">A</div><div id="b">B</div>');
+  const a = v.querySelector('#a'), b = v.querySelector('#b');
+  rifondi(v, '<div id="b">B</div><div id="a">A</div>');
+  vero(v.querySelector('#a') === a, 'il nodo a e&rsquo; stato ricreato');
+  vero(v.querySelector('#b') === b, 'il nodo b e&rsquo; stato ricreato');
+  uguale(v.children[0].id, 'b', 'il primo dopo lo scambio');
+});
+
+prova('dentro un SVG l&rsquo;attributo cambia e il nodo resta un nodo SVG', () => {
+  const v = dato('<svg viewBox="0 0 10 10"><path d="M0,0 L1,1" stroke="red"/></svg>');
+  const p = v.querySelector('path');
+  rifondi(v, '<svg viewBox="0 0 10 10"><path d="M0,0 L9,9" stroke="red"/></svg>');
+  vero(v.querySelector('path') === p, 'il path e&rsquo; stato sostituito');
+  uguale(p.getAttribute('d'), 'M0,0 L9,9', 'il tracciato');
+  vero(p.namespaceURI === 'http://www.w3.org/2000/svg', 'il path non e&rsquo; piu&rsquo; nello spazio SVG');
+});
+
+prova('un SVG nuovo nasce nello spazio dei nomi giusto', () => {
+  const v = dato('<div></div>');
+  rifondi(v, '<div></div><svg viewBox="0 0 10 10"><circle r="3"/></svg>');
+  const c = v.querySelector('circle');
+  vero(!!c, 'il cerchio non c&rsquo;e&rsquo;');
+  vero(c.namespaceURI === 'http://www.w3.org/2000/svg', 'il cerchio non e&rsquo; nello spazio SVG');
+});
+
+prova('una casella in cui si sta scrivendo non viene toccata', () => {
+  // Il campo ha fuoco e l'utente ha battuto 42: il ridisegno porta il valore
+  // vecchio del server, e non deve cancellare quel che si sta scrivendo.
+  const v = dato('<form><input id="c" value="10"><span>x</span></form>');
+  const c = v.querySelector('#c');
+  document.body.appendChild(v);          // serve essere nel documento per il fuoco
+  c.focus();
+  c.value = '42';
+  rifondi(v, '<form><input id="c" value="10"><span>y</span></form>');
+  uguale(c.value, '42', 'quel che si stava scrivendo');
+  vero(document.activeElement === c, 'il fuoco e&rsquo; andato via');
+  uguale(v.querySelector('span').textContent, 'y', 'il resto si e&rsquo; aggiornato comunque');
+  banco.appendChild(v);
+});
+
+prova('una casella senza fuoco prende il valore nuovo', () => {
+  const v = dato('<input id="d" value="10">');
+  const d = v.querySelector('#d');
+  rifondi(v, '<input id="d" value="77">');
+  uguale(d.value, '77', 'il valore');
+});
+
+prova('rifondere su un contenitore vuoto riempie tutto', () => {
+  const v = dato('');
+  rifondi(v, '<p>uno</p><p>due</p>');
+  uguale(v.children.length, 2, 'quanti figli');
+});
+
+prova('un commento non fa inciampare il confronto', () => {
+  const v = dato('<p>uno</p><!-- nota --><p>due</p>');
+  const primo = v.children[0];
+  rifondi(v, '<p>uno</p><!-- nota --><p>tre</p>');
+  vero(v.children[0] === primo, 'il primo e&rsquo; stato sostituito');
+  uguale(v.children[1].textContent, 'tre', 'il secondo');
+});
+
+prova('data-fermo lascia stare l&rsquo;elemento, testo e attributi', () => {
+  // E' il conto alla rovescia dentro il quadrante: lo scrive `battito()` ogni
+  // secondo, e l'HTML delle viste lo dichiara vuoto. Rifonderlo lo
+  // svuoterebbe a ogni giro, cioe' lo farebbe lampeggiare.
+  const v = dato('<div data-fermo="1" class="mia">scritto a mano</div>');
+  rifondi(v, '<div data-fermo="1" class="loro"></div>');
+  uguale(v.children[0].textContent, 'scritto a mano', 'il contenuto protetto');
+  uguale(v.children[0].getAttribute('class'), 'mia', 'la classe protetta');
+});
+
+// --- il verdetto ---
+const rotte = esiti.filter(([, e]) => e);
+const sommario = document.querySelector('#sommario');
+sommario.className = rotte.length ? 'no' : 'ok';
+sommario.textContent = rotte.length
+  ? `${rotte.length} prove su ${esiti.length} non passano`
+  : `tutte e ${esiti.length} passano`;
+document.querySelector('#elenco').innerHTML = esiti.map(([n, e]) =>
+  `<li class="${e ? 'no' : 'ok'}">${e ? '✗' : '✓'} ${n}${e ? ` — <em>${e}</em>` : ''}</li>`).join('');
+window.ESITO = { totale: esiti.length, rotte: rotte.map(([n, e]) => `${n}: ${e}`) };
+</script>

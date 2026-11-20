@@ -5,10 +5,19 @@
 // non serve a niente. Per la stessa ragione ogni conto porta la sua bandierina:
 // misurato, stima, incompleto.
 
+import { rifondi } from './rifondi.js';
+import { istantanea, scorri } from './scorri.js';
+
 const $ = (s, d = document) => d.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v, d = 0) => (v == null || !Number.isFinite(+v) ? '—' : (+v).toLocaleString('it-IT', { minimumFractionDigits: d, maximumFractionDigits: d }));
-const forse = (v, suffisso = '', d = 0) => (v == null ? '<span class="vuoto">—</span>' : `${num(v, d)}${suffisso}`);
+// Il numero sta in un `<span>` suo, con il valore in cifre accanto: cosi'
+// `scorri` sa da dove partire e riscrive solo la cifra, lasciando fuori il
+// suffisso. Il suffisso resta fuori dal `<span>` di proposito — animare «340»
+// e' informazione, animare « W» e' rumore.
+const forse = (v, suffisso = '', d = 0) => (v == null
+  ? '<span class="vuoto">—</span>'
+  : `<span data-num="${v}" data-num-dec="${d}">${num(v, d)}</span>${suffisso}`);
 const ora = s => (s ? new Date(s).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '');
 
 let io = null;
@@ -106,6 +115,10 @@ const PT = (cx, cy, r, g) => [cx + r * Math.cos(g * Math.PI / 180), cy - r * Mat
 // dirlo **li'**, dove si guarda -- non altrove, dove si legge dopo.
 function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', carica = null, verso = null, conto = false, eta = null }) {
   const CX = 118, CY = 112, R = 86;
+  // La lunghezza dell'arco da 0 a 100: mezzo giro di raggio R. Serve al
+  // tratteggio qui sotto, che e' il modo di far scorrere il livello invece di
+  // farlo saltare.
+  const LUNGO = Math.PI * R;
   const colore = atteso || pct == null ? 'var(--fioco)'
     : pct <= 20 ? 'var(--rosso)' : pct <= 45 ? 'var(--ambra)' : 'var(--verde)';
   // La parte già consumata, in rosso attenuato.
@@ -149,14 +162,28 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
   // quel che diceva e' di prima. Si smorza invece di affermare.
   const coloreLancetta = eta ? 'var(--fioco)'
     : verso === 'carica' ? 'var(--verde)' : verso === 'scarica' ? 'var(--ambra)' : 'var(--testo)';
+  // La lancetta si disegna **sempre allo zero** e ci si arriva ruotandola.
+  //
+  // Prima il suo tracciato si ricalcolava a ogni giro: tre punti nuovi, un
+  // `path` nuovo, e la lancetta si teletrasportava da una lettura all'altra.
+  // Un tracciato che cambia non e' interpolabile; una rotazione si'. Disegnata
+  // una volta allo zero — cioe' puntata a sinistra — ogni carica e' quella
+  // stessa figura girata di 1,8 gradi per punto, e il CSS ci arriva scorrendo.
+  //
+  // Due gruppi annidati e non uno: il tremolio di `.lancetta` e' un'animazione
+  // su `transform`, e un'animazione vince sullo stile scritto a mano. Messi
+  // sullo stesso elemento, la posizione sparirebbe e la lancetta tremerebbe
+  // ferma sullo zero. Fuori la posizione, dentro il tremolio.
   let lancetta = '';
   if (!atteso && pct != null) {
-    const [nx, ny] = PT(CX, CY, R - 20, ANG(pct));
-    const [bx1, by1] = PT(CX, CY, 9, ANG(pct) + 90);
-    const [bx2, by2] = PT(CX, CY, 9, ANG(pct) - 90);
-    lancetta = `<g class="lancetta${verso ? ' muove' : ''}">
+    const [nx, ny] = PT(CX, CY, R - 20, ANG(0));
+    const [bx1, by1] = PT(CX, CY, 9, ANG(0) + 90);
+    const [bx2, by2] = PT(CX, CY, 9, ANG(0) - 90);
+    const gradi = (1.8 * Math.max(0, Math.min(100, pct))).toFixed(2);
+    lancetta = `<g class="lancetta-quadro" style="transform:rotate(${gradi}deg)">
+      <g class="lancetta${verso ? ' muove' : ''}">
       <path d="M${bx1.toFixed(1)},${by1.toFixed(1)} L${nx.toFixed(1)},${ny.toFixed(1)} L${bx2.toFixed(1)},${by2.toFixed(1)} Z" fill="${coloreLancetta}"/>
-      <circle cx="${CX}" cy="${CY}" r="7" fill="${coloreLancetta}"/><circle cx="${CX}" cy="${CY}" r="3" fill="var(--carta)"/></g>`;
+      <circle cx="${CX}" cy="${CY}" r="7" fill="${coloreLancetta}"/><circle cx="${CX}" cy="${CY}" r="3" fill="var(--carta)"/></g></g>`;
   }
 
   const riga = eta
@@ -175,18 +202,31 @@ function manometro({ pct, nome, tendenza = null, atteso = false, perche = '', ca
     <svg viewBox="0 0 236 182" style="width:100%;max-width:240px;height:auto" aria-label="${esc(nome)} ${pct == null ? 'sconosciuta' : Math.round(pct) + ' per cento'}${verso === 'carica' ? ', in carica' : verso === 'scarica' ? ', in scarica' : ''}">
       <path d="${arco(0, 100, R)}" stroke="var(--bordo)" stroke-width="13" fill="none" stroke-linecap="round"/>
       ${carica && !atteso ? `<path d="${arco(0, 100, R)}" stroke="var(--carica)" stroke-width="20" fill="none" stroke-linecap="round" class="alone"/>` : ''}
-      ${pct != null && !atteso && pct < 99.5
-        ? `<path class="consumato" d="${arco(pct, 100, R)}" stroke="var(--consumato)" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
-      ${pct != null && !atteso ? `<path d="${arco(0, pct, R)}" stroke="${colore}" stroke-width="13" fill="none" stroke-linecap="round"/>` : ''}
+      ${/* I due archi sono **lo stesso tracciato intero**, scoperto per la parte
+            che serve col tratteggio. Prima erano archi corti, ricalcolati a
+            ogni lettura: un `d` nuovo non si interpola, quindi il livello
+            scattava. Un `stroke-dashoffset` invece scorre, ed e' una sola
+            proprieta' animata — su un telefono vecchio non costa niente.
+
+            E sparisce un caso particolare che era una toppa: un arco di
+            lunghezza zero in SVG puo' diventare un cerchio intero, cioe' un
+            anello tutto rosso su una batteria carica, e per questo il
+            consumato non si disegnava sopra il 99,5 %. Col tratteggio il
+            tracciato c'e' sempre e a pieno carico e' solo spostato via. */ ''}
+      ${pct != null && !atteso ? `
+      <path class="arco-consumato" d="${arco(0, 100, R)}" stroke="var(--consumato)" stroke-width="13" fill="none" stroke-linecap="round"
+            stroke-dasharray="${LUNGO.toFixed(1)}" stroke-dashoffset="${(-LUNGO * pct / 100).toFixed(1)}"/>
+      <path class="arco-carica" d="${arco(0, 100, R)}" stroke="${colore}" stroke-width="13" fill="none" stroke-linecap="round"
+            stroke-dasharray="${LUNGO.toFixed(1)}" stroke-dashoffset="${(LUNGO * (1 - pct / 100)).toFixed(1)}"/>` : ''}
       ${tacche}${scia}${lancetta}
-      <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)">${pct == null ? '\u2014' : Math.round(pct)}</text>
+      <text x="${CX}" y="${CY + 34}" text-anchor="middle" font-size="34" font-weight="650" fill="var(--testo)"${pct == null ? '' : ` data-num="${Math.round(pct)}"`}>${pct == null ? '\u2014' : Math.round(pct)}</text>
       <text x="${CX}" y="${CY + 48}" text-anchor="middle" font-size="11" fill="var(--fioco)">${pct == null ? '' : 'per cento'}</text>
       ${/* Le tre righe sotto il perno: numero a CY+34, «per cento» a CY+48,
             contatore a CY+62. Il riquadro deve arrivare oltre l'ultima, o
             l'SVG la taglia senza dire niente: e' successo due volte in
             mezz'ora, con «per cento» e poi col contatore. Alzando una riga,
             alzare anche il viewBox qui sopra. */ ''}
-      ${conto ? `<text id="conto" class="conto" x="${CX}" y="${CY + 63}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--testo)"></text>` : ''}
+      ${conto ? `<text id="conto" data-fermo="1" class="conto" x="${CX}" y="${CY + 63}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--testo)"></text>` : ''}
     </svg>
     <div style="font-weight:600;margin-top:2px">${esc(nome)}</div>
     ${carica ? '<div class="carica-chip">\u26a1 in carica</div>' : ''}
@@ -1179,7 +1219,16 @@ async function disegna() {
   else if (h.startsWith('#/storia')) dentro = await vistaStoria();
   else if (h.startsWith('#/impianto')) dentro = await vistaImpianto();
   else dentro = vistaAdesso();
-  $('#app').innerHTML = guscio(dentro);
+  // Si confronta, non si sostituisce. `rifondi` tocca solo quel che e'
+  // cambiato: i tasti restano gli stessi oggetti con i loro gestori, le
+  // lancette e i numeri hanno un «prima» da cui partire — cioe' si possono
+  // animare — e lo scorrimento della pagina non salta in cima a ogni giro.
+  //
+  // L'istantanea si prende **prima**: dopo, i numeri in pagina sono gia' quelli
+  // nuovi e non ci sarebbe piu' traccia di dove stavano.
+  const prima = istantanea($('#app'));
+  rifondi($('#app'), guscio(dentro));
+  scorri($('#app'), prima);
   aggancia();
   // Di ritorno dalla pagina di Bluetti: si dice com'è andata e si pulisce
   // l'indirizzo, che quel segnale non deve restare appeso a un ricaricamento.
@@ -1376,7 +1425,19 @@ for (const evento of ['pointerdown', 'touchstart', 'keydown']) {
   document.addEventListener(evento, () => { ultimoTocco = Date.now(); },
     { passive: true, capture: true });
 }
-const QUIETE_MS = 10_000;
+// Dieci secondi erano il rimedio a un guasto che non c'e' piu'.
+//
+// Servivano perche' il ridisegno distruggeva e ricreava ogni tasto, e un dito
+// che scendeva durante il ridisegno trovava il vuoto. Da quando la pagina si
+// rifonde invece di sostituirsi, il tasto e' lo stesso oggetto prima e dopo:
+// la pressione arriva comunque, ed e' provato in test/rifondi.prova.html.
+//
+// Resta una quiete breve, per una ragione diversa e piu' sottile: un tasto puo'
+// **cambiare significato**. «Accendi» diventa «Spegni» appena il comando passa,
+// e il gestore con lui. Se cambiasse nel decimo di secondo fra il dito che
+// scende e il dito che lascia, si premerebbe l'altro. Due secondi bastano a
+// coprire un tocco; dieci erano una pagina ferma.
+const QUIETE_MS = 2000;
 
 function battito() {
   const el = $('#conto');

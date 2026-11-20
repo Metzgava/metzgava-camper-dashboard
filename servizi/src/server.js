@@ -10,7 +10,7 @@ import { router as taratura } from './routes/taratura.js';
 import { router as ingresso } from './routes/ingresso.js';
 import { registra, collegato } from './lib/bluetti.js';
 import { segnaGiro } from './lib/ritmo.js';
-import { conImpronta } from './lib/pagina.js';
+import { conImpronta, conImprontaNeiModuli } from './lib/pagina.js';
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -38,10 +38,18 @@ app.use(cookieSession({
 // ricarica da sola**. Il sistema la tiene sospesa e riaprendola riprende la
 // pagina di prima. Con questa impronta la pagina se ne accorge e si ricarica,
 // invece di mostrare una versione vecchia a chi non sa di averla.
+const SUOI = /\.(?:js|css|html|webmanifest)$/;
 const IMPRONTA = (() => {
   try {
     const h = crypto.createHash('sha1');
-    for (const f of ['app.js', 'stile.css', 'index.html']) h.update(fs.readFileSync(path.join(PUBBLICA, f)));
+    // Tutti i file della pagina, non un elenco scritto a mano. Un elenco va
+    // aggiornato quando nasce un file, dimenticarlo non da' nessun segnale, e
+    // il guasto che ne viene e' quello del 18/11: un pezzo vecchio servito per
+    // un'ora dentro una pagina nuova. In ordine alfabetico, o l'impronta
+    // cambierebbe a seconda di come il sistema elenca la cartella.
+    for (const f of fs.readdirSync(PUBBLICA).filter(f => SUOI.test(f)).sort()) {
+      h.update(fs.readFileSync(path.join(PUBBLICA, f)));
+    }
     return h.digest('hex').slice(0, 10);
   } catch { return String(Date.now()); }
 })();
@@ -70,6 +78,31 @@ app.get(['/', '/index.html'], (req, res, next) => {
   if (!PAGINA) return next();
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.type('html').send(PAGINA);
+});
+
+// I moduli della pagina si servono a mano come lei, per mettere l'impronta
+// negli `import` che hanno dentro: `app.js` importa `./rifondi.js`, e quel
+// secondo indirizzo non passa da `index.html`, quindi nessun altro glielo
+// mette. Deve stare **prima** di express.static, che altrimenti risponderebbe
+// lei col file liscio.
+const MODULI = (() => {
+  const m = new Map();
+  try {
+    for (const f of fs.readdirSync(PUBBLICA)) {
+      if (!f.endsWith('.js')) continue;
+      const testo = fs.readFileSync(path.join(PUBBLICA, f), 'utf8');
+      m.set('/' + f, conImprontaNeiModuli(testo, IMPRONTA));
+    }
+  } catch { /* nessun modulo da riscrivere: ci pensa lo static */ }
+  return m;
+})();
+app.use((req, res, next) => {
+  const corpo = MODULI.get(req.path);
+  if (corpo === undefined) return next();
+  // Ora che l'indirizzo porta l'impronta, tenerlo in tasca e' giusto: cambia
+  // il file, cambia l'indirizzo, e il browser ne chiede uno nuovo da se'.
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.type('js').send(corpo);
 });
 
 // La pagina e il suo codice cambiano a ogni pubblicazione: vanno riconvalidati

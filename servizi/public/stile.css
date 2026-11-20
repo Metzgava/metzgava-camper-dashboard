@@ -297,3 +297,29 @@ input:-webkit-autofill:active {
 @media (prefers-reduced-motion: reduce) {
   .scorre { animation: none; opacity: .5 }
 }
+
+/* La lancetta che si sposta da una lettura all'altra.
+   Il gruppo di fuori porta la posizione, quello di dentro il tremolio: un
+   `transform` animato (il tremolio) vince sullo stile scritto a mano (la
+   posizione), e messi sullo stesso elemento la lancetta tremerebbe ferma sullo
+   zero. La curva parte svelta e si posa: la lettura nuova si annuncia subito,
+   l'ultimo quarto serve solo a non sbattere. */
+.lancetta-quadro {
+  transform-box: view-box; transform-origin: 118px 112px;
+  transition: transform .8s cubic-bezier(.22, .68, .32, 1);
+}
+
+/* Il livello e il consumato: lo stesso mezzo giro, scoperto col tratteggio.
+   Si anima `stroke-dashoffset`, che e' un numero, e non `d`, che e' un
+   tracciato e non si interpola. Il colore scorre con lui, altrimenti sotto il
+   45 % l'anello salterebbe di colpo dal verde all'ambra mentre la lancetta ci
+   arriva piano. */
+.arco-carica { transition: stroke-dashoffset .8s cubic-bezier(.22, .68, .32, 1), stroke .8s ease; }
+.arco-consumato { transition: stroke-dashoffset .8s cubic-bezier(.22, .68, .32, 1); }
+
+/* Chi ha chiesto meno movimento al sistema vede il valore nuovo e basta: ce
+   l'ha gia' davanti, l'ha messo il ridisegno. Si perde il movimento, non
+   l'informazione -- come l'alone, la lancetta e i puntini. */
+@media (prefers-reduced-motion: reduce) {
+  .lancetta-quadro, .arco-carica, .arco-consumato { transition: none; }
+}

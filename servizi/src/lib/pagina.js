@@ -24,3 +24,27 @@ export function conImpronta(html, impronta) {
   if (!impronta) return html;
   return String(html).replace(VERSIONE, `$1?v=${impronta}"`);
 }
+
+// E la stessa cosa per i moduli che un file della pagina importa.
+//
+// `conImpronta` guarda dentro `index.html` e trova gli indirizzi scritti li'.
+// Ma da quando `app.js` importa un altro file della pagina, c'e' un secondo
+// indirizzo che `index.html` non nomina:
+//
+//     import { rifondi } from './rifondi.js';
+//
+// Senza impronta il browser lo chiede liscio, lo static lo serve con un'ora di
+// cache, e dopo una pubblicazione si ritrova a far girare un pezzo vecchio
+// dentro un `app.js` nuovo. E' il guasto del 18/11 che rientra da un'altra
+// porta, e peggiore: i due file non sarebbero nemmeno della stessa eta'.
+//
+// Si toccano solo gli indirizzi che cominciano per `./` o `../`, cioe' i file
+// nostri. `express`, un indirizzo altrui o una strada assoluta non c'entrano
+// con l'impronta della nostra pagina, e appiccicargliela romperebbe la
+// richiesta.
+const MODULO = /((?:\bfrom|\bimport\s*\()\s*['"])(\.{1,2}\/[^'"?]+\.js)(?:\?v=[^'"]*)?(['"])/g;
+
+export function conImprontaNeiModuli(js, impronta) {
+  if (!impronta) return js;
+  return String(js).replace(MODULO, `$1$2?v=${impronta}$3`);
+}
