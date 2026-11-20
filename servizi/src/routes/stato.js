@@ -185,6 +185,11 @@ router.get('/stato', wrap(async (req, res) => {
       // di animarsi. Un disegno in movimento su dati vecchi mente meglio di un
       // numero fermo.
       minuti: etaEctiveMinuti(ultimi),
+      // L'altro lato della figura: quanto esce dal pacco verso i consumi del
+      // camper. Il numero e' gia' fatto -- `conti.js` lo calcola col netto
+      // delle due batterie -- e qui si passa soltanto. `null` quando le Ective
+      // non si leggono, che e' un'altra cosa da zero.
+      consumo: conti.consumo_ective?.valore ?? null,
     }),
     // La stessa figura per la Bluetti: due ingressi, due uscite. L'eta' della
     // lettura viaggia a parte, in `bluetti.vecchia`, e la pagina la scrive

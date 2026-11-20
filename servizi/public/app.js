@@ -633,12 +633,21 @@ function dataCorta(quando) {
 // 3. **Niente zero al posto del non so.** Un sensore che non manda la
 //    temperatura mostra una lineetta. Zero gradi e' una notizia, non
 //    un'assenza di notizie.
-// ---------- cosa carica le batterie ----------
+// ---------- dentro e fuori dalle batterie ----------
 //
-// Tre fonti a sinistra, le Ective a destra, un ramo per fonte. Un ramo che
-// porta corrente e' verde con i puntini che scorrono verso le batterie: piu'
+// Tre fonti a sinistra, le Ective al centro, quel che esce a destra. Un ramo
+// che porta corrente e' verde con i puntini che scorrono nel suo verso: piu'
 // spesso e piu' veloce quando i watt sono tanti. Un ramo fermo e' sottile e
 // immobile.
+//
+// I due lati nella stessa figura perche' e' la domanda che il proprietario fa:
+// «cosa entra, e cosa e quanto esce». Il numero in uscita c'era gia' -- in una
+// riga di testo, in un'altra scheda -- e non si trovava: quel che entra era un
+// disegno e quel che esce una nota in fondo, mentre sono due fatti della stessa
+// importanza.
+//
+// **Un ramo solo in uscita, e senza nome.** Si misura il pacco, non i circuiti.
+// I nomi dei carichi arrivano qui dentro soltanto dopo la serata di misure.
 //
 // I conti -- quali rami, quanto spessi, quanto veloci -- li fa il server in
 // `lib/flusso.js`, dove ci sono le prove. Qui si disegna e basta.
@@ -663,31 +672,46 @@ function vistaFlusso() {
   // spiegazione di cosa manca la da' gia' la sezione dei conti.
   if (!f || !Array.isArray(f.rami)) return '';
 
-  // La geometria, in coordinate del disegno (viewBox 236 x 148): a sinistra la
-  // colonna delle fonti, al centro i rami, a destra le batterie. I punti di
-  // controllo stanno DENTRO il tratto: messi oltre il punto d'arrivo fanno una
-  // pancia che si accavalla invece di una convergenza.
-  const L = 10, X0 = 104, X1 = 172, CY = n => 28 + n * 44, BY = CY(1);
+  // La geometria, in coordinate del disegno (viewBox 304 x 148): a sinistra la
+  // colonna delle fonti, poi i rami che convergono, al centro le batterie, e a
+  // destra il ramo di quel che esce. I punti di controllo stanno DENTRO il
+  // tratto: messi oltre il punto d'arrivo fanno una pancia che si accavalla
+  // invece di una convergenza.
+  const L = 8, X0 = 96, X1 = 160, X2 = 184, X3 = 254;
+  const CY = n => 28 + n * 44, BY = CY(1);
   const qualcosaCarica = f.rami.some(r => r.attivo);
+  // Il lato in uscita lo prepara il server, come quelli in entrata. Il ripiego
+  // serve alle pagine aperte prima di questo aggiornamento, che ricevono un
+  // `flusso` senza `uscita`: meglio un ramo che dice «non so» che una figura
+  // che non si disegna.
+  const u = (f.uscita?.rami || [])[0]
+    || { watt: null, ignoto: true, attivo: false, spessore: 2, secondi: null };
+  const avviso = dati.conti?.consumo_ective?.avviso;
 
-  const rami = f.rami.map((r, i) => {
-    const y = CY(i);
-    // Una curva, non una spezzata: le linee dritte in un disegno di flusso
-    // sembrano un circuito, e questo non e' uno schema elettrico.
-    const via = `M${X0},${y} C${X0 + 28},${y} ${X1 - 28},${BY} ${X1},${BY}`;
-    const colore = r.attivo ? 'var(--verde)' : 'var(--bordo)';
-    // Il tratteggio del ramo dedotto e' fatto di punti; quello degli altri di
-    // linee. Si distingue anche da fermo, non solo dal movimento.
-    const passo = r.certezza === 'dedotto' ? '2 7' : '7 7';
-    return `<g>
-      <path d="${via}" stroke="${colore}" stroke-width="${r.spessore}" fill="none"
-        stroke-linecap="round" opacity="${r.attivo ? 1 : (r.ignoto ? .35 : .55)}"
+  // Un tratto che scorre: sotto il ramo colorato, sopra i puntini chiari che si
+  // muovono. Uno solo per i due versi, perche' e' la stessa figura: un verso
+  // disegnato con un'altra mano si leggerebbe come un'altra cosa.
+  //
+  // Il tratteggio del ramo dedotto e' fatto di punti; quello degli altri di
+  // linee. Si distingue anche da fermo, non solo dal movimento.
+  const tratto = (via, r) => `<g>
+      <path d="${via}" stroke="${r.attivo ? 'var(--verde)' : 'var(--bordo)'}"
+        stroke-width="${r.spessore}" fill="none" stroke-linecap="round"
+        opacity="${r.attivo ? 1 : (r.ignoto ? .35 : .55)}"
         ${r.ignoto && !r.attivo ? 'stroke-dasharray="3 5"' : ''}/>
       ${r.attivo ? `<path d="${via}" stroke="var(--carta)" stroke-width="${Math.max(1.5, r.spessore - 3)}"
-        fill="none" stroke-linecap="round" stroke-dasharray="${passo}" class="scorre"
-        style="animation-duration:${r.secondi}s"/>` : ''}
+        fill="none" stroke-linecap="round" stroke-dasharray="${r.certezza === 'dedotto' ? '2 7' : '7 7'}"
+        class="scorre" style="animation-duration:${r.secondi}s"/>` : ''}
     </g>`;
-  }).join('');
+
+  // Una curva, non una spezzata: le linee dritte in un disegno di flusso
+  // sembrano un circuito, e questo non e' uno schema elettrico.
+  const rami = f.rami.map((r, i) => tratto(
+    `M${X0},${CY(i)} C${X0 + 26},${CY(i)} ${X1 - 26},${BY} ${X1},${BY}`, r)).join('');
+  // Quello in uscita e' dritto perche' non deve convergere da nessuna parte:
+  // e' un ramo solo, alla stessa altezza del pacco. Una curva inventata qui
+  // suggerirebbe una ramificazione che non c'e'.
+  const uscita = tratto(`M${X2},${BY} L${X3},${BY}`, u);
 
   const nodi = f.rami.map((r, i) => {
     const y = CY(i);
@@ -700,26 +724,40 @@ function vistaFlusso() {
     </g>`;
   }).join('');
 
-  return `<div class="titolo">Cosa carica le batterie</div>
+  // Zero non e' «non so»: niente in uscita si scrive, `—` e' riservato al non
+  // avere letture. E' la regola della casa, qui nel posto dove si guarda.
+  const esce = u.watt == null ? '—' : (u.watt === 0 ? 'niente' : num(u.watt, 0) + ' W');
+  const voce = [
+    qualcosaCarica
+      ? 'entra: ' + f.rami.filter(r => r.attivo).map(r => `${r.nome} ${Math.round(r.watt)} watt`).join(', ')
+      : 'nessuna fonte sta caricando',
+    u.watt == null ? 'quanto esce non si sa'
+      : u.watt === 0 ? 'non esce niente' : `escono ${Math.round(u.watt)} watt`,
+  ].join('; ');
+
+  return `<div class="titolo">Dentro e fuori dalle batterie</div>
     <div class="scheda">
-      <svg viewBox="0 0 236 148" style="width:100%;max-width:320px;height:auto;display:block;margin:0 auto"
-        aria-label="${qualcosaCarica
-          ? esc(f.rami.filter(r => r.attivo).map(r => `${r.nome} ${Math.round(r.watt)} watt`).join(', '))
-          : 'nessuna fonte sta caricando'}">
+      <svg viewBox="0 0 304 148" style="width:100%;max-width:360px;height:auto;display:block;margin:0 auto"
+        aria-label="${esc(voce)}">
         ${rami}
+        ${uscita}
         ${nodi}
         <g text-anchor="middle">
-          <text x="202" y="${BY - 14}" font-size="16">\u{1F50B}</text>
-          <text x="202" y="${BY + 2}" font-size="10" fill="var(--fioco)">Ective</text>
-          <text x="202" y="${BY + 17}" font-size="14" font-weight="700"
-            fill="${qualcosaCarica ? 'var(--verde)' : 'var(--fioco)'}">${
-            f.totale == null ? '—' : num(f.totale, 0) + ' W'}</text>
+          <text x="172" y="${BY - 12}" font-size="10" fill="var(--fioco)">Ective</text>
+          <text x="172" y="${BY + 6}" font-size="16">\u{1F50B}</text>
+        </g>
+        <g text-anchor="middle">
+          <text x="266" y="${BY - 12}" font-size="10" fill="var(--fioco)">Consumi</text>
+          <text x="266" y="${BY + 6}" font-size="16">\u{1F3E0}</text>
+          <text x="266" y="${BY + 26}" font-size="14" font-weight="700"
+            fill="${u.attivo ? 'var(--verde)' : 'var(--fioco)'}">${esce}</text>
         </g>
       </svg>
       ${f.ferma ? `<div class="perche" style="text-align:center;color:var(--ambra)">La figura &egrave; <b>ferma</b>: le ultime letture delle batterie sono di un pezzo fa, e far scorrere i puntini su numeri vecchi direbbe che sta entrando corrente adesso.</div>` : ''}
       ${qualcosaCarica ? '' : (f.altrove
         ? `<div class="perche" style="text-align:center">Le fonti producono, ma <b>nelle batterie non entra niente</b>: sono gi&agrave; cariche, e quella corrente sta andando ai consumi del camper invece che alla carica.</div>`
         : `<div class="perche" style="text-align:center">Nessuna fonte sta caricando: non &egrave; un guasto, &egrave; quel che succede a motore spento, senza sole e senza 220.</div>`)}
+      ${avviso ? `<div class="perche" style="text-align:center;color:var(--ambra)">${esc(avviso)}</div>` : ''}
       ${(() => {
         const r = f.rami.find(x => x.attivo && x.certezza === 'dedotto');
         if (!r) return '';
@@ -733,6 +771,7 @@ function vistaFlusso() {
         return `<div class="nota" style="margin-top:8px${r.travaso ? ';color:var(--ambra)' : ''}">${dove}
           La <b>quantit&agrave;</b> resta una sottrazione -- il totale meno sole e alternatore -- e per questo il ramo &egrave; a puntini. ${bollo('stima')}</div>`;
       })()}
+      <div class="nota" style="margin-top:8px">Quel che esce &egrave; <b>un ramo solo e senza nome</b>: si misura il pacco, non i singoli circuiti. Frigo, Truma, pompa, luci e Starlink compaiono qui dentro dopo la serata di misure, una per volta. ${bollo('misurato')}</div>
     </div>`;
 }
 

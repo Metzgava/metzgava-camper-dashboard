@@ -44,6 +44,24 @@ const FONTI = [
 // Ective, dove la corrente in ingresso e' gia' il fatto che interessa.
 export const SOGLIA_W = 5;
 
+// Il riferimento dello spessore del ramo in uscita, in watt.
+//
+// In entrata la scala e' **relativa**: ogni ramo si misura sul totale del
+// proprio lato, e sei watt dal sole sotto la pioggia si vedono perche' erano
+// quasi tutto quel che entrava. In uscita quella scala non si puo' usare: il
+// ramo e' uno solo, la sua quota sul proprio lato e' sempre uno, e trenta watt
+// si disegnerebbero identici a trecento -- cioe' la figura perderebbe
+// esattamente la differenza che interessa guardare.
+//
+// Quindi qui la scala e' assoluta, e questo numero e' il suo riferimento: un
+// tondo scelto perche' il campo normale si legga bene -- il camper fermo in
+// sosta, qualche decina di watt, resta un filo sottile; tutto accesso insieme,
+// frigo e Truma e pompa e Starlink, arriva vicino al massimo. Non e' un limite
+// e non e' una misura: e' una **scelta di disegno**, e sopra questa soglia il
+// tratto non cresce piu' mentre il numero scritto accanto continua a dire la
+// verita'.
+export const RIFERIMENTO_USCITA_W = 300;
+
 // Le stesse di `travaso.js`, e per le stesse ragioni gia' scritte li'. Qui si
 // ripetono i nomi e non i numeri: una soglia che vive in due posti con due
 // valori diversi e' il modo di far dire a due parti della pagina cose
@@ -165,7 +183,7 @@ function numero(v) {
 export const FERMA_DOPO_MINUTI = 30;
 
 export function ramiDellaCarica(fonti, { letture = false, bluetti = null,
-                                         minuti = null } = {}) {
+                                         minuti = null, consumo = null } = {}) {
   // Un disegno che si muove su dati vecchi mente meglio di un numero fermo: i
   // puntini che scorrono dicono «sta entrando corrente **adesso**» con piu'
   // forza di quanta ne abbia uno zero immobile. Quindi oltre la mezz'ora i
@@ -236,7 +254,38 @@ export function ramiDellaCarica(fonti, { letture = false, bluetti = null,
     if (origine === 'bluetti') r.travaso = true;
   }
 
-  const fuori = { totale, rami };
+  // L'altro lato della figura: quanto esce dal pacco verso i consumi del
+  // camper. **Un ramo solo e senza nome**, perche' si misura il pacco e non i
+  // circuiti: i nomi -- frigo, Truma, pompa, luci, Starlink -- arrivano qui
+  // dentro soltanto dopo la serata di taratura, misurati uno per volta.
+  //
+  // Nessuna soglia di rumore, al contrario della Bluetti: a camper fermo il
+  // consumo non e' zero, la scatoletta stessa pesa qualche watt, e quel peso e'
+  // una misura vera che il progetto calcola altrove (`costo_scatoletta`).
+  // Mascherarla sotto una soglia la nasconderebbe.
+  const uscita = { totale: consumo == null ? 0 : consumo, rami: [
+    consumo == null
+      // Non e' un ramo a zero: e' un ramo di cui non si sa niente. Uno zero
+      // qui direbbe «non esce niente» mentre invece non lo sappiamo.
+      ? { id: 'consumi', nome: 'Consumi camper', icona: '\u{1F3E0}', watt: null,
+          ignoto: true, attivo: false, spessore: SPESSORE.min, secondi: null }
+      : { id: 'consumi', nome: 'Consumi camper', icona: '\u{1F3E0}', watt: consumo,
+          ...aspetto(consumo, RIFERIMENTO_USCITA_W) },
+  ] };
+
+  // La regola del fermo vale nei due versi: oltre la mezz'ora i puntini non
+  // scorrono piu' da nessuna parte, e i numeri restano scritti con la loro
+  // eta'. Un disegno in movimento su dati vecchi mente meglio di un numero
+  // fermo, e questo e' vero anche di quel che esce.
+  if (ferma) {
+    for (const r of uscita.rami) {
+      r.attivo = false;
+      r.spessore = SPESSORE.min;
+      r.secondi = null;
+    }
+  }
+
+  const fuori = { totale, rami, uscita };
   if (altrove && !ferma) fuori.altrove = true;
   if (ferma) fuori.ferma = true;
   return fuori;
