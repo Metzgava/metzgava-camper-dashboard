@@ -360,3 +360,21 @@ La Bluetti potrebbe essersi **spenta da se'**. Un apparecchio spento non si
 annuncia, e non serve nessuna teoria sui posti occupati. Da remoto non si
 distingue: lo dice la vigilia, se la Bluetti ricompare, o uno sguardo al suo
 pannello.
+
+## La strada della rete locale: chiusa, verificato
+
+L'Elite 300 **sta anche sul Wi-Fi del camper**, e lo si e' scoperto per caso:
+nella tabella degli indirizzi comparve `192.168.1.100` con l'impronta
+`90:70:69:35:76:f0`, a due numeri dal suo indirizzo Bluetooth
+`90:70:69:35:76:F2`. Due radio dello stesso apparecchio.
+
+Sembrava una strada migliore del Bluetooth — nessun posto da occupare, nessun
+rischio di fermare la carica. **Non lo e':** bussato a tutte le porte da 1 a
+1024 e alle candidate alte (1883, 8883, 5683, 6668, 502, 8080, 8443…),
+**nessuna risposta**. La sua radio Wi-Fi e' solo un cliente che parla col
+cloud di Bluetti; non offre niente in casa.
+
+Resta pero' un guadagno grosso: **quell'impronta nella tabella degli indirizzi
+dice se l'apparecchio e' accesso**, senza toccare il Bluetooth. Il 20/11 ha
+escluso in un colpo l'ipotesi «si e' spenta da se'»: rispondeva sulla rete
+mentre taceva in radio.
