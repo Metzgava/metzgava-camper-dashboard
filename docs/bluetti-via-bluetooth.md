@@ -223,3 +223,60 @@ acceso due minuti -- il bollitore no, va a termostato e stacca da solo.
 E mancano ancora i **watt in ingresso**: in nessuna delle due fotografie
 entrava corrente nella Bluetti. Serve una coppia con la colonnina attaccata o
 il sole che carica.
+
+---
+
+# La terza coppia — 20/11/2026, mattina, motore spento
+
+Fotografia alle 08:45:34, con Truma e frigo accesi (carichi sul 12 V delle
+Ective, non sulla Bluetti). L'app, nello stesso minuto: **carica 77%, tutti e
+quattro i watt a zero.**
+
+```
+   0: [1]=769  [6]=5  [16]=2017
+ 100: [100]=997  [101]=2  [102]=77  [104]=29088  [105]=29088  [107]=1
+      [108]=1  [110]=19525  [111]=12339  [112]=48  [116]=38109
+      [117]=36012  [118]=606
+ 120: [121]=1  [122]=1
+ 140: [148]=65535  [149]=65535  [150]=1  [152]=226  [154]=155  [156]=225
+ 160: [167]=31960  [169]=230  [170]=5000  [171]=32
+```
+
+## Identificati
+
+**`[102]` — la carica.** Terza coppia concorde: 81, 81, 77. Chiuso.
+
+**`[104]` e `[105]` — l'autonomia in minuti.** Da «quasi certo» a identificato,
+e per una ragione forte: ieri a 81% valevano 30520, oggi a 77% valgono 29088.
+Il rapporto fra i due e' 0,953; quello fra le cariche 0,951. **Scalano insieme
+alla carica, a carico nullo** — che e' esattamente quel che fa una stima di
+autonomia, e non quel che fa un numero qualunque.
+
+**`[142]` — watt in uscita sulla 220.** Secondo riscontro, questa volta a zero
+contro zero: l'inverter e' spento e il registro e' assente. Coerente con il 433
+di ieri.
+
+## L'eliminazione, che vale quanto un'identificazione
+
+L'app dichiara **zero su tutti e quattro i watt**. Quindi nessuno dei registri
+che in questa fotografia ha un valore puo' essere una potenza — ne' in
+ingresso, ne' in uscita, ne' sulla 220, ne' sul 12 V.
+
+I watt stanno fra i registri che adesso leggono zero. E' il contrario del modo
+solito di cercare, ed e' piu' solido: un registro che tace quando la grandezza
+e' nulla ha superato una prova; uno che parla, no.
+
+## Registri nuovi, non battezzati
+
+`[1]=769`, `[6]=5`, `[16]=2017`, `[107]=1`, `[108]=1`, `[116]=38109`,
+`[117]=36012`, `[118]=606`, `[121]=1`, `[122]=1`, `[149]=65535`, `[150]=1`,
+`[154]=155`, `[171]=32`. Ieri tacevano, oggi parlano. Da soli non dicono
+niente: aspettano una coppia che li muova.
+
+Per contro `[161]` e `[188]`, che ieri valevano 1 e 136, oggi tacciono.
+
+## La differenza con ieri, in una riga
+
+La carica e' scesa di quattro punti nella notte con tutte le uscite spente.
+Non e' un guasto — e' il consumo a vuoto dell'apparecchio — ma va tenuto a
+mente: la Bluetti si scarica anche ferma.
