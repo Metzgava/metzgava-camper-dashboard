@@ -376,12 +376,45 @@ function vistaAdesso() {
         <div class="sotto" style="font-size:10.5px">${residuoAh == null ? '<span class="vuoto">—</span>' : num(residuoAh, 0) + ' Ah di ' + num(d.capacita_ah, 0)}${d.volt != null ? `<br>${num(d.volt, 2)} V · ${d.ampere > 0 ? '+' : ''}${num(d.ampere, 2)} A` : ''}</div>
       </div></div>`;
   };
+  // Quanto esce dal pacco, e per quanto. Finche' le batterie non parlavano,
+  // questo riquadro era una promessa scritta; da quando parlano e' un numero.
+  //
+  // Zero si scrive **«niente esce»**, non «0 W»: un riquadro che ripete zero
+  // tutto il giorno insegna a non guardarlo. E non e' nemmeno «—», che qui
+  // vorrebbe dire «non lo so» mentre lo si sa benissimo.
+  const uscita = () => {
+    const c = dati.conti || {};
+    const e = c.consumo_ective || {};
+    const t = c.tempo_residuo_ective || {};
+    const quanto = e.valore == null ? '<span class="vuoto">\u2014</span>'
+      : e.valore === 0 ? 'niente esce'
+      : forse(e.valore, ' W');
+    // La ripartizione fra le due batterie **non** si ripete qui: sta gia' nei
+    // due quadranti qui sopra, «13,08 V - -8,40 A» sotto ciascuno. Scriverla
+    // di nuovo costava tre righe di numeri di serie su un telefono, per dire
+    // una cosa che si legge due centimetri piu' in alto. Resta nel `perche`
+    // del conto, che e' il verbale e va dove vanno i dati; qui va solo quel
+    // che non c'e' altrove.
+    return `<div class="riga" style="margin-top:8px">
+        <div class="cresci"><div class="eti">Esce adesso</div>
+          ${e.ampere ? `<div class="perche">${num(e.ampere, 1)} A dal pacco, fra le due</div>` : ''}</div>
+        <div class="valore">${quanto} ${bollo(e.base || 'incompleto')}</div>
+      </div>
+      <div class="riga">
+        <div class="cresci"><div class="eti">Col consumo di adesso</div>
+          <div class="perche">${esc(t.perche || '')}</div></div>
+        <div class="valore">${t.detto ? esc(t.detto) : '<span class="vuoto">\u2014</span>'} ${bollo(t.base || 'incompleto')}</div>
+      </div>
+      ${e.avviso ? `<div class="perche" style="margin-top:6px;color:var(--ambra)">${esc(e.avviso)}</div>` : ''}
+      ${e.vecchia ? `<div class="perche" style="text-align:center;margin-top:6px;color:var(--ambra)">Non &egrave; di adesso: l&rsquo;ultima lettura delle batterie &egrave; di <b>${esc(dilloInMinuti(e.eta_minuti))}</b>. Il numero era vero, ma di allora.</div>` : ''}`;
+  };
+
   const ective = `<div class="scheda">
       <div class="griglia" style="grid-template-columns:1fr 1fr">
         ${quadrante(vere[0], 0)}
         ${quadrante(vere[1], 1)}
       </div>
-      ${vere.length ? '' : `<div class="riga" style="margin-top:8px">
+      ${vere.length ? uscita() : `<div class="riga" style="margin-top:8px">
         <div class="cresci"><div class="eti">Col consumo di adesso</div>
           <div class="perche">${esc(dati.conti?.tempo_residuo_ective?.perche || '')}</div></div>
         <div class="valore"><span class="vuoto">—</span></div>

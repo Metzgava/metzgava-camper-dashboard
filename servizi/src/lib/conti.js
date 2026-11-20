@@ -11,6 +11,7 @@
 // E se un dato manca, il conto non si fa: si dice quale manca. Niente valori
 // di comodo.
 import { q } from './db.js';
+import { FERMA_DOPO_MINUTI } from './flusso.js';
 
 export async function impianto() {
   const righe = (await q('SELECT chiave, valore, unita, nota, misurato FROM impianto ORDER BY chiave')).rows;
@@ -56,6 +57,118 @@ export function bluettiNonConfrontabile(bluetti) {
   return 'la Bluetti non si legge in questo momento: l\u2019ultima lettura buona e\u2019 '
     + `${eta || 'di prima'}, e confrontarla con le letture fresche delle Ective `
     + 'darebbe un conto falso';
+}
+
+// ---------------------------------------------------------------------------
+// Quanto esce dalle Ective
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-20-uscita-ective-design.md
+//
+// **Il netto, non la somma delle negative.** Se una batteria prende +3 A dal
+// sole e l'altra da' -25 A, dal pacco escono 22 A: quei 3 A si sono solo
+// spostati fra le due, e contarli come consumo del camper sarebbe un numero
+// che non esiste.
+//
+// Asimmetria dichiarata: `sommaPos` piu' sotto tiene solo le positive, perche'
+// e' nata per la figura della carica -- un disegno approvato il 19/11. Il
+// modo pulito sarebbe un'unica potenza netta del pacco da cui ricavare
+// entrambi i versi, e vale la pena farlo un giorno; non si tocca un disegno
+// approvato per aggiungere un numero.
+//
+// Una riga e' una batteria se manda le celle: SmartSolar e Orion XS stanno
+// nella stessa tabella e hanno anche loro volt e ampere.
+const eBatteria = r => !!r?.dati?.celle_mv;
+
+// Un numero con la virgola, come lo scrive il resto della pagina. A mano e non
+// con `toLocaleString`: quello dipende dai dati di lingua compilati dentro
+// Node, e un server con l'ICU ridotto tornerebbe il punto senza protestare --
+// «13.08 V» nella spiegazione e «13,08 V» nel quadrante due centimetri sopra,
+// che nella stessa scheda sembra un guasto.
+const virgola = (v, d) => v.toFixed(d).replace('.', ',');
+
+// Oltre questo scarto fra la lettura di una batteria e quella dell'altra, la
+// loro somma non e' piu' una fotografia sola e lo si dice.
+const SCARTO_MAX_MINUTI = 10;
+const n = v => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+
+export function uscitaEctive(righe) {
+  const batterie = (righe || []).filter(eBatteria);
+  const con = batterie
+    .map(r => ({ nome: r.apparecchio, volt: n(r.dati.volt), ampere: n(r.dati.ampere),
+                 capacita_ah: n(r.dati.capacita_ah), carica: n(r.dati.carica),
+                 quando: r.quando }))
+    .filter(b => b.volt != null && b.ampere != null);
+
+  const vuoto = { watt: null, ampere: null, residuo_wh: null, ore: null,
+                  lette: 0, totali: batterie.length, scarto_minuti: null,
+                  per_batteria: [] };
+  if (!con.length) return vuoto;
+
+  // Cambiato di segno: in pagina «esce» e' un numero positivo. Il segno della
+  // singola batteria invece resta il suo, perche' la differenza fra le due
+  // righe e' l'unica cosa interessante quando una carica e l'altra scarica.
+  const netto = -con.reduce((s, b) => s + b.volt * b.ampere, 0);
+  // Un netto negativo vuol dire che nel pacco sta **entrando** corrente:
+  // allora non esce niente, e «niente» si scrive zero. Il null di qui sopra e'
+  // riservato al non sapere, cioe' a nessuna lettura.
+  const watt = Math.max(0, netto);
+  const ampere = Math.max(0, -con.reduce((s, b) => s + b.ampere, 0));
+
+  // I Wh residui coi volt **misurati** adesso, non coi 12,8 nominali della
+  // tabella dell'impianto: la tensione la si sta leggendo, sarebbe sciocco non
+  // usarla. Una batteria che non dichiara capacita' o carica non si stima.
+  const conCapacita = con.filter(b => b.capacita_ah != null && b.carica != null);
+  const residuo_wh = conCapacita.length
+    ? conCapacita.reduce((s, b) => s + b.capacita_ah * (b.carica / 100) * b.volt, 0)
+    : null;
+
+  // Quanto distano fra loro i due istanti sommati. `istantanee` tiene
+  // l'**ultima** lettura di ciascuna batteria: quella che smette di rispondere
+  // non sparisce e non resta senza numeri, resta li' coi suoi di prima e
+  // invecchia da sola mentre l'altra e' fresca. Un netto fatto cosi' mescola
+  // due momenti -- lo stesso errore che il 19/11 ha prodotto «esce 0 W, arriva
+  // 201 W» fra Bluetti ed Ective, qui dentro lo stesso pacco.
+  //
+  // Null se c'e' una sola batteria, o se a una manca la data: non sapere non
+  // e' «lontane».
+  const istanti = con.map(b => (b.quando == null ? NaN : new Date(b.quando).getTime()))
+    .filter(Number.isFinite);
+  const scarto_minuti = con.length > 1 && istanti.length === con.length
+    ? (Math.max(...istanti) - Math.min(...istanti)) / 60000
+    : null;
+
+  return {
+    watt,
+    ampere,
+    residuo_wh,
+    scarto_minuti,
+    // Niente in uscita, nessuna autonomia da dare -- e nemmeno un infinito,
+    // che sarebbe falso: finisce appena si accende una luce.
+    ore: watt > 0 && residuo_wh != null ? residuo_wh / watt : null,
+    lette: con.length,
+    totali: batterie.length,
+    per_batteria: con.map(b => ({ nome: b.nome, volt: b.volt, ampere: b.ampere,
+                                  watt: b.volt * b.ampere })),
+  };
+}
+
+// Quanti minuti ha la piu' recente lettura delle Ective, o null se non ce ne
+// sono. Non sapere l'eta' non e' «vecchio»: e' non sapere, e la figura della
+// carica continua come prima -- uno zero la spegnerebbe per sempre.
+export function etaEctiveMinuti(righe, adesso = Date.now()) {
+  const quando = (righe || [])
+    .filter(eBatteria)
+    // `quando` assente va scartato **prima**: `new Date(null)` non e' una data
+    // non valida, e' il 1970, e `Number.isFinite` lo lascia passare. Una riga
+    // cosi' darebbe cinquant'anni di eta' invece di «non so», e la figura
+    // della carica resterebbe ferma per sempre. La versione che stava in
+    // `routes/stato.js` aveva questo baco, e la prova l'ha preso.
+    .filter(r => r.quando != null)
+    .map(r => new Date(r.quando).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  return quando == null ? null : (adesso - quando) / 60000;
 }
 
 export async function tuttiIConti(bluetti) {
@@ -214,7 +327,7 @@ export async function tuttiIConti(bluetti) {
   // E la differenza fra uscita e arrivo non e' solo perdita del
   // caricabatterie: sulla 220 c'e' attaccato anche il resto del camper. La
   // pagina lo dice, perche' chiamarla «rendimento» sarebbe falso.
-  const vive = (await q('SELECT apparecchio, dati FROM istantanee')).rows;
+  const vive = (await q('SELECT apparecchio, dati, quando FROM istantanee')).rows;
   const pot = (d, v = 'volt', a = 'ampere') =>
     d && d[v] != null && d[a] != null ? Number(d[v]) * Number(d[a]) : null;
   const sommaPos = (righe, f) => {
@@ -319,11 +432,84 @@ export async function tuttiIConti(bluetti) {
     });
   }
 
-  // Le Ective: la struttura c'e' gia', il numero arriva con la scatoletta.
-  // Il loro consumo e' gia' al netto del sole, perche' la corrente che si
-  // legge sulle batterie e' quel che resta dopo i pannelli.
-  out.tempo_residuo_ective = manca('h', ['letture delle Ective'],
-    'Le batterie parlano solo via Bluetooth: il numero arriva quando la scatoletta sara\u2019 a bordo.');
+  // ---- quanto esce dalle Ective, e per quanto ----
+  //
+  // Fino al 20/11/2026 queste due righe erano la frase \u00abil numero arriva
+  // quando la scatoletta sara' a bordo\u00bb -- vera quando l'ho scritta, falsa da
+  // quando la scatoletta c'e'. E' la stessa bugia involontaria che il 19/11
+  // avevamo tolto dalla riga degli apparecchi attesi, sopravvissuta qui.
+  //
+  // Il consumo e' gia' al netto del sole e dell'alternatore: la corrente che
+  // si legge sulle batterie e' quel che resta dopo di loro.
+  const u = uscitaEctive(vive);
+  const etaEctive = etaEctiveMinuti(vive);
+  // Oltre la mezz'ora il numero resta scritto con la sua eta': e' l'eta' che
+  // va detta, non il valore che va nascosto. Stessa regola della figura della
+  // carica, stessa soglia -- col passo a due minuti sono quindici letture
+  // perse, e uno o due giri saltati sono normali.
+  const vecchie = etaEctive != null && etaEctive > FERMA_DOPO_MINUTI;
+  // Mezzo pacco spacciato per il pacco intero e' un consumo dimezzato, cioe'
+  // un'autonomia doppia: l'errore ottimista, il solo che fa restare fermi una
+  // notte in piu' contando su ore che non ci sono. Va detto.
+  //
+  // Sta in un campo suo e non sepolto nella spiegazione, perche' la pagina lo
+  // mostra in ambra: e' la sola parte di quel testo che non si legga gia' nei
+  // due quadranti due centimetri sopra.
+  const mezzoPacco = u.lette > 0 && u.lette < u.totali;
+  // Due minuti di scarto sono il passo normale della scatoletta. Dieci sono
+  // cinque giri persi da una delle due, ed e' il momento in cui la somma
+  // smette di essere una fotografia sola. Un avviso che compare sempre e' un
+  // avviso che nessuno legge.
+  const lontane = u.scarto_minuti != null && u.scarto_minuti > SCARTO_MAX_MINUTI;
+  const avviso = mezzoPacco
+    ? `Ha risposto ${u.lette} batteria su ${u.totali}: dal pacco intero esce di pi\u00f9, e le ore sono meno di cos\u00ec.`
+    : lontane
+      ? `Le due batterie non sono state lette insieme: fra un\u2019istante e l\u2019altro ci sono `
+        + `${Math.round(u.scarto_minuti)} minuti, e la somma di due momenti diversi non \u00e8 una fotografia sola.`
+      : null;
+
+  out.consumo_ective = u.watt == null
+    ? manca('W', ['letture delle Ective'],
+        'Le batterie parlano solo via Bluetooth: serve la scatoletta accesa in camper.')
+    : conto(u.watt, 'W', {
+        base: 'misurato',
+        perche: (u.per_batteria
+          .map(b => `${b.nome}: ${virgola(b.volt, 2)} V, ${b.ampere > 0 ? '+' : ''}${virgola(b.ampere, 2)} A`)
+          .join(' \u00b7 ')),
+        // Zero non e' \u00abnon so\u00bb: le batterie sono in carica, o non consuma
+        // niente. Il null di sopra e' l'unico \u00abnon so\u00bb.
+        detto: u.watt === 0 ? 'niente esce' : `${Math.round(u.watt)} W in uscita`,
+      });
+  out.consumo_ective.ampere = u.ampere;
+  out.consumo_ective.per_batteria = u.per_batteria;
+  out.consumo_ective.lette = u.lette;
+  out.consumo_ective.totali = u.totali;
+  out.consumo_ective.avviso = avviso;
+  out.consumo_ective.eta_minuti = etaEctive;
+  out.consumo_ective.vecchia = vecchie;
+
+  out.tempo_residuo_ective = u.watt == null
+    ? manca('h', ['letture delle Ective'],
+        'Le batterie parlano solo via Bluetooth: serve la scatoletta accesa in camper.')
+    : u.watt === 0
+      ? conto(null, 'h', {
+          base: 'incompleto',
+          perche: 'dalle batterie non esce niente: non c\u2019e\u2019 un consumo da cui partire',
+          detto: 'niente esce',
+        })
+      : u.residuo_wh == null
+        ? manca('h', ['capacit\u00e0 e carica delle Ective'],
+            'Le batterie dicono volt e ampere ma non quanto hanno dentro in questo giro.')
+        : conto(u.ore, 'h', {
+            // Misurato per intero: i watt, i Wh residui e i volt vengono tutti
+            // e tre dalle batterie. Nessun numero di catalogo.
+            base: 'misurato',
+            perche: `${Math.round(u.residuo_wh)} Wh nelle batterie, a ${Math.round(u.watt)} W di consumo`,
+            detto: dilloInOre(u.ore),
+          });
+  out.tempo_residuo_ective.avviso = avviso;
+  out.tempo_residuo_ective.eta_minuti = etaEctive;
+  out.tempo_residuo_ective.vecchia = vecchie;
 
   // ---- quanto dura il camper fermo ----
   out.giorni_fermo_bluetti = out.carica_residua.valore == null || fermoW == null

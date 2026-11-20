@@ -11,7 +11,7 @@ import { q, segna } from '../lib/db.js';
 import { passoMinuti, prossimoGiro } from '../lib/ritmo.js';
 import { statoBluetti, collegato, associa, comanda, COMANDI,
   indirizzoAutorizza, completaAutorizzazione } from '../lib/bluetti.js';
-import { tuttiIConti, impianto } from '../lib/conti.js';
+import { tuttiIConti, impianto, etaEctiveMinuti } from '../lib/conti.js';
 import { leggiTravaso } from '../lib/travaso.js';
 import { ramiDellaCarica, ramiDellaBluetti } from '../lib/flusso.js';
 import { segnaOcchiata, ritmoRichiesto, ultimaOcchiata } from '../lib/occhiata.js';
@@ -121,18 +121,6 @@ async function tendenza(apparecchio) {
   };
 }
 
-// Quanti minuti ha la piu' recente lettura delle Ective, o null se non ce ne
-// sono. Non sapere l'eta' non e' «vecchio»: e' non sapere, e la figura
-// continua come prima.
-function etaDelleEctive(righe) {
-  const quando = (righe || [])
-    .filter(r => r.dati?.celle_mv)
-    .map(r => new Date(r.quando).getTime())
-    .filter(Number.isFinite)
-    .sort((a, b) => b - a)[0];
-  return quando == null ? null : (Date.now() - quando) / 60000;
-}
-
 router.get('/stato', wrap(async (req, res) => {
   // Qualcuno sta guardando: da qui la scatoletta capisce che deve andare
   // svelta. Solo in memoria -- una scrittura ogni tre secondi su un dato che
@@ -196,7 +184,7 @@ router.get('/stato', wrap(async (req, res) => {
       // L'eta' delle letture delle Ective: oltre la mezz'ora la figura smette
       // di animarsi. Un disegno in movimento su dati vecchi mente meglio di un
       // numero fermo.
-      minuti: etaDelleEctive(ultimi),
+      minuti: etaEctiveMinuti(ultimi),
     }),
     // La stessa figura per la Bluetti: due ingressi, due uscite. L'eta' della
     // lettura viaggia a parte, in `bluetti.vecchia`, e la pagina la scrive
