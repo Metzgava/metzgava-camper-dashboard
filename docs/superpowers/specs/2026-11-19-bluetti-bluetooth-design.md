@@ -110,3 +110,35 @@ parlano, vince il Bluetooth: è più fresco e non dipende da nessuno.
 
 L'intervallo di registri da leggere e la dimensione dei blocchi: si trovano
 provando, e dipendono da quanto l'apparecchio accetta per volta.
+
+---
+
+## Aggiunta del 20/11/2026
+
+Tre cose decise dai fatti, che non cambiano il disegno ma ne tolgono
+un'incertezza e un non-goal.
+
+**L'anti-goal ha fatto il suo mestiere.** `[102]` e' la carica, su quattro
+coppie, l'ultima a 100 % letta dal **display** e non dall'app. `[104]`/`[105]`
+sono l'autonomia in minuti, verificata sul rapporto. I watt in ingresso **non
+sono ancora identificati**, e non lo saranno per somiglianza: mancava la
+condizione, non il registro.
+
+**Il CHARGER non e' piu' «dopo».** La stretta di mano si chiude anche su di
+lui, con lo stesso strumento. I suoi blocchi 100-119 e 140-159 rispondono tutti
+zero a riposo: e' li' che stanno le sue potenze. Resta un non-goal **mandarlo
+alla pagina**, non leggerlo.
+
+**Il metodo delle due fotografie si automatizza.** La parte che chiedeva una
+persona — «gli stessi cinque numeri letti nello stesso minuto» — e' impossibile
+proprio nella condizione che serve, cioe' mentre il camper carica in marcia.
+`sonda/raccolta.sh` scatta ogni dieci minuti e tiene tutto; `sonda/confronta.py`
+mostra solo i registri che si muovono. Si perde la coppia esatta col cloud e si
+guadagna quel che il disegno chiedeva davvero: **vedere chi si muove insieme a
+cosa**, che era gia' previsto in «Quel che si fa senza il cloud».
+
+**Il sospetto sul Charger cade.** Si era temuto che tenesse occupato il posto
+Bluetooth mentre carica, il che avrebbe imposto di leggere solo nelle pause. Il
+silenzio della Bluetti aveva un'altra causa, nostra: un collegamento rimasto
+appeso da una sonda morta male. Il disegno resta com'e'; la prova definitiva
+arrivera' dalla raccolta al prossimo viaggio.

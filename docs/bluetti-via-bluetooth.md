@@ -378,3 +378,113 @@ Resta pero' un guadagno grosso: **quell'impronta nella tabella degli indirizzi
 dice se l'apparecchio e' accesso**, senza toccare il Bluetooth. Il 20/11 ha
 escluso in un colpo l'ipotesi «si e' spenta da se'»: rispondeva sulla rete
 mentre taceva in radio.
+
+## Il colpevole eravamo noi
+
+**20/11/2026, mezzogiorno.** La Bluetti e' tornata ad annunciarsi, forte: −34
+dBm, e la stretta di mano si chiude al primo colpo. Da allora **tre fotografie
+su tre riuscite** in venticinque minuti, zero fallimenti.
+
+Cos'e' cambiato nell'istante in cui e' tornata: la scatoletta **si e'
+riavviata**. Non il motore spento, non il Charger fermo — quelli erano
+successi prima, e lei taceva ancora.
+
+La spiegazione che regge e' la piu' sgradevole: stamattina una nostra sonda e'
+morta male — un processo orfano rimasto a tenere la radio — e il Bluetooth
+della scatoletta ha continuato a **tenere aperto il collegamento** verso la
+Bluetti. Un apparecchio con un cliente attaccato smette di annunciarsi. Da
+fuori si vede solo il silenzio, identico a quello di un apparecchio spento, di
+uno occupato dal telefono, di uno occupato dal Charger. Il riavvio ha chiuso la
+sessione e l'apparecchio e' ricomparso.
+
+Quindi, delle tre ipotesi in piedi:
+
+| ipotesi | esito |
+|---|---|
+| si e' spenta da se' | **esclusa** il 20/11 dalla tabella degli indirizzi |
+| il telefono tiene il posto | non serve piu' a spiegare niente |
+| il Charger tiene il posto mentre carica | **non confermata**: durante la marcia la Bluetti taceva gia' per causa nostra |
+
+**Il Charger e' innocente finche' non si dimostra il contrario**, e il disegno
+non va cambiato: non c'e' ragione di rinunciare al Bluetooth mentre il camper
+carica. La prova vera arrivera' da se', al prossimo viaggio: la raccolta
+automatica registra ogni scatto, e se durante la marcia la Bluetti tace mentre
+il Charger risponde, allora il Charger c'entra davvero.
+
+**La lezione che resta, e vale oltre la Bluetti:** una sonda che muore male non
+e' un giro perso, e' un apparecchio reso invisibile per ore. Chi apre un
+collegamento deve chiuderlo anche quando sbaglia — e chi lancia una sonda deve
+poterla fermare senza uccidere se stesso (vedi `sonda/avvia-raccolta.sh`, dove
+cercare il processo per nome si e' rivelato una trappola due volte in un
+giorno).
+
+## Il CHARGER risponde
+
+Stesso protocollo, stessa cifratura, stessa stretta di mano: **si chiude anche
+sul CHARGER 22617110080795**. Lo strumento ora prende il nome dell'apparecchio
+dalla riga di comando.
+
+La sua mappa pero' e' quasi vuota, e qui c'e' il fatto che spiega un fallimento
+di tutta la mattina:
+
+```
+   0: [5]=1  [6]=9  [15]=7  [16]=2018
+  20: inesistente      40: inesistente      60: inesistente      80: inesistente
+ 120: [124]=8192
+ 160: [171]=32
+```
+
+I blocchi **100-119 e 140-159 rispondono, e rispondono tutti zero**. Non sono
+assenti: sono i registri delle potenze di un caricatore che in quel momento non
+carica.
+
+**Ed e' esattamente per questo che i watt in ingresso della Bluetti non si
+trovavano.** Ogni fotografia era stata scattata mentre non entrava corrente. Il
+registro c'era, segnava zero, e lo strumento gli zeri non li stampa — li
+scrive solo nel JSON. Cercavo una cosa che era li' sotto gli occhi, invisibile
+perche' spenta.
+
+La conferma per sottrazione: i blocchi **25-99 della Bluetti tacciono del
+tutto**, provati cinque registri per volta. Non e' li' che si nasconde niente.
+
+## Gli scatti se li prende da sola
+
+Da qui la raccolta (`sonda/raccolta.sh`): fotografa Bluetti e Charger ogni
+dieci minuti e tiene ogni scatto in `sonda/foto/`. `sonda/confronta.py` mostra
+**solo i registri che si muovono**.
+
+Il senso e' togliere una richiesta impossibile. Per identificare una potenza
+serve uno scatto preso *mentre carica*, cioe' mentre il camper e' in marcia o
+attaccato alla colonnina — che e' precisamente quando non si puo' chiedere a
+nessuno di fermarsi a leggere un display. Adesso non serve chiederlo.
+
+A camper fermo il confronto da' quel che deve dare:
+
+```
+3 fotografie di el300, dalle 12:14:09 alle 12:37:09
+120 registri visti, 1 si muovono
+
+reg      12:14   12:25   12:37
+100       1020    1019    1019
+```
+
+Un solo registro che scende piano a riposo — un consumo, non un rumore. E gli
+scatti non vanno piu' in `/tmp`: oggi la scatoletta si e' riavviata e ha perso
+mezza giornata di vigilia.
+
+## Quarta coppia: `[102]` e' chiuso
+
+| ora | registro `[102]` | quel che si vedeva | fonte |
+|---|---|---|---|
+| 19/11 | 81 | 81 % | app |
+| 19/11 | 81 | 81 % | app |
+| 20/11 08:51 | 77 | 77 % | app |
+| 20/11 12:03 | **100** | **100 %** | **display** |
+
+L'ultima vale piu' delle altre tre: e' l'unico estremo della scala, viene dal
+display e non dall'app, e arriva dopo due ore di ricarica che hanno mosso il
+valore di ventitre punti. Un registro che segna esattamente 100 quando la
+batteria e' piena non somiglia alla carica: e' la carica.
+
+E l'autonomia regge il conto: 29088 minuti al 77 %, 38448 al 100 % — rapporto
+1,32 contro 1,30 della carica.
