@@ -18,6 +18,14 @@ NOME = "EL300"                 # il prefisso del nome Bluetooth dell'Elite 300
 BLOCCO = 20                    # registri per richiesta
 FINO_A = 220                   # fin dove leggere
 
+# Si puo' puntare a un altro apparecchio dalla riga di comando:
+#   fotografia-bluetti.py CHARGER        -> il caricatore
+#   fotografia-bluetti.py CHARGER 400    -> e piu' lontano
+if len(sys.argv) > 1:
+    NOME = sys.argv[1].upper()
+if len(sys.argv) > 2:
+    FINO_A = int(sys.argv[2])
+
 
 def crc16(dati):
     crc = 0xFFFF
@@ -87,9 +95,14 @@ async def main():
             if vivi:
                 print(f"{inizio:>4}: " + "  ".join(f"[{r}]={v}" for r, v in vivi))
 
-    nome_file = f"/tmp/fotografia-{time.strftime('%H%M%S')}.json"
+    # Accanto allo strumento, non in /tmp: un riavvio non deve portarsele via.
+    cartella = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foto")
+    os.makedirs(cartella, exist_ok=True)
+    nome_file = os.path.join(
+        cartella, f"{NOME.lower()}-{time.strftime('%Y%m%d-%H%M%S')}.json")
     with open(nome_file, "w") as f:
-        json.dump({"quando": quando, "registri": raccolto}, f, indent=1)
+        json.dump({"quando": quando, "apparecchio": NOME,
+                   "indirizzo": trovato, "registri": raccolto}, f, indent=1)
     print(f"\nscritta in {nome_file}")
     print("Ora servono i numeri del cloud dello stesso minuto:")
     print("  carica %, entra W, esce W, 220 V W, 12 V W")
