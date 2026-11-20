@@ -280,3 +280,68 @@ Per contro `[161]` e `[188]`, che ieri valevano 1 e 136, oggi tacciono.
 La carica e' scesa di quattro punti nella notte con tutte le uscite spente.
 Non e' un guasto — e' il consumo a vuoto dell'apparecchio — ma va tenuto a
 mente: la Bluetti si scarica anche ferma.
+
+---
+
+# Il conflitto sui posti Bluetooth — 20/11/2026
+
+Il problema piu' grosso emerso oggi, e non e' risolto. Va scritto come sta,
+perche' se e' vero mette in discussione tutta la strada.
+
+## La sequenza, con le ore
+
+| ora | fatto |
+|---|---|
+| 08:45 | motore spento. La Bluetti **si annuncia** (−43 dBm ieri, letta senza problemi). Fotografia riuscita. |
+| ~08:50 | motore acceso. Il Charger dichiara **632 W**. |
+| 08:51:48 | la sonda si collega e legge. **La carica continua.** |
+| ~08:55 | il proprietario apre l'app Bluetti per leggere i cinque numeri. |
+| ~08:58 | il Charger passa a **0 W**. La carica si e' fermata. |
+| ~09:05 | app chiusa, sonda ferma. Il Charger torna a **630 W**. |
+| ~09:10 | dal display: carica **80%**, in entrata **670 W**. |
+| 09:30 → | la Bluetti **non si annuncia piu'**. Il Charger si sente a −51 dBm. |
+| 09:43 | motore spento (Orion XS: «spento», ingresso 12,53 V). La Bluetti **ancora assente**. |
+
+## L'ipotesi, e perche' non regge del tutto
+
+L'ipotesi era: **il Charger occupa il posto Bluetooth della Bluetti** mentre
+carica, e il telefono che si aggiunge e' il terzo di troppo. Spiegherebbe lo
+stop a 0 W e la ripartenza a app chiusa.
+
+Ma a motore spento il Charger non carica, e la Bluetti **resta assente**.
+Quindi l'ipotesi, da sola, non basta.
+
+L'altra spiegazione, piu' banale: **il telefono resta collegato anche con
+l'app chiusa.** I telefoni tengono vive le connessioni Bluetooth in sottofondo,
+e un apparecchio Bluetti con un cliente attaccato smette di annunciarsi.
+
+## Come si decide, e cosa serve
+
+La vigilia — `scatoletta/sonda/vigilia.py`, solo ascolto — registra ogni tre
+minuti chi si sente. Basta guardare **quando la Bluetti ricompare**:
+
+- se ricompare dopo che il telefono si allontana o si spegne il Bluetooth del
+  telefono → era il telefono, e la strada e' libera: la regola diventa «l'app
+  resta chiusa mentre la scatoletta legge»;
+- se ricompare solo quando il Charger smette, e spegnendo il Bluetooth del
+  telefono non cambia niente → era il Charger, e **la lettura via Bluetooth
+  non e' disponibile proprio quando il camper carica**.
+
+Il secondo caso non chiude la strada, ma la cambia: si leggerebbe la Bluetti
+nelle pause, dichiarando l'eta' del dato, e durante la carica si userebbe il
+cloud. Meno bello, e va saputo prima di scrivere il lettore.
+
+## La regola che vale comunque, e che e' un guadagno
+
+**Il display della Bluetti non costa un posto Bluetooth. L'app si.**
+
+Quindi per tutte le coppie di misura la fonte giusta e' **il display**, non
+l'app: si leggono i cinque numeri dal pannello dell'apparecchio mentre la
+scatoletta legge i registri, e i due non si disturbano. Era il modo di prendere
+le coppie che cercavamo da ieri, e l'ha trovato il proprietario.
+
+## Un punto fermo sul metodo
+
+Nessuna delle fotografie di oggi ha mostrato un registro che valesse 632 o 670.
+Il registro dei watt in ingresso **non e' ancora trovato**, e non va indovinato:
+un numero plausibile e sbagliato e' il risultato peggiore possibile.
