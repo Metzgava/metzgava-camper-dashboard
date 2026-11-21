@@ -70,11 +70,27 @@ export function bluettiNonConfrontabile(bluetti) {
 // spostati fra le due, e contarli come consumo del camper sarebbe un numero
 // che non esiste.
 //
-// Asimmetria dichiarata: `sommaPos` piu' sotto tiene solo le positive, perche'
-// e' nata per la figura della carica -- un disegno approvato il 19/11. Il
-// modo pulito sarebbe un'unica potenza netta del pacco da cui ricavare
-// entrambi i versi, e vale la pena farlo un giorno; non si tocca un disegno
-// approvato per aggiungere un numero.
+// **E i due versi vengono da qui, tutti e due.** Fino al 21/11/2026 non era
+// cosi': questa funzione dava il verso in uscita, e il verso in ingresso lo
+// dava `sommaPos`, che teneva soltanto le correnti positive. Da quell'
+// asimmetria uscivano due numeri falsi, e il commento che stava qui diceva
+// «il modo pulito sarebbe un'unica potenza netta da cui ricavare entrambi i
+// versi, e vale la pena farlo un giorno». Quel giorno e' arrivato per due
+// ragioni, trovate lo stesso pomeriggio:
+//
+//   - **A pacco in scarica** tutte le potenze sono negative, il filtro le
+//     scartava tutte, e la pagina scriveva «oggi nessuno misura la loro
+//     corrente» su una corrente che misuriamo. Il proprietario l'ha visto con
+//     le Ective al 95 % e 98 % e la figura che diceva «sono gia' cariche».
+//   - **Con una in carica e l'altra in scarica** -- +11 A e -4 A -- la somma
+//     delle positive dava 144 W «in ingresso» col bollino misurato, mentre nel
+//     pacco ne entravano 92. I 52 W di differenza non entravano da nessuna
+//     parte: si spostavano fra le due batterie. Era lo stesso numero inventato
+//     che il paragrafo qui sopra evita per il verso in uscita.
+//
+// `sommaPos` esiste ancora, piu' sotto, ma solo per il sole e l'alternatore:
+// per loro sommare le positive e' lecito, perche' sono apparecchi diversi e
+// non due facce dello stesso serbatoio.
 //
 // Una riga e' una batteria se manda le celle: SmartSolar e Orion XS stanno
 // nella stessa tabella e hanno anche loro volt e ampere.
@@ -351,29 +367,88 @@ export async function tuttiIConti(bluetti) {
   const vive = (await q('SELECT apparecchio, dati, quando FROM istantanee')).rows;
   const pot = (d, v = 'volt', a = 'ampere') =>
     d && d[v] != null && d[a] != null ? Number(d[v]) * Number(d[a]) : null;
+  // La somma delle **sole positive**, che qui sotto si usa per il sole e per
+  // l'alternatore e non per il pacco.
+  //
+  // Per loro e' lecita: sono apparecchi diversi, ciascuno con la sua misura,
+  // e sommarne due che producono e' una somma vera. Per il **pacco** non lo
+  // era: due batterie non sono due misure indipendenti, sono due facce dello
+  // stesso serbatoio, e sommarne solo le positive conta come \u00abin ingresso\u00bb
+  // anche la corrente che si sposta dall'una all'altra. Da qui il netto.
   const sommaPos = (righe, f) => {
     const n = righe.map(f).filter(x => x != null && x > 0);
     return n.length ? n.reduce((s, x) => s + x, 0) : null;
   };
   const batterie = vive.filter(r => r.dati?.celle_mv);
-  const entraEctive = sommaPos(batterie, r => pot(r.dati));
+
+  // I due versi del pacco nascono qui, da un numero solo con il segno.
+  const u = uscitaEctive(vive);
+  const etaEctive = etaEctiveMinuti(vive);
+  // Oltre la mezz'ora il numero resta scritto con la sua eta': e' l'eta' che
+  // va detta, non il valore che va nascosto. Stessa regola della figura della
+  // carica, stessa soglia -- col passo a due minuti sono quindici letture
+  // perse, e uno o due giri saltati sono normali.
+  const vecchie = etaEctive != null && etaEctive > FERMA_DOPO_MINUTI;
+  // Mezzo pacco spacciato per il pacco intero e' un consumo dimezzato, cioe'
+  // un'autonomia doppia: l'errore ottimista, il solo che fa restare fermi una
+  // notte in piu' contando su ore che non ci sono. Va detto.
+  //
+  // Sta in un campo suo e non sepolto nella spiegazione, perche' la pagina lo
+  // mostra in ambra: e' la sola parte di quel testo che non si legga gia' nei
+  // due quadranti due centimetri sopra.
+  const mezzoPacco = u.lette > 0 && u.lette < u.totali;
+  // Due minuti di scarto sono il passo normale della scatoletta. Dieci sono
+  // cinque giri persi da una delle due, ed e' il momento in cui la somma
+  // smette di essere una fotografia sola. Un avviso che compare sempre e' un
+  // avviso che nessuno legge.
+  const lontane = u.scarto_minuti != null && u.scarto_minuti > SCARTO_MAX_MINUTI;
+  const avviso = mezzoPacco
+    ? `Ha risposto ${u.lette} batteria su ${u.totali}: dal pacco intero esce di pi\u00f9, e le ore sono meno di cos\u00ec.`
+    : lontane
+      ? `Le due batterie non sono state lette insieme: fra un\u2019istante e l\u2019altro ci sono `
+        + `${Math.round(u.scarto_minuti)} minuti, e la somma di due momenti diversi non \u00e8 una fotografia sola.`
+      : null;
+
+  // Nel pacco **entra** corrente quando il netto e' negativo. Quanta, e' il
+  // netto cambiato di segno; quando il netto e' positivo o zero non entra
+  // niente, e \u00abniente\u00bb si scrive **zero**, non `\u2014`.
+  const entraEctive = u.netto == null ? null : Math.max(0, -u.netto);
   const dalSole = sommaPos(vive.filter(r => r.dati?.pannelli_w != null), r => pot(r.dati));
   const dalMotore = sommaPos(vive.filter(r => r.dati?.uscita_ampere != null),
     r => pot(r.dati, 'uscita_volt', 'uscita_ampere'));
-  const dalla220 = entraEctive == null ? null
+  // Il ramo dedotto si ottiene per differenza da quel che **entra**. Se non
+  // entra niente la differenza non esiste, e resta `null` -- cioe' ignoto, non
+  // zero: uno zero direbbe che la 220 l'abbiamo esclusa, e non l'abbiamo
+  // esclusa. Un caricatore da 50 W mentre i consumi ne prendono 100 non si
+  // vede da qui.
+  const dalla220 = entraEctive == null || entraEctive <= 0 ? null
     : Math.max(0, entraEctive - (dalSole || 0) - (dalMotore || 0));
 
   out.fonti_ective = entraEctive == null
     ? manca('W', ['letture delle Ective'], 'Arriva con la scatoletta: oggi nessuno misura la loro corrente.')
-    : conto(entraEctive, 'W', {
-        base: 'misurato',
-        perche: `${Math.round(dalSole || 0)} W dal sole, ${Math.round(dalMotore || 0)} W dall\u2019alternatore, `
-          + `${Math.round(dalla220)} W dalla 220 \u2014 l\u2019ultimo per differenza`,
-        detto: `${Math.round(entraEctive)} W in ingresso`,
-      });
+    : entraEctive > 0
+      ? conto(entraEctive, 'W', {
+          base: 'misurato',
+          perche: `${Math.round(dalSole || 0)} W dal sole, ${Math.round(dalMotore || 0)} W dall\u2019alternatore, `
+            + `${Math.round(dalla220)} W dalla 220 \u2014 l\u2019ultimo per differenza`,
+          detto: `${Math.round(entraEctive)} W in ingresso`,
+        })
+      // Uno **zero misurato**, non un \u00abnon so\u00bb. Fino al 21/11/2026 questo
+      // caso finiva nel `manca` di sopra, e la pagina diceva \u00aboggi nessuno
+      // misura la loro corrente\u00bb mentre la corrente la misuravamo benissimo:
+      // era negativa. Il proprietario l'ha trovato con le Ective al 95 e 98 %.
+      : conto(0, 'W', {
+          base: 'misurato',
+          perche: `dal pacco esce corrente invece di entrarne: ${Math.round(u.netto)} W in uscita`,
+          detto: 'niente entra',
+        });
   out.fonti_ective.sole_w = dalSole;
   out.fonti_ective.motore_w = dalMotore;
   out.fonti_ective.rete_w = dalla220;
+  // Nasce dallo stesso netto dell'uscita, quindi eredita la stessa fragilita':
+  // mezzo pacco, o due letture lontane, falsano questo numero come falsano
+  // quello. L'avviso stava solo sull'uscita.
+  out.fonti_ective.avviso = avviso;
 
   const esceAc = b?.uscita_ac_w ?? null;
   const nonConfrontabile = bluettiNonConfrontabile(bluetti);
@@ -462,33 +537,10 @@ export async function tuttiIConti(bluetti) {
   //
   // Il consumo e' gia' al netto del sole e dell'alternatore: la corrente che
   // si legge sulle batterie e' quel che resta dopo di loro.
-  const u = uscitaEctive(vive);
-  const etaEctive = etaEctiveMinuti(vive);
-  // Oltre la mezz'ora il numero resta scritto con la sua eta': e' l'eta' che
-  // va detta, non il valore che va nascosto. Stessa regola della figura della
-  // carica, stessa soglia -- col passo a due minuti sono quindici letture
-  // perse, e uno o due giri saltati sono normali.
-  const vecchie = etaEctive != null && etaEctive > FERMA_DOPO_MINUTI;
-  // Mezzo pacco spacciato per il pacco intero e' un consumo dimezzato, cioe'
-  // un'autonomia doppia: l'errore ottimista, il solo che fa restare fermi una
-  // notte in piu' contando su ore che non ci sono. Va detto.
   //
-  // Sta in un campo suo e non sepolto nella spiegazione, perche' la pagina lo
-  // mostra in ambra: e' la sola parte di quel testo che non si legga gia' nei
-  // due quadranti due centimetri sopra.
-  const mezzoPacco = u.lette > 0 && u.lette < u.totali;
-  // Due minuti di scarto sono il passo normale della scatoletta. Dieci sono
-  // cinque giri persi da una delle due, ed e' il momento in cui la somma
-  // smette di essere una fotografia sola. Un avviso che compare sempre e' un
-  // avviso che nessuno legge.
-  const lontane = u.scarto_minuti != null && u.scarto_minuti > SCARTO_MAX_MINUTI;
-  const avviso = mezzoPacco
-    ? `Ha risposto ${u.lette} batteria su ${u.totali}: dal pacco intero esce di pi\u00f9, e le ore sono meno di cos\u00ec.`
-    : lontane
-      ? `Le due batterie non sono state lette insieme: fra un\u2019istante e l\u2019altro ci sono `
-        + `${Math.round(u.scarto_minuti)} minuti, e la somma di due momenti diversi non \u00e8 una fotografia sola.`
-      : null;
-
+  // `u`, `avviso` e compagnia si calcolano piu' sopra, prima di
+  // `fonti_ective`: dal 21/11/2026 i **due versi** nascono dallo stesso netto,
+  // e quindi dallo stesso `u`.
   out.consumo_ective = u.watt == null
     ? manca('W', ['letture delle Ective'],
         'Le batterie parlano solo via Bluetooth: serve la scatoletta accesa in camper.')

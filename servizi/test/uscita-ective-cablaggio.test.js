@@ -15,14 +15,28 @@ import { archivio } from './aiuto/archivio-finto.js';
 const { tuttiIConti } = await import('../src/lib/conti.js');
 
 // Due batterie come le manda la scatoletta, con i nomi veri.
-const istantanee = (ampere1, ampere2, quando = new Date().toISOString()) => [
+// `quando2` serve a datare **una sola** delle due: e' il caso in cui una
+// batteria ha smesso di rispondere e resta in `istantanee` coi suoi numeri di
+// prima, mentre l'altra e' fresca. La somma di due istanti lontani non e' una
+// fotografia sola, ed e' la trappola che il 19/11/2026 ha prodotto
+// «esce 0 W, arriva 201 W» fra Bluetti ed Ective -- qui dentro lo stesso pacco.
+const istantanee = (ampere1, ampere2, quando = new Date().toISOString(),
+                    quando2 = quando) => [
   { apparecchio: 'NWJ20220412010310', quando,
     dati: { volt: 13.1, ampere: ampere1, carica: 80, capacita_ah: 95,
             celle_mv: [3275, 3276, 3274, 3275], watt: 13.1 * ampere1 } },
-  { apparecchio: 'NWJ20220412010323', quando,
+  { apparecchio: 'NWJ20220412010323', quando: quando2,
     dati: { volt: 13.1, ampere: ampere2, carica: 80, capacita_ah: 95,
             celle_mv: [3275, 3275, 3276, 3274], watt: 13.1 * ampere2 } },
 ];
+
+// Lo SmartSolar come lo manda la scatoletta: non e' una batteria (non ha
+// `celle_mv`), e si riconosce da `pannelli_w`. I watt li ricava `pot()` da
+// volt per ampere, quindi i tre numeri devono essere coerenti fra loro.
+const smartSolar = (watt, quando = new Date().toISOString()) => ({
+  apparecchio: 'SmartSolar', quando,
+  dati: { volt: 13.5, ampere: watt / 13.5, pannelli_w: watt },
+});
 
 const impianto = [
   { chiave: 'ective_ah', valore: 190, unita: 'Ah', nota: '', misurato: true },
@@ -97,15 +111,68 @@ test('letture fresche non sono vecchie', async () => {
   assert.ok(c.consumo_ective.eta_minuti < 2);
 });
 
-test('la figura della carica non e’ stata toccata', async () => {
-  // `fonti_ective` somma solo le positive, di proposito: e' il disegno
-  // approvato il 19/11. Se un giorno si unificano i due versi, questa prova
-  // cade per prima e dice che quel disegno sta cambiando.
+// ---------------------------------------------------------------------------
+// I due versi vengono dallo stesso netto
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-21-potenza-netta-ective-design.md
+//
+// Qui c'era la prova «la figura della carica non e' stata toccata», che
+// pinnava `fonti_ective` alla **somma delle positive** e diceva nel suo
+// commento: «se un giorno si unificano i due versi, questa prova cade per
+// prima e dice che quel disegno sta cambiando». Il 21/11/2026 e' quel giorno,
+// e il disegno sta cambiando perche' quella somma dava due numeri falsi.
+
+test('una carica e l’altra scarica: in ingresso e’ il NETTO, non la somma delle positive', async () => {
+  // Prima di oggi: 13,1 x 11 = 144 W «in ingresso» col bollino misurato,
+  // mentre nel pacco ne entrano 92. I 52 W di differenza non entrano da
+  // nessuna parte: si spostano da una batteria all'altra.
   const c = await conti(istantanee(11, -4));
-  assert.ok(Math.abs(c.fonti_ective.valore - 13.1 * 11) < 0.5,
+  assert.ok(Math.abs(c.fonti_ective.valore - 13.1 * 7) < 0.5,
     `fonti_ective = ${c.fonti_ective.valore}`);
-  // E il consumo e' il netto: 11 - 4 = +7 nel pacco, quindi non esce niente.
+  // E il verso in uscita non si muove di un watt: e' il non obiettivo.
   assert.equal(c.consumo_ective.valore, 0);
+});
+
+test('pacco in scarica: in ingresso e’ uno ZERO MISURATO, non un «non so»', async () => {
+  const c = await conti(istantanee(-6, -4));
+  assert.equal(c.fonti_ective.valore, 0);
+  assert.equal(c.fonti_ective.base, 'misurato');
+  assert.deepEqual(c.fonti_ective.mancano, []);
+  // Il 21/11/2026 qui si leggeva «oggi nessuno misura la loro corrente»,
+  // mentre la corrente la misuravamo: era negativa.
+  assert.doesNotMatch(c.fonti_ective.perche, /nessuno misura/);
+});
+
+test('il ramo dedotto della 220 e’ IGNOTO quando il pacco non carica, non zero', async () => {
+  // Si ottiene per differenza da quel che entra; se non entra niente, la
+  // differenza non esiste. Uno zero direbbe «ho escluso la 220», e non
+  // l'abbiamo esclusa: un caricatore da 50 W con i consumi a 100 non si vede.
+  const c = await conti(istantanee(-6, -4));
+  assert.equal(c.fonti_ective.rete_w, null);
+});
+
+test('sole e alternatore restano misurati anche mentre il pacco scarica', async () => {
+  const c = await conti([...istantanee(-6, -4), smartSolar(8)]);
+  assert.ok(Math.abs(c.fonti_ective.sole_w - 8) < 1,
+    `sole_w = ${c.fonti_ective.sole_w}`);
+});
+
+test('senza letture «in ingresso» resta un «manca», con scritto cosa manca', async () => {
+  const c = await conti([]);
+  assert.equal(c.fonti_ective.valore, null);
+  assert.equal(c.fonti_ective.base, 'incompleto');
+  assert.deepEqual(c.fonti_ective.mancano, ['letture delle Ective']);
+});
+
+test('due letture lontane: «in ingresso» porta l’avviso, come fa l’uscita', async () => {
+  // Nasce dallo stesso netto, quindi eredita la stessa fragilita': se le due
+  // batterie sono state lette a venti minuti di distanza, quel netto mescola
+  // due momenti. L'avviso c'era solo sull'uscita.
+  const adesso = new Date().toISOString();
+  const venti = new Date(Date.now() - 20 * 60000).toISOString();
+  const c = await conti(istantanee(-6, -4, adesso, venti));
+  assert.match(c.fonti_ective.avviso, /non sono state lette insieme/);
 });
 
 test('i numeri della spiegazione si scrivono all’italiana, con la virgola', async () => {
