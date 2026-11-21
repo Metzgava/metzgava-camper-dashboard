@@ -110,3 +110,151 @@ export function consumoRecente(righe, { da, a, batterie = [],
     finestra_minuti,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Il consumo a riposo, misurato dalle notti
+// ---------------------------------------------------------------------------
+//
+// In tabella c'erano 11 W col bollino «misurato». Lo erano -- misurati il
+// 16/11/2026 -- ma da allora in camper sono arrivate la scatoletta e
+// Starlink. Un numero misurato una volta e poi mai piu' e' una **stima
+// travestita da misura**, e invecchia senza dirlo.
+
+// Oltre questi watt sui pannelli non e' notte. Non zero esatto: all'alba e al
+// tramonto i pannelli danno qualche watt, e un confronto con lo zero
+// spezzerebbe la notte in tanti pezzi corti.
+export const SOLE_SPENTO_W = 2;
+
+// Sotto questa durata un tratto di buio non e' una notte da cui ricavare un
+// pavimento: ci sta dentro un solo ciclo del frigo, e il pavimento sarebbe
+// quello di quel ciclo invece che quello della casa.
+export const NOTTE_MINIMA_MINUTI = 120;
+
+// Quanti giorni indietro si guarda.
+export const NOTTI = 5;
+
+// Il pavimento di una notte: il quinto piu' basso dei suoi intervalli.
+//
+// **Il riposo e' il pavimento, non la media.** Una media notturna che include
+// un'ora di Truma non e' un consumo a riposo: e' la media di una notte in cui
+// si e' consumato. Un quinto lascia fuori gli apparecchi che partono e si
+// fermano -- frigo, pompa, stufa -- e tiene quel che c'e' sempre.
+export const PAVIMENTO = 0.2;
+
+const mediana = v => {
+  if (!v.length) return null;
+  const o = [...v].sort((x, y) => x - y);
+  const m = Math.floor(o.length / 2);
+  return o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2;
+};
+
+const percentile = (v, p) => {
+  if (!v.length) return null;
+  const o = [...v].sort((x, y) => x - y);
+  return o[Math.min(o.length - 1, Math.floor(p * o.length))];
+};
+
+// Quanto consuma il camper quando non sta facendo niente.
+//
+// Pura, come `consumoRecente`: riceve le righe di `misure`, non interroga il
+// database.
+//
+// Tre filtri, e ciascuno evita di misurare il consumo **al netto** di qualcosa
+// che lo stava pagando:
+//
+//   1. **Solo di notte**, cioe' dove i pannelli sono scritti e sotto soglia.
+//      Di giorno si misurerebbe il consumo meno il sole.
+//   2. **Senza la Bluetti sul 12 V.** Se la sua uscita a 12 V eroga, parte del
+//      consumo lo paga lei e il pavimento scende sotto il vero. Si accetta la
+//      conseguenza: con la Bluetti accesa spesso il numero puo' mancare per
+//      lunghi periodi, ed e' il comportamento giusto.
+//   3. **Notti abbastanza lunghe**, per avere un pavimento e non un istante.
+//
+// E «notte» vuol dire `pannelli_w` **scritto** e basso. Una riga che manca non
+// e' notte: il Bluetooth perde annunci anche in pieno giorno, e leggerla come
+// notte farebbe entrare ore diurne nel campione. Questo evita anche di dover
+// sapere che ora e' dove sei -- il server gira in UTC e il camper si sposta,
+// e un orologio sbagliato di due ore metterebbe il tramonto nel campione.
+export function consumoARiposo(righe, { a, batterie = [], notti = NOTTI,
+                                        fine = FINE_MINUTI } = {}) {
+  const fineA = new Date(a).getTime();
+  const da = new Date(fineA - notti * 24 * 60 * 60000);
+  const buone = (righe || []).filter(dentroIlLecito);
+  const { fini, letture, fine_minuti } = usciteDelPacco(
+    buone, { da, a, fine, batterie });
+
+  const vuoto = (perche_manca, campioni = letture) =>
+    ({ watt: null, notti: 0, campioni, perche_manca });
+  if (!fini || !fini.length) return vuoto('non ho letture delle batterie in archivio', 0);
+
+  // Il sole e l'uscita a 12 V della Bluetti, intervallo per intervallo. Qui
+  // serve soltanto sapere **se** c'erano e quanto, quindi una media semplice
+  // per apparecchio basta.
+  const lf = fine_minuti * 60000;
+  const t0 = new Date(da).getTime();
+  const sole = new Array(fini.length).fill(null);
+  const dc = new Array(fini.length).fill(null);
+  const conta = { sole: new Array(fini.length).fill(0), dc: new Array(fini.length).fill(0) };
+  for (const r of buone) {
+    const campo = r.grandezza === 'pannelli_w' ? 'sole'
+      : r.grandezza === 'uscita_dc_w' ? 'dc' : null;
+    if (!campo) continue;
+    const v = Number(r.valore);
+    if (!Number.isFinite(v)) continue;
+    const t = new Date(r.quando).getTime();
+    if (!Number.isFinite(t)) continue;
+    const i = Math.floor((t - t0) / lf);
+    if (i < 0 || i >= fini.length) continue;
+    const dove = campo === 'sole' ? sole : dc;
+    dove[i] = (dove[i] || 0) + v;
+    conta[campo][i]++;
+  }
+  const media = (somme, quanti, i) =>
+    (quanti[i] ? somme[i] / quanti[i] : null);
+
+  // Senza nemmeno una lettura dei pannelli non si sa quando era notte, e
+  // questo e' diverso dal non avere notti buone: la ragione va detta giusta,
+  // o si cerca il guasto dove non e'.
+  if (!conta.sole.some(n => n > 0)) {
+    return vuoto('non so quando era notte: in archivio non ci sono letture dei pannelli');
+  }
+
+  // Gli intervalli buoni: notte, senza Bluetti sul 12 V, e col pacco letto.
+  const buono = fini.map((w, i) => {
+    if (w == null) return false;
+    const s = media(sole, conta.sole, i);
+    if (s == null || s > SOLE_SPENTO_W) return false;
+    const d = media(dc, conta.dc, i);
+    return !(d != null && d > 0);
+  });
+
+  // I tratti continui di intervalli buoni, tenuti solo se abbastanza lunghi.
+  const minimo = Math.max(1, Math.round(NOTTE_MINIMA_MINUTI / fine_minuti));
+  const pavimenti = [];
+  let campioniTenuti = 0;
+  for (let i = 0; i < buono.length;) {
+    if (!buono[i]) { i++; continue; }
+    let k = i;
+    while (k < buono.length && buono[k]) k++;
+    if (k - i >= minimo) {
+      const dentro = fini.slice(i, k);
+      pavimenti.push(percentile(dentro, PAVIMENTO));
+      campioniTenuti += dentro.length;
+    }
+    i = k;
+  }
+
+  if (!pavimenti.length) {
+    return vuoto('non ho notti abbastanza lunghe senza sole e senza la Bluetti sul 12 V');
+  }
+
+  // Fra le notti si prende la **mediana** dei pavimenti, non la media: una
+  // notte sola e strana -- una sera di ospiti, un apparecchio dimenticato
+  // acceso -- non deve decidere il numero.
+  return {
+    watt: mediana(pavimenti),
+    notti: pavimenti.length,
+    campioni: campioniTenuti,
+    perche_manca: null,
+  };
+}
