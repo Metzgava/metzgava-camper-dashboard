@@ -71,7 +71,26 @@ main {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 12px;
   padding: calc(10px + var(--sicuro-alto)) 16px 10px;
-  background: linear-gradient(180deg, var(--notte) 70%, transparent);
+  /* Lo sfumato si misura **dal basso**, non in percentuale dell'altezza.
+     Il 21/11/2026 era `var(--notte) 70%`, e quel 70 % e' una percentuale di
+     una scatola che cresce con la tacca di sicurezza:
+
+       Mac    tacca  0  -> alta  54 px, piena fino a 37,8 -> titolo 10..44
+       iPad   tacca 24  -> alta  86 px, piena fino a 60   -> titolo 38..72
+       iPhone tacca 47  -> alta 101 px, piena fino a 70,7 -> titolo 57..91
+
+     Sull'iPhone venti dei trentaquattro pixel del titolo cadevano nella parte
+     che svanisce, col contenuto della pagina che gli scorreva dietro: «la
+     parte alta non resta ben visibile». Piu' grande la tacca, peggio era.
+
+     Misurato dal basso coincide col padding di sotto, quindi il titolo sta
+     **sempre** sul pieno, a qualunque tacca, per costruzione e non per
+     fortuna. E' lo stesso errore dell'iPad - una misura fissa su una scatola
+     che cresce - con un'altra faccia. */
+  background: linear-gradient(180deg, var(--notte) calc(100% - 10px), transparent);
+  /* Senza il prefisso il velo su iOS di qualche anno fa non si applica
+     affatto, e resta il fondo nudo. Safari recenti lo reggono da soli. */
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 .testata img { width: 34px; height: 34px; border-radius: 9px; display: block; }
@@ -84,6 +103,7 @@ main {
   display: flex; justify-content: space-around;
   padding: 6px 4px calc(6px + var(--sicuro-basso));
   background: rgba(16, 28, 43, .92);
+  -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   border-top: 1px solid var(--bordo);
 }

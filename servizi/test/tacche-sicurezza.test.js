@@ -88,3 +88,50 @@ test('le regole di base, quelle del telefono, le usano ancora', () => {
   assert.ok((css.match(/var\(--sicuro-basso\)/g) || []).length >= 4,
     'le tacche di sotto sono meno di prima');
 });
+
+// ---------------------------------------------------------------------------
+// Il fondo dell'intestazione non svanisce sotto il titolo
+// ---------------------------------------------------------------------------
+//
+// Il 21/11/2026, dopo l'iPad: «fai in modo che anche su iphone la parte alta
+// dell'app non sia opaca ma resti ben visibile».
+//
+// Stessa radice del difetto dell'iPad, altra misura. Il fondo era
+// `linear-gradient(180deg, var(--notte) 70%, transparent)`, e quel **70 % e'
+// una percentuale di un'altezza che cresce con la tacca**:
+//
+//   Mac    tacca 0   -> alta  54 px, piena fino a 37,8 -> titolo 10..44
+//   iPad   tacca 24  -> alta  86 px, piena fino a 60   -> titolo 38..72
+//   iPhone tacca 47  -> alta 101 px, piena fino a 70,7 -> titolo 57..91
+//
+// Sull'iPhone venti dei trentaquattro pixel del titolo cadono nella parte che
+// svanisce, col contenuto della pagina che gli scorre dietro. Piu' grande e' la
+// tacca, peggio e'.
+//
+// La cura e' togliere la percentuale: lo sfumato si misura **dal basso**, dove
+// c'e' il padding, e allora e' giusto a qualunque tacca per costruzione.
+
+test('lo sfumato dell’intestazione si misura dal basso, non in percentuale', () => {
+  const blocco = css.slice(css.indexOf('.testata {'), css.indexOf('}', css.indexOf('.testata {')));
+  const sfumato = blocco.match(/linear-gradient\([^)]*?(?:\([^)]*\)[^)]*?)*\)/);
+  assert.ok(sfumato, 'l’intestazione non ha piu’ un fondo sfumato');
+  // Una percentuale **dentro un `calc()`** va benissimo -- `calc(100% - 10px)`
+  // e' proprio la cura -- mentre una percentuale nuda come stop e' il difetto.
+  // Si tolgono i `calc()` e poi si guarda se ne resta una.
+  const senzaCalc = sfumato[0].replace(/calc\([^)]*\)/g, 'X');
+  assert.doesNotMatch(senzaCalc, /\d+%/,
+    'una percentuale dell’altezza scivola sotto il titolo quando la tacca cresce');
+  assert.match(sfumato[0], /100%\s*-/,
+    'lo sfumato deve essere un pezzo fisso misurato dal basso');
+});
+
+test('ogni velo sfocato porta anche la versione con il prefisso di WebKit', () => {
+  // Senza `-webkit-backdrop-filter` il velo su iOS non si applica affatto, e
+  // quel che resta e' il fondo nudo. Safari recenti lo reggono senza prefisso;
+  // quelli di qualche anno fa no, e sono proprio i telefoni che restano in
+  // tasca piu' a lungo.
+  const quanti = s => (css.match(new RegExp(s.replace(/[-]/g, '\\-'), 'g')) || []).length;
+  assert.equal(quanti('-webkit-backdrop-filter'), quanti('backdrop-filter')
+    - quanti('-webkit-backdrop-filter'),
+    'i due elenchi non combaciano: qualche velo non ha il prefisso');
+});
