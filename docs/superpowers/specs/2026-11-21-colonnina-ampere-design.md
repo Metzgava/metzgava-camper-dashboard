@@ -7,9 +7,40 @@ stimati sia di bluetti che di ective da colonnina, ora non si riesce a mettere
 
 ## Perché non si riesce
 
-Non è un campo che rifiuta: **è un campo che non c'è.** L'unico dato della 220
-nell'Impianto è `bluetti_carica_ac_w`, in **watt**, a 1800. Scriverci 4 vuol
-dire quattro watt.
+**Correzione del 21/11/2026, trovata costruendo.** Questo paragrafo diceva:
+«non è un campo che rifiuta, è un campo che non c'è». Era sbagliato, e l'ho
+scoperto solo aprendo `app.js`: il campo **c'è**, nel simulatore «Quanto ci
+vuole a caricarla», prende da 1 a 32 e fa già il minimo fra sé e i 1800 W della
+Bluetti.
+
+La causa vera è il suo comportamento. Il gestore è `oninput`, e a **ogni tasto**
+ricostruisce il riquadro e **sostituisce il nodo** dell'input:
+
+```js
+e.oninput = () => { …; vecchio.replaceWith(nuovo); rimesso.focus(); … }
+```
+
+Per mettere 4 dove c'è 16 bisogna prima cancellare. Al primo backspace il campo
+vale «1», il nodo viene rifatto, il cursore si perde — `setSelectionRange`
+lancia sui campi numerici e l'errore è ingoiato di proposito — e su iPad la
+tastiera se ne va. **Tutti i valori che il proprietario ha nominato (2, 4, 6)
+sono di una cifra sola**, cioè più corti del 16 che c'era: esattamente il caso
+che richiede di cancellare prima.
+
+E il `max="32"` è solo un suggerimento di validazione, non un limite in
+JavaScript: battendo si arriva a 164 A, che prometterebbe una ricarica in un
+quarto d'ora.
+
+La conclusione di questo disegno — un selettore invece di un campo da battere —
+resta giusta, e anzi è la cura esatta: un elenco non ha cursore, non ha tastiera
+e non si può sbagliare di una cifra. Ma il resto del disegno si leggeva come se
+mancasse tutto, e mancava invece una cosa diversa.
+
+**E manca per davvero una cosa**: quel valore vive in `localStorage`, quindi è
+di un apparecchio solo, e i conti del **server** — `ore_colonnina`, e il tempo
+delle Ective che non esiste affatto — non lo vedono. È la metà della richiesta
+che il simulatore non copre: «il calcolo dei tempi di ricarica stimati sia di
+bluetti che di ective da colonnina».
 
 E 1800 W è quel che la Bluetti sa prendere, non quel che la colonnina sa dare.
 In campeggio il limite è quasi sempre la **colonnina**: 4 A sono 920 W, 6 A

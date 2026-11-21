@@ -13,6 +13,7 @@
 import { q } from './db.js';
 import { FERMA_DOPO_MINUTI } from './flusso.js';
 import { consumoRecente, riposoDallArchivio, FINESTRA_MINUTI } from './consumo.js';
+import { limiteDellaPresa } from './colonnina.js';
 
 export async function impianto() {
   const righe = (await q('SELECT chiave, valore, unita, nota, misurato FROM impianto ORDER BY chiave')).rows;
@@ -118,7 +119,7 @@ export function uscitaEctive(righe) {
     .filter(b => b.volt != null && b.ampere != null);
 
   const vuoto = { watt: null, ampere: null, netto: null, carica_pacco: null,
-                  residuo_wh: null, ore: null,
+                  residuo_wh: null, manca_wh: null, ore: null,
                   lette: 0, totali: batterie.length, scarto_minuti: null,
                   per_batteria: [] };
   if (!con.length) return vuoto;
@@ -154,6 +155,13 @@ export function uscitaEctive(righe) {
   const residuo_wh = conCapacita.length
     ? conCapacita.reduce((s, b) => s + b.capacita_ah * (b.carica / 100) * b.volt, 0)
     : null;
+  // E quanti Wh **mancano** per arrivare in cima, che e' il numero da cui si
+  // ricava un tempo di ricarica. Simmetrico a `residuo_wh` e misurato come
+  // lui: capacita' e carica dichiarate dalla batteria, volt letti adesso --
+  // nessun Ah di catalogo e nessun 12,8 nominale.
+  const manca_wh = conCapacita.length
+    ? conCapacita.reduce((s, b) => s + b.capacita_ah * ((100 - b.carica) / 100) * b.volt, 0)
+    : null;
 
   // Quanto distano fra loro i due istanti sommati. `istantanee` tiene
   // l'**ultima** lettura di ciascuna batteria: quella che smette di rispondere
@@ -180,6 +188,7 @@ export function uscitaEctive(righe) {
     netto,
     carica_pacco,
     residuo_wh,
+    manca_wh,
     scarto_minuti,
     // Niente in uscita, nessuna autonomia da dare -- e nemmeno un infinito,
     // che sarebbe falso: finisce appena si accende una luce.
@@ -221,6 +230,10 @@ export async function tuttiIConti(bluetti) {
   const ectiveV = val(m, 'ective_v');
   const rendimento = val(m, 'rendimento_bluetti_ective');
   const fermoW = val(m, 'consumo_fermo_w');
+  // Gli ampere della presa a cui sei attaccato. Non e' un dato fisso del
+  // camper: cambia a ogni piazzola, e per questo si sceglie accanto al tempo
+  // di ricarica invece che nella tabella dei dati fissi.
+  const colonninaA = val(m, 'colonnina_a');
   const scatolettaW = val(m, 'scatoletta_w');
 
   const out = {};
@@ -268,15 +281,36 @@ export async function tuttiIConti(bluetti) {
         });
 
   // ---- tempo da colonnina ----
+  //
+  // Disegno: docs/superpowers/specs/2026-11-21-colonnina-ampere-design.md
+  //
+  // **Il piu' piccolo fra i due limiti**, e si dichiara quale ha vinto. Fino
+  // al 21/11/2026 questo conto usava sempre `bluetti_carica_ac_w` -- 1800 W,
+  // quel che la Bluetti sa prendere -- mentre in campeggio il limite e' quasi
+  // sempre la colonnina: 4 A sono 920 W. Su una presa da 4 A prometteva una
+  // ricarica doppia di quella vera, nella direzione ottimista.
+  const presaBluetti = limiteDellaPresa(acW, colonninaA);
+  const comeDallaPresa = l => `a ${Math.round(l.watt)} W`
+    + (l.chi === 'presa'
+      ? ` — e' la presa da ${colonninaA} A a frenare, non l’apparecchio`
+      : l.presa_w != null
+        ? ` — la presa da ${colonninaA} A ne darebbe ${Math.round(l.presa_w)}, quindi non e’ lei a frenare`
+        : ' dalla presa');
   out.ore_colonnina = mancaWh == null
     ? manca('h', ['carica della Bluetti'], 'Serve la carica letta dal cloud.')
-    : acW == null
+    : presaBluetti.watt == null
       ? manca('h', ['bluetti_carica_ac_w'], 'Non so a quanti watt carica dalla 220.')
-      : conto(mancaWh / acW, 'h', {
+      : conto(mancaWh / presaBluetti.watt, 'h', {
           base: misurato(m, 'bluetti_carica_ac_w', 'bluetti_wh') ? 'misurato' : 'stima',
-          perche: `${mancaWh} Wh da rimettere, a ${acW} W dalla presa`,
-          detto: dilloInOre(mancaWh / acW),
+          perche: `${mancaWh} Wh da rimettere, ${comeDallaPresa(presaBluetti)}`,
+          detto: dilloInOre(mancaWh / presaBluetti.watt),
         });
+  // Chi ha vinto viaggia in un campo suo, non sepolto nella spiegazione: la
+  // pagina lo mostra come avviso, ed e' la sola parte di quel testo che non si
+  // legga gia' nel numero accanto.
+  out.ore_colonnina.chi = presaBluetti.chi;
+  out.ore_colonnina.presa_w = presaBluetti.presa_w;
+
 
   // ---- quante ore di Truma elettrica ci stanno nella Bluetti ----
   //
@@ -646,6 +680,47 @@ export async function tuttiIConti(bluetti) {
   out.tempo_residuo_ective.vecchia = vecchie;
   out.tempo_residuo_ective.finestra_minuti = daMedia ? recente.finestra_minuti : null;
   out.tempo_residuo_ective.in_carica_minuti = daMedia ? recente.in_carica_minuti : null;
+
+  // ---- tempo delle Ective dalla colonnina ----
+  //
+  // Non c'era affatto, e il proprietario lo ha chiesto per primo: «era per il
+  // calcolo dei tempi di ricarica stimati **sia di bluetti che di ective** da
+  // colonnina».
+  //
+  // La potenza di carica delle Ective sono gli ampere del loro caricabatterie
+  // alla tensione del pacco. **Semplificazione dichiarata**: si trascurano le
+  // perdite del caricabatterie, quindi quel che prende dalla 220 e' un po' di
+  // piu' e il limite della presa morde un po' prima di cosi'. L'errore e' nel
+  // verso prudente -- il tempo vero e' uguale o piu' lungo -- e il giorno che
+  // misuriamo quel rendimento il conto si stringe.
+  const ectiveCaricaA = val(m, 'ective_carica_a');
+  const ectiveCaricaW = ectiveCaricaA == null || ectiveV == null
+    ? null : ectiveCaricaA * ectiveV;
+  const presaEctive = limiteDellaPresa(ectiveCaricaW, colonninaA);
+  out.ore_colonnina_ective = u.manca_wh == null
+    ? manca('h', ['capacità e carica delle Ective'],
+        'Le batterie dicono volt e ampere ma non quanto hanno dentro in questo giro.')
+    : u.manca_wh <= 0
+      ? conto(null, 'h', {
+          base: 'incompleto',
+          perche: 'le Ective sono piene: non c’è niente da rimettere',
+          detto: 'piene',
+        })
+      : presaEctive.watt == null
+        ? manca('h', ['ective_carica_a'],
+            'Non so a quanti ampere carica il caricabatterie delle Ective dalla 220. '
+            + 'Mettilo in Impianto e il conto compare.')
+        : conto(u.manca_wh / presaEctive.watt, 'h', {
+            // Mai `misurato`: la potenza del caricabatterie e' un dato di
+            // targa e le perdite sono trascurate. I Wh invece sono misurati.
+            base: 'stima',
+            perche: `${Math.round(u.manca_wh)} Wh da rimettere nelle Ective, `
+              + comeDallaPresa(presaEctive),
+            detto: dilloInOre(u.manca_wh / presaEctive.watt),
+          });
+  out.ore_colonnina_ective.chi = presaEctive.chi;
+  out.ore_colonnina_ective.presa_w = presaEctive.presa_w;
+  out.ore_colonnina_ective.avviso = avviso;
 
   // ---- quanto dura il camper fermo ----
   // ---- quanto dura il camper fermo ----

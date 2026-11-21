@@ -48,7 +48,20 @@ const NOTA_FERMO = 'Ripiego: dal 21/11/2026 il consumo a riposo si misura da se�
 
 const IMPIANTO = [
   ['bluetti_wh', 2764, 'Wh', 'Capacita’ dell’Elite 300. Da catalogo: da correggere se il tuo modello differisce.', false],
-  ['bluetti_carica_ac_w', 1800, 'W', 'Potenza di carica da presa 220 V (colonnina o casa).', false],
+  ['bluetti_carica_ac_w', 1800, 'W', 'Potenza di carica da presa 220 V: quel che la Bluetti sa prendere, non quel che la presa sa dare.', false],
+  // Gli ampere della presa a cui sei attaccato.
+  //
+  // **Sta in questa tabella ma non si mostra fra i dati fissi**, e il perche'
+  // conta: ogni altra riga qui dentro cambia quando cambi un pezzo di camper
+  // -- capacita', Charger, Truma, rendimento dell'inverter. Questa cambia a
+  // **ogni piazzola**. Sarebbe l'unica riga da toccare in viaggio, e metterla
+  // fra i dati fissi vuol dire farsi tre schermate per cambiare un numero che
+  // si legge sul palo mentre si attacca il cavo.
+  //
+  // Quindi si scegle accanto al tempo di ricarica, dove si usa. In archivio
+  // sta qui perche' deve essere la stessa sull'iPad e sul telefono: in
+  // `localStorage` sarebbe di un apparecchio solo.
+  ['colonnina_a', null, 'A', 'Ampere della presa a cui sei attaccato. Si sceglie in «Quanto ci vuole a caricarla», non qui: cambia a ogni piazzola.', false],
   ['charger_w', 700, 'W', NOTA_CHARGER, true],
   ['ective_ah', 190, 'Ah', 'Capacita’ totale delle due Ective (95 + 95). Letta dalle batterie stesse.', true],
   ['ective_v', 12.8, 'V', 'Tensione nominale del pacco LiFePO4, per passare da Ah a Wh.', true],

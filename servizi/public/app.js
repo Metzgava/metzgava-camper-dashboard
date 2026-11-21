@@ -1002,6 +1002,15 @@ function dilloInOre(ore) {
 // 8 A, se la Bluetti ne accetta al massimo 1800 W. **Il limite e' il piu'
 // piccolo dei due**, e questo va detto, non nascosto dentro il risultato.
 const RETE_V = 230;
+
+// Le taglie di presa fra cui si scegle.
+//
+// **La fonte e' `src/lib/colonnina.js`**, dove c'e' anche il perche'. Qui si
+// duplica perche' `app.js` e' servito statico e non puo' importare da
+// `src/lib`; una prova (`colonnina-pagina.test.js`) tiene i due elenchi
+// uguali, perche' un elenco che vive in due posti con due valori diversi e' il
+// modo di far dire a due parti della pagina cose contrarie.
+const TAGLIE_A = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 25, 32];
 const leggiCalc = () => { try { return JSON.parse(localStorage.getItem('calc') || '{}'); } catch { return {}; } };
 const scriviCalc = o => { try { localStorage.setItem('calc', JSON.stringify(o)); } catch { /* finestra privata */ } };
 
@@ -1011,7 +1020,11 @@ function calcolo() {
   const c = leggiCalc();
   const da = c.da != null ? c.da : (b?.carica != null ? Math.round(b.carica) : 30);
   const a = c.a != null ? c.a : 100;
-  const ampere = c.ampere != null ? c.ampere : 16;
+  // Gli ampere stanno nell'**impianto**, non in `localStorage`: devono essere
+  // gli stessi sull'iPad e sul telefono, e li devono vedere anche i conti del
+  // server -- `ore_colonnina` e il tempo delle Ective. In `localStorage`
+  // sarebbero di un apparecchio solo e il server non li vedrebbe affatto.
+  const ampere = imp.colonnina_a?.valore ?? 16;
 
   const capacita = imp.bluetti_wh?.valore ?? null;
   const mancaWh = capacita == null ? null : Math.max(0, capacita * (a - da) / 100);
@@ -1064,9 +1077,12 @@ function calcolo() {
     ${righe}
     <div class="riga">
       <div class="cresci"><div class="eti">Quanti ampere d\u00e0 la colonnina</div>
-        <div class="perche">Le colonnine dichiarano gli ampere: 6, 8, 16. I watt sono quelli per ${RETE_V} V.</div></div>
-      <div style="flex:none"><input type="number" id="c-a-amp" min="1" max="32" step="1" value="${ampere}" style="width:92px"></div>
+        <div class="perche">Si scegle, non si batte: le prese esistono in taglie, e un ampere e mezzo non esiste. I watt sono quelli per ${RETE_V} V.</div></div>
+      <div style="flex:none"><select id="c-a-amp" style="width:96px;font-size:17px;font-weight:650;text-align:center">${
+        TAGLIE_A.map(a => `<option value="${a}"${a === Number(ampere) ? ' selected' : ''}>${a} A</option>`).join('')
+      }</select></div>
     </div>
+    <div class="nota">La presa \u00e8 <b>un piatto solo</b>: se carichi Bluetti ed Ective insieme, quei watt <b>si dividono</b>, non raddoppiano. E la Truma elettrica mangia dallo stesso piatto \u2014 1800 W di resistenza su una presa da 6 A non lasciano niente per caricare.</div>
   </div>`;
 }
 
@@ -1090,6 +1106,15 @@ function vistaEnergia() {
     <div class="scheda">
       ${rigaConto('Bluetti, col consumo di adesso', c.tempo_residuo_bluetti)}
       ${rigaConto('Ective, quanto durano', c.tempo_residuo_ective)}
+    </div>
+    <div class="titolo">Dalla colonnina</div>
+    <div class="scheda">
+      ${rigaConto('Bluetti, alla piena', c.ore_colonnina)}
+      ${rigaConto('Ective, alla piena', c.ore_colonnina_ective)}
+      ${[c.ore_colonnina, c.ore_colonnina_ective].some(x => x?.chi === 'presa')
+        ? `<div class="perche" style="margin-top:8px;color:var(--ambra)">\u00c8 <b>la presa</b> a frenare, non l\u2019apparecchio: un apparecchio pi\u00f9 veloce non cambierebbe niente, una piazzola con pi\u00f9 ampere s\u00ec.</div>`
+        : ''}
+      <div class="nota" style="margin-top:8px">Gli ampere della presa si scelgono qui sopra, in <b>Quanto ci vuole a caricarla</b>: cambiano a ogni piazzola, e per questo non stanno fra i dati fissi dell\u2019Impianto.</div>
     </div>
     <div class="titolo">Quanta Truma elettrica ci sta</div>
     <div class="scheda">
@@ -1340,7 +1365,12 @@ async function bloccoTaratura() {
 
 async function vistaImpianto() {
   const d = await api('/impianto');
-  const righe = (d.righe || []).map(r => `<div class="riga">
+  // `colonnina_a` **non** sta fra i dati fissi, di proposito: ogni altra riga
+  // qui cambia quando cambi un pezzo di camper, quella cambia a ogni piazzola.
+  // Si scegle in «Quanto ci vuole a caricarla», dove si usa e dove si legge il
+  // risultato. In archivio sta nella stessa tabella perche' deve essere la
+  // stessa sull'iPad e sul telefono.
+  const righe = (d.righe || []).filter(r => r.chiave !== 'colonnina_a').map(r => `<div class="riga">
       <div class="cresci">
         <div>${esc(etichetta(r.chiave))} ${bollo(r.misurato ? 'misurato' : r.valore == null ? 'incompleto' : 'stima')}</div>
         <div class="perche">${esc(r.nota || '')}</div>
@@ -1535,7 +1565,17 @@ function aggancia() {
       : 'Richiesta accettata, ma il cloud non manda ancora valori');
   });
 
-  for (const id of ['c-da', 'c-a', 'c-a-amp']) {
+  // Gli ampere sono un **elenco**, quindi un evento discreto: si salvano
+  // nell'impianto e si ridisegna la pagina, cosi' si aggiornano anche i conti
+  // del server. Niente `oninput`: era proprio il ricostruire a ogni tasto che
+  // impediva di mettere un numero di una cifra sola dove ce n'era uno di due.
+  const amp = $('#c-a-amp');
+  if (amp) amp.onchange = sicuro(async () => {
+    await api('/impianto/colonnina_a', { method: 'PUT', body: { valore: amp.value } });
+    await disegna();
+  });
+
+  for (const id of ['c-da', 'c-a']) {
     const e = document.getElementById(id);
     if (!e) continue;
     // Si ricalcola mentre scrive, ma solo il riquadro: ridisegnare tutta la
@@ -1543,7 +1583,7 @@ function aggancia() {
     e.oninput = () => {
       const c = leggiCalc();
       const v = e.value === '' ? null : Number(e.value);
-      if (id === 'c-da') c.da = v; else if (id === 'c-a') c.a = v; else c.ampere = v;
+      if (id === 'c-da') c.da = v; else c.a = v;
       scriviCalc(c);
       const vecchio = e.closest('.scheda');
       const nuovo = document.createRange().createContextualFragment(calcolo()).firstElementChild;
