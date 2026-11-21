@@ -31,12 +31,23 @@ const dove = { a: A, batterie: BATT };
 // c'e' **sempre**, anche di notte a zero: e' cosi' che lo scrive agente.py, e
 // la differenza fra uno zero scritto e una riga che manca e' tutto quel che
 // distingue «era notte» da «non lo so».
-const tratto = (daMin, aMin, { esce, sole = 0, bluettiDc = null, pannelli = true }) => {
+//
+// L'uscita a 12 V della Bluetti c'e' anch'essa, e **ogni quindici minuti**:
+// e' il passo vero del suo cloud, non quello della scatoletta. Dal 21/11/2026
+// un intervallo in cui non si sa cosa facesse la Bluetti non e' una notte a
+// riposo -- un'assenza non e' uno zero -- quindi un fissaggio che pretende di
+// essere una notte tranquilla lo deve dire.
+const tratto = (daMin, aMin, { esce, sole = 0, bluettiDc = 0,
+                               pannelli = true, bluetti = true }) => {
   const fuori = [];
   for (let m = daMin; m > aMin; m -= 2) {
     for (const b of BATT) fuori.push(riga(m, b, 'watt', -esce / BATT.length));
     if (pannelli) fuori.push(riga(m, 'SmartSolar', 'pannelli_w', sole));
-    if (bluettiDc != null) fuori.push(riga(m, 'EL300', 'uscita_dc_w', bluettiDc));
+  }
+  if (bluetti) {
+    for (let m = daMin; m > aMin; m -= 15) {
+      fuori.push(riga(m, 'EL300', 'uscita_dc_w', bluettiDc));
+    }
   }
   return fuori;
 };
@@ -115,4 +126,63 @@ test('senza righe il numero non si da’', () => {
   const r = consumoARiposo([], dove);
   assert.equal(r.watt, null);
   assert.ok(r.perche_manca);
+});
+
+// ---------------------------------------------------------------------------
+// Le notti in cui qualcuno stava CARICANDO
+// ---------------------------------------------------------------------------
+//
+// Difetto trovato in revisione, il 21/11/2026, e il buco era nel disegno prima
+// che nel codice: il disegno elencava le fonti invisibili -- il sole, la
+// Bluetti sul 12 V, il rele' separatore di fabbrica -- e si e' dimenticato
+// **la piu' comune di tutte, il caricabatterie della 220**.
+//
+// In quegli intervalli il netto e' negativo, il taglio lo porta a zero, e il
+// percentile del pavimento prende proprio i piu' bassi: basta che il pacco
+// carichi per piu' di un quinto della notte perche' il pavimento di quella
+// notte sia **zero watt**. E un consumo a riposo di zero, in fondo alla
+// catena, diventa una durata infinita.
+//
+// E' lo stesso principio del sole («non misurare il consumo al netto di
+// qualcosa che lo stava pagando») applicato a tutte le fonti tranne quella che
+// in piazzola c'e' sempre.
+
+test('una notte con un’ora di colonnina non abbassa il pavimento a zero', () => {
+  // Notte di quattro ore a 25 W, con un'ora attaccati alla colonnina.
+  const conCarica = [
+    ...notte(0, 25),
+    ...tratto(660, 600, { esce: -400, sole: 0 }),   // un'ora in carica
+  ];
+  const r = consumoARiposo(conCarica, dove);
+  assert.ok(r.watt > 15, `watt = ${r.watt}`);
+});
+
+test('una notte tutta in carica non e’ una notte a riposo', () => {
+  // Non c'e' niente da misurare: il consumo del camper lo stava pagando il
+  // caricabatterie. Meglio nessun numero che uno zero.
+  const r = consumoARiposo(notte(0, -400), dove);
+  assert.equal(r.watt, null);
+  assert.ok(r.perche_manca);
+});
+
+test('l’assenza di letture dell’uscita 12 V della Bluetti NON e’ uno zero', () => {
+  // Il disegno legifera questa regola per i pannelli -- «una lettura assente
+  // non e' una lettura a zero» -- e il codice la rispettava per il sole e la
+  // rovesciava per la Bluetti. Che e' l'apparecchio le cui letture mancano
+  // piu' spesso: `bluetti.js` non archivia le letture di ripiego, cioe'
+  // proprio quelle dei momenti in cui il cloud rifiuta.
+  const r = consumoARiposo(notte(0, 12, { bluetti: false }), dove);
+  assert.equal(r.watt, null);
+  assert.match(r.perche_manca, /12 V|Bluetti/);
+});
+
+test('le letture della Bluetti valgono per il loro passo, non solo per il loro istante', () => {
+  // Il cloud scrive ogni quindici minuti e gli intervalli sono da cinque:
+  // senza riportare avanti l'ultima lettura, due intervalli su tre
+  // resterebbero «non so» e nessuna notte sarebbe mai abbastanza lunga.
+  // Il fissaggio normale scrive l'uscita 12 V ogni quindici minuti, come il
+  // cloud: se la lettura non valesse per il suo passo, due intervalli su tre
+  // sarebbero «non so» e questa notte non sarebbe abbastanza lunga.
+  const r = consumoARiposo(notte(0, 12), dove);
+  assert.ok(Math.abs(r.watt - 12) < 1.5, `watt = ${r.watt}`);
 });

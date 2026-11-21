@@ -401,7 +401,7 @@ function vistaAdesso() {
         <div class="valore">${quanto} ${bollo(e.base || 'incompleto')}</div>
       </div>
       <div class="riga">
-        <div class="cresci"><div class="eti">Col consumo di adesso</div>
+        <div class="cresci"><div class="eti">Quanto durano</div>
           <div class="perche">${esc(t.perche || '')}</div></div>
         <div class="valore">${t.detto ? esc(t.detto) : '<span class="vuoto">\u2014</span>'} ${bollo(t.base || 'incompleto')}</div>
       </div>
@@ -415,7 +415,7 @@ function vistaAdesso() {
         ${quadrante(vere[1], 1)}
       </div>
       ${vere.length ? uscita() : `<div class="riga" style="margin-top:8px">
-        <div class="cresci"><div class="eti">Col consumo di adesso</div>
+        <div class="cresci"><div class="eti">Quanto durano</div>
           <div class="perche">${esc(dati.conti?.tempo_residuo_ective?.perche || '')}</div></div>
         <div class="valore"><span class="vuoto">—</span></div>
       </div>
@@ -1047,7 +1047,7 @@ function vistaEnergia() {
     <div class="titolo">Quanto manca allo scarico</div>
     <div class="scheda">
       ${rigaConto('Bluetti, col consumo di adesso', c.tempo_residuo_bluetti)}
-      ${rigaConto('Ective, col consumo di adesso', c.tempo_residuo_ective)}
+      ${rigaConto('Ective, quanto durano', c.tempo_residuo_ective)}
     </div>
     <div class="titolo">Quanta Truma elettrica ci sta</div>
     <div class="scheda">

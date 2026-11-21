@@ -604,11 +604,19 @@ export async function tuttiIConti(bluetti) {
   // stata in carica: a mezzogiorno col sole la media e' quasi nulla e
   // l'autonomia sembra di settimane -- vero come media, ingannevole come
   // promessa. Il numero non si cambia, si dice da dove viene.
+  // La spiegazione deve dire **su cosa** e' fatta la media, e da quando il
+  // divisore sono i soli intervalli di scarica non si puo' piu' dire «media
+  // delle ultime due ore» se la scarica e' durata dieci minuti: sarebbe una
+  // spiegazione che non corrisponde al conto. Quando la finestra e' stata
+  // tutta di scarica -- il caso normale di notte -- la forma corta e' giusta
+  // e si usa quella, perche' la lunga direbbe due volte la stessa cosa.
+  const tuttaScarica = recente.in_carica_minuti === 0;
   const comeCalcolato = daMedia
-    ? `${Math.round(consumoPerLaDurata)} W di consumo medio delle ultime `
-      + `${dilloInOre(recente.finestra_minuti / 60)}`
-      + (recente.in_carica_minuti > 0
-        ? `, di cui ${dilloInOre(recente.in_carica_minuti / 60)} in carica` : '')
+    ? `${Math.round(consumoPerLaDurata)} W di consumo medio `
+      + (tuttaScarica
+        ? `delle ultime ${dilloInOre(recente.finestra_minuti / 60)}`
+        : `nei ${dilloInOre(recente.in_scarica_minuti / 60)} di scarica `
+          + `delle ultime ${dilloInOre(recente.finestra_minuti / 60)}`)
     : `${Math.round(consumoPerLaDurata)} W di consumo in questo momento `
       + '\u2014 non ho abbastanza letture recenti per una media';
 
@@ -681,8 +689,14 @@ export async function tuttiIConti(bluetti) {
       + `(${out.carica_residua.valore} Wh scontati del rendimento stimato ${virgola(rendimento, 2)})`);
   }
 
-  out.giorni_fermo_bluetti = !pezzi.length || consumoFermo == null
-    ? manca('giorni', [...mancaFermo, ...(consumoFermo == null ? ['consumo_fermo_w'] : [])],
+  // La guardia e' `> 0`, non `!= null`: uno **zero** non e' un consumo, e
+  // dividere per zero mandava in pagina la stringa «Infinity giorni» sulla
+  // riga di una durata -- l'errore ottimista nella sua forma piu' pura. Via
+  // JSON quel valore diventa `null`, quindi nemmeno il ripiego `—` salvava la
+  // riga: `rigaConto` stampa `detto`, e `detto` diceva «Infinity giorni».
+  // Trovato in revisione il 21/11/2026.
+  out.giorni_fermo_bluetti = !pezzi.length || !(consumoFermo > 0)
+    ? manca('giorni', [...mancaFermo, ...(consumoFermo > 0 ? [] : ['consumo_fermo_w'])],
         'Serve il consumo a riposo e almeno una delle due energie di bordo.')
     : conto(whBordo / consumoFermo / 24, 'giorni', {
         // **Stima, non misurato**, e vale la pena dire perche'. Dentro c'e'

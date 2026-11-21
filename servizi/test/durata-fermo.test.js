@@ -45,6 +45,9 @@ const notti = (quante, esce) => {
       const quando = new Date(Date.now() - m * 60000);
       for (const b of EC) fuori.push({ quando, apparecchio: b, grandezza: 'watt', valore: -esce / EC.length });
       fuori.push({ quando, apparecchio: 'SmartSolar', grandezza: 'pannelli_w', valore: 0 });
+      // E l'uscita 12 V della Bluetti a zero, ogni quindici minuti come il suo
+      // cloud: senza saperlo, quella notte non e' una notte a riposo.
+      if (m % 15 === 0) fuori.push({ quando, apparecchio: 'EL300', grandezza: 'uscita_dc_w', valore: 0 });
     }
   }
   return fuori;
@@ -122,4 +125,23 @@ test('senza nessuna delle due energie non si da’ un numero', async () => {
   const c = await conti([], { storico: [], impianto: soloConsumo, bluetti: null });
   assert.equal(c.giorni_fermo_bluetti.valore, null);
   assert.ok(c.giorni_fermo_bluetti.mancano.length > 0);
+});
+
+test('un consumo a riposo di zero non diventa «Infinity giorni»', () => {
+  // Difetto trovato in revisione: la guardia era `consumoFermo == null`, e uno
+  // zero non e' `null`. Il conto faceva `whBordo / 0 / 24` → Infinity, e
+  // `rigaConto` stampa `detto` quando e' corto: in pagina si leggeva la
+  // stringa **«Infinity giorni»** sulla riga di una durata. Via JSON il campo
+  // `valore` diventava `null`, quindi nemmeno il ripiego `—` salvava la riga.
+  //
+  // Serve anche adesso che il pavimento non puo' piu' venire zero dalle notti
+  // in carica: un consumo a riposo di zero non e' un consumo, da qualunque
+  // parte arrivi.
+  const conZero = IMPIANTO.map(r => r.chiave === 'consumo_fermo_w'
+    ? { ...r, valore: 0 } : r);
+  return conti(ective(), { storico: [], impianto: conZero }).then(c => {
+    assert.notEqual(c.giorni_fermo_bluetti.valore, Infinity);
+    assert.equal(c.giorni_fermo_bluetti.valore, null);
+    assert.ok(c.giorni_fermo_bluetti.mancano.includes('consumo_fermo_w'));
+  });
 });

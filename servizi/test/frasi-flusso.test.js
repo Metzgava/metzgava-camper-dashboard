@@ -76,3 +76,29 @@ test('a figura ferma la frase non si dice al presente', () => {
   assert.match(vistaFlusso.slice(da, da + 2000), /f\.ferma/,
     'la frase dello stato non tiene conto di «ferma»');
 });
+
+test('nessuna etichetta dice piu’ «col consumo di adesso»', () => {
+  // Trovato in revisione. Dal 21/11/2026 l'autonomia viene da una media di
+  // due ore, non dall'istante: l'etichetta era rimasta quella di prima. E'
+  // la stessa bugia d'etichetta che lo stesso lavoro ha corretto rinominando
+  // «Il camper sulla Bluetti» in «Su tutta l'energia di bordo» -- qui era
+  // sopravvissuta.
+  //
+  // Conta perche' quel numero sta **accanto** a «Esce adesso»: chi legge
+  // «col consumo di adesso: 7 giorni» di fianco a «esce adesso: 150 W» non
+  // ha modo di capire che i due non parlano dello stesso momento. Ed e'
+  // proprio una coppia di numeri sulla stessa schermata che il 21/11 ha fatto
+  // trovare il difetto originale.
+  // Restano le due della **Bluetti**, e sono vere: la sua durata e' ancora
+  // l'istante, di proposito -- il cloud da' una lettura ogni quindici minuti
+  // e di ripiego non ne archivia nessuna, quindi su due ore sarebbero otto
+  // campioni nel caso buono e zero quando rifiuta.
+  assert.doesNotMatch(app, /col consumo di adesso', c\.tempo_residuo_ective/);
+  assert.equal((app.match(/consumo di adesso/g) || []).length, 2,
+    'le etichette «consumo di adesso» devono essere due, e tutte e due della Bluetti');
+  for (const m of app.matchAll(/consumo di adesso/g)) {
+    const intorno = app.slice(Math.max(0, m.index - 200), m.index + 200);
+    assert.match(intorno, /bluetti/i,
+      'un’etichetta «consumo di adesso» non e’ della Bluetti');
+  }
+});

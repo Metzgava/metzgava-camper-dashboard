@@ -136,12 +136,23 @@ test('la durata usa la media, non l’istante', async () => {
   assert.match(c.tempo_residuo_ective.perche, /consumo medio/);
 });
 
-test('la frase dice la finestra E quanto se n’e’ stata in carica', async () => {
-  // Senza questo, a mezzogiorno col sole la media e' quasi nulla e
-  // l'autonomia sembra di settimane -- vero come media, ingannevole come
-  // promessa. Il numero non si cambia: si dice da dove viene.
+test('la frase dice su QUANTA scarica e’ fatta la media, e su quale finestra', async () => {
+  // Cambiata in revisione insieme al divisore: da quando la media si fa sui
+  // soli intervalli di scarica, dire «media delle ultime due ore» quando la
+  // scarica e' durata un'ora sarebbe una spiegazione che non corrisponde al
+  // conto. E senza questo, a mezzogiorno col sole il numero sembrerebbe
+  // riferito a tutta la finestra.
   const c = await conti(istantanee(-6, -4), { storico: storicoMezzoEMezzo(30) });
-  assert.match(c.tempo_residuo_ective.perche, /in carica/);
+  assert.match(c.tempo_residuo_ective.perche, /di scarica/);
+  assert.match(c.tempo_residuo_ective.perche, /delle ultime/);
+});
+
+test('a finestra tutta in scarica la frase resta corta', async () => {
+  // Il caso normale di notte: dire «nei 2 h di scarica delle ultime 2 h»
+  // sarebbe dire due volte la stessa cosa.
+  const c = await conti(istantanee(-6, -4), { storico: storicoPacco(20) });
+  assert.doesNotMatch(c.tempo_residuo_ective.perche, /di scarica/);
+  assert.match(c.tempo_residuo_ective.perche, /delle ultime/);
 });
 
 test('senza media si ricade sull’istante, e lo si DICE', async () => {

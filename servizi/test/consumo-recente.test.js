@@ -63,15 +63,47 @@ test('la media tiene solo quel che esce, e lo tiene PRIMA di mediare', () => {
   // grafici della Storia, dove novanta giorni davano 0,35 kWh e trenta 5,44:
   // la scarica della notte si annullava con la carica del giorno.
   const r = consumoRecente(mezzaEMezza(30), finestra(60));
-  assert.ok(Math.abs(r.watt - 15) < 0.5, `watt = ${r.watt}`);
+  assert.ok(r.watt > 0, `watt = ${r.watt}`);
 });
 
-test('si divide per la finestra intera, non per i soli intervalli in scarica', () => {
-  // Quindici e non trenta. E' un fattore due, e sbagliarlo va nel verso
-  // ottimista: un'autonomia doppia. «Quanto duro» vuol dire *a che velocita'
-  // ho perso carica*, e in un'ora ne ho persa mezz'ora a trenta watt.
+test('la media si fa sui soli intervalli in cui il pacco si stava SCARICANDO', () => {
+  // Cambiata in revisione, il 21/11/2026, e cambiata contro quel che il
+  // disegno aveva scelto. Il disegno divideva per la **finestra intera** e
+  // dava 15 W su questa giornata, con la cura di dirlo nella spiegazione.
+  //
+  // Ma il vincolo globale dice: «mai una durata piu' lunga del vero; fra due
+  // conti plausibili si prende quello che non promette ore che non ci
+  // sono» -- e qui i conti plausibili sono due. Una revisione ha misurato il
+  // costo: con due ore di finestra di cui un'ora e cinquanta in carica, la
+  // durata usciva 159 ore dove la verita' era tredici. **Fattore dodici.**
+  // E ogni sera di sole la finestra ne contiene una di carica, quindi la
+  // durata usciva circa il doppio del vero.
+  //
+  // Dividere per i soli intervalli di scarica non perde niente di quel che la
+  // media era nata a proteggere: la punta del frigo sta in una finestra tutta
+  // in scarica, quindi i due conti coincidono. Si distinguono soltanto dove
+  // la media sulla finestra intera era ingannevole.
   const r = consumoRecente(mezzaEMezza(30), finestra(60));
-  assert.ok(r.watt < 20, `watt = ${r.watt}`);
+  assert.ok(Math.abs(r.watt - 30) < 0.5, `watt = ${r.watt}`);
+});
+
+test('una punta del frigo non fa crollare la media: e’ per questo che esiste', () => {
+  // La ragione originale del lavoro, e deve restare vera dopo il cambio del
+  // divisore. Finestra tutta in scarica: cinque minuti a 400 W e il resto a
+  // 20. La media sta vicino a venti, non a quattrocento.
+  const fuori = [];
+  for (let m = 59; m >= 1; m -= 2) fuori.push(...letture(m, m > 54 ? 400 : 20));
+  const r = consumoRecente(fuori, finestra(60));
+  assert.ok(r.watt < 100, `watt = ${r.watt}`);
+});
+
+test('una finestra tutta in carica non da’ una media', () => {
+  // Non c'e' una velocita' di svuotamento da misurare. Chi la usa ricade
+  // sull'istante **e lo dice**, invece di promettere settimane.
+  const fuori = [];
+  for (let m = 59; m >= 1; m -= 2) fuori.push(...letture(m, -30));
+  const r = consumoRecente(fuori, finestra(60));
+  assert.equal(r.watt, null);
 });
 
 test('la frase puo’ dire quanto della finestra era in carica', () => {

@@ -88,25 +88,51 @@ export function consumoRecente(righe, { da, a, batterie = [],
   if (!fini || !fini.length) return vuoto;
 
   // Gli intervalli **pieni**: quelli in cui tutte le batterie hanno parlato.
-  // Un intervallo in cui il pacco stava caricando vale **zero**, non niente:
-  // e' uno zero conosciuto, ed e' il modo in cui la media resta quella della
-  // finestra intera invece di diventare quella dei soli momenti di scarica --
-  // che sarebbe lo stesso numero raddoppiato.
+  // La copertura si misura su questi, perche' una finestra con un buco non e'
+  // affidabile qualunque cosa ci fosse dentro.
   const pieni = fini.filter(v => v != null);
   const copertura = pieni.length / fini.length;
+
+  // **Si media sui soli intervalli in cui il pacco si stava scaricando.**
+  //
+  // Il disegno aveva scelto il contrario -- dividere per la finestra intera,
+  // contando gli intervalli di carica come zero -- con la cura di dirlo nella
+  // spiegazione. Una revisione del 21/11/2026 ha misurato quanto costava:
+  // due ore di finestra con un'ora e cinquanta in carica davano **159 ore**
+  // di autonomia dove la verita' era tredici, e ogni sera di sole la finestra
+  // ne conteneva una di carica, quindi la durata usciva circa il doppio del
+  // vero. Il vincolo della casa e' esplicito: mai una durata piu' lunga del
+  // vero, e fra due conti plausibili si prende quello che non promette ore
+  // che non ci sono.
+  //
+  // E non si perde niente di quel che la media era nata a proteggere: la
+  // punta del compressore del frigo sta dentro una finestra **tutta in
+  // scarica**, quindi i due conti coincidono. Si distinguono soltanto dove la
+  // media sulla finestra intera era ingannevole.
+  //
+  // Quando la finestra era tutta in carica non c'e' una velocita' di
+  // svuotamento da misurare: non si da' un numero, e chi lo usa ricade
+  // sull'istante dichiarandolo.
+  const scarichi = fini.filter(v => v != null && v > 0);
   // In carica vuol dire netto negativo, non «niente in uscita»: il taglio a
   // zero rende identici un pacco che carica e un pacco in equilibrio, e la
   // frase in pagina dice «di cui un'ora in carica».
   const in_carica_minuti = netti.filter(v => v != null && v < 0).length * fine_minuti;
+  // Quanto della finestra e' stato davvero di scarica: e' il **divisore**
+  // della media, quindi la frase in pagina deve poterlo dire. Dire «media
+  // delle ultime due ore» quando la media e' su dieci minuti di scarica
+  // sarebbe una spiegazione che non corrisponde al conto.
+  const in_scarica_minuti = scarichi.length * fine_minuti;
 
   const abbastanza = letture >= CAMPIONI_MINIMI && copertura >= COPERTURA_MINIMA;
   return {
-    watt: abbastanza && pieni.length
-      ? pieni.reduce((s, v) => s + v, 0) / pieni.length
+    watt: abbastanza && scarichi.length
+      ? scarichi.reduce((s, v) => s + v, 0) / scarichi.length
       : null,
     campioni: letture,
     copertura,
     in_carica_minuti,
+    in_scarica_minuti,
     finestra_minuti,
   };
 }
@@ -180,7 +206,7 @@ export function consumoARiposo(righe, { a, batterie = [], notti = NOTTI,
   const fineA = new Date(a).getTime();
   const da = new Date(fineA - notti * 24 * 60 * 60000);
   const buone = (righe || []).filter(dentroIlLecito);
-  const { fini, letture, fine_minuti } = usciteDelPacco(
+  const { netti, fini, letture, fine_minuti } = usciteDelPacco(
     buone, { da, a, fine, batterie });
 
   const vuoto = (perche_manca, campioni = letture) =>
@@ -219,13 +245,38 @@ export function consumoARiposo(righe, { a, batterie = [], notti = NOTTI,
     return vuoto('non so quando era notte: in archivio non ci sono letture dei pannelli');
   }
 
-  // Gli intervalli buoni: notte, senza Bluetti sul 12 V, e col pacco letto.
+  // L'ultima lettura nota dell'uscita 12 V della Bluetti, riportata avanti
+  // per il suo passo.
+  //
+  // **Un'assenza non e' uno zero**, e questa e' la regola che il disegno
+  // scrive per i pannelli e che qui era rovesciata. La Bluetti e'
+  // l'apparecchio le cui letture mancano piu' spesso: `bluetti.js` non
+  // archivia quelle di ripiego, cioe' proprio quelle dei momenti in cui il
+  // cloud rifiuta -- e una notte col frigo pagato dalla Bluetti e il cloud
+  // muto veniva tenuta, col pavimento misurato **al netto** della Bluetti.
+  //
+  // Ma non si puo' nemmeno pretendere una riga per intervallo: il cloud scrive
+  // ogni quindici minuti e gli intervalli sono da cinque, quindi due su tre
+  // non ce l'avrebbero e nessuna notte sarebbe mai abbastanza lunga. Una
+  // lettura vale per il suo passo, con un po' di margine; oltre, e' «non so».
+  const PASSO_BLUETTI = Math.ceil(20 / fine_minuti);
+  const dcNoto = new Array(fini.length).fill(null);
+  for (let i = 0, eta = Infinity, ultimo = null; i < fini.length; i++) {
+    const d = media(dc, conta.dc, i);
+    if (d != null) { ultimo = d; eta = 0; } else { eta++; }
+    dcNoto[i] = eta <= PASSO_BLUETTI ? ultimo : null;
+  }
+
+  // Gli intervalli di **notte**: buio sui pannelli, uscita 12 V della Bluetti
+  // nota e a zero, pacco letto. Sono questi a definire quanto dura una notte;
+  // se il pacco stava caricando la notte resta notte -- si vedra' piu' sotto.
+  let senzaBluetti = 0;
   const buono = fini.map((w, i) => {
     if (w == null) return false;
     const s = media(sole, conta.sole, i);
     if (s == null || s > SOLE_SPENTO_W) return false;
-    const d = media(dc, conta.dc, i);
-    return !(d != null && d > 0);
+    if (dcNoto[i] == null) { senzaBluetti++; return false; }
+    return dcNoto[i] <= 0;
   });
 
   // I tratti continui di intervalli buoni, tenuti solo se abbastanza lunghi.
@@ -237,15 +288,44 @@ export function consumoARiposo(righe, { a, batterie = [], notti = NOTTI,
     let k = i;
     while (k < buono.length && buono[k]) k++;
     if (k - i >= minimo) {
-      const dentro = fini.slice(i, k);
-      pavimenti.push(percentile(dentro, PAVIMENTO));
-      campioniTenuti += dentro.length;
+      // **Solo gli intervalli in cui il pacco si stava davvero scaricando.**
+      //
+      // E' il difetto Critico trovato in revisione il 21/11/2026, e il buco
+      // stava nel disegno prima che nel codice: elencava le fonti invisibili
+      // -- il sole, la Bluetti sul 12 V, il rele' separatore di fabbrica --
+      // e si dimenticava **la piu' comune di tutte, il caricabatterie della
+      // 220**. Il travaso dalla Bluetti passa per la sua uscita in alternata,
+      // quindi nemmeno il filtro del 12 V lo vedeva.
+      //
+      // In quegli intervalli il netto e' negativo, il taglio lo porta a zero,
+      // e il percentile del pavimento prende proprio i piu' bassi: bastava
+      // caricare per piu' di un quinto della notte perche' il pavimento fosse
+      // **zero watt**. Camper in piazzola attaccato alla colonnina per una
+      // settimana -- cioe' la situazione da cui tutto questo e' nato -- e
+      // tutte le notti avevano pavimento zero.
+      //
+      // La notte resta notte: quel che si scarta sono gli intervalli, non il
+      // tratto, altrimenti un'ora di carica in mezzo spezzerebbe una notte
+      // buona in due pezzi troppo corti.
+      const dentro = [];
+      for (let j = i; j < k; j++) if (netti[j] > 0) dentro.push(fini[j]);
+      if (dentro.length) {
+        pavimenti.push(percentile(dentro, PAVIMENTO));
+        campioniTenuti += dentro.length;
+      }
     }
     i = k;
   }
 
   if (!pavimenti.length) {
-    return vuoto('non ho notti abbastanza lunghe senza sole e senza la Bluetti sul 12 V');
+    // Due ragioni diverse, e dirle giuste evita di far cercare il guasto dove
+    // non e'. Se gli intervalli notturni sono caduti perche' non sapevamo che
+    // cosa facesse la Bluetti, e' quello che va detto.
+    return vuoto(senzaBluetti > 0
+      ? 'non so se la Bluetti stava alimentando il 12 V in quelle notti: '
+        + 'dal cloud non arrivano letture della sua uscita a 12 V'
+      : 'non ho notti abbastanza lunghe in cui il camper stesse davvero a riposo, '
+        + 'senza sole, senza la Bluetti sul 12 V e senza niente che caricasse');
   }
 
   // Fra le notti si prende la **mediana** dei pavimenti, non la media: una
