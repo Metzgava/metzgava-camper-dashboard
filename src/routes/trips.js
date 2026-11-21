@@ -3,7 +3,7 @@ import multer from 'multer';
 import { q } from '../lib/db.js';
 import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
-import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm } from '../lib/geo.js';
+import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
 import { numeriDellaTappa } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
@@ -804,6 +804,50 @@ router.put('/legs/:id', wrap(async (req, res) => {
 // misura quanto i chilometri veri. Serve alle tappe importate prima, quando si
 // prendeva sempre la piu' rapida e sulla mappa compariva l'autostrada anche se
 // si era passati per la statale.
+// I punti per cui si e' passati davvero: «ci siamo passati per...».
+//
+// Disegno: docs/superpowers/specs/2026-11-21-strada-ricostruita-design.md
+//
+// CarLock misura quanto, non per dove. Fra le strade possibili il programma
+// prende quella che misura quanto i chilometri veri, ma i candidati sono due
+// al massimo e la strada fatta puo' non essere nessuna delle due. Questa e'
+// l'unica informazione che viene da chi ha guidato, e qui si prende.
+//
+// **I chilometri e la durata non si toccano.** Sono quel che il tracker
+// misura, e sono la base del gasolio e dei totali del viaggio. Cambia il
+// disegno, e con lui i chilometri di autostrada, che dipendono dalla strada.
+router.post('/legs/:id/via', wrap(async (req, res) => {
+  const l = (await q('SELECT * FROM legs WHERE id=$1', [req.params.id])).rows[0];
+  if (!l) return res.status(404).json({ error: 'Tappa non trovata' });
+  const nomi = Array.isArray(req.body?.nomi) ? req.body.nomi
+    : String(req.body?.nomi ?? '').split(/[,;\n]/);
+  const { punti, non_trovati } = await puntiDichiarati(nomi, { candidati: addressCandidates });
+  await q('UPDATE legs SET via=$2 WHERE id=$1', [l.id, punti.length ? JSON.stringify(punti) : null]);
+
+  // Il disegno si rifa' solo se ha senso: per il traghetto e l'aereo i punti
+  // si ignorano, perche' una rotta e un volo le statali non le seguono.
+  let ridisegnata = false;
+  const buoni = punti.filter(p => p.lat != null && p.lon != null);
+  if (mezzoValido(l.mezzo) === 'camper' && l.from_lat != null && l.to_lat != null) {
+    try {
+      const scelto = buoni.length
+        ? await percorsoPerIPunti({ lat: l.from_lat, lon: l.from_lon }, buoni,
+            { lat: l.to_lat, lon: l.to_lon }, num(l.distance_km), num(l.duration_min))
+        : await percorsoVicinoAiKm({ lat: l.from_lat, lon: l.from_lon },
+            { lat: l.to_lat, lon: l.to_lon }, num(l.distance_km), num(l.duration_min));
+      await q('UPDATE legs SET geometry=$2, pedaggio_km=$3 WHERE id=$1',
+        [l.id, JSON.stringify(scelto.geometry), scelto.pedaggio_km ?? null]);
+      await costiTappa(l.id);
+      ridisegnata = true;
+    } catch (e) {
+      // Una riga vecchia e' meglio di nessuna riga: se i percorsi non
+      // rispondono, i punti restano salvati e si ridisegna un'altra volta.
+      console.warn(`tappa ${l.id}: punti salvati ma non ridisegnata:`, String(e.message).slice(0, 160));
+    }
+  }
+  res.json({ ok: true, via: punti, non_trovati, ridisegnata });
+}));
+
 router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
   const l = (await q('SELECT * FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!l) return res.status(404).json({ error: 'Tappa non trovata' });

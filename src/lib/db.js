@@ -311,6 +311,17 @@ export async function migrate() {
   END $$;
 
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';   -- manual | carlock
+  -- I punti per cui si e' passati davvero, dichiarati da chi c'era.
+  --
+  -- CarLock manda solo partenza e arrivo: la riga sulla mappa e' sempre una
+  -- ricostruzione, e fra le strade possibili si prende quella che misura
+  -- quanto i chilometri veri. Ma i candidati sono due al massimo, e la strada
+  -- fatta puo' non essere nessuna delle due. Questa colonna tiene l'unica
+  -- parte di quella riga che viene da chi ha guidato.
+  --
+  -- Una lista di { nome, lat, lon }, nell'ordine scritto; lat e lon sono
+  -- vuoti quando il nome non si e' trovato, e il nome resta comunque.
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS via JSONB;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
   -- La copertina del viaggio la sceglie chi l'ha fatto: senza scelta resta la
   -- prima foto, che e' un ripiego, non una decisione. Se quella foto viene

@@ -178,19 +178,15 @@ export async function variantiTratto(from, to) {
 // quanto dice il contachilometri — se si e' fatta la Romea invece
 // dell'autostrada, la differenza si vede nei chilometri, ed e' l'unico indizio
 // che si ha. Senza un numero vero a cui somigliare, resta la piu' rapida.
-export async function percorsoVicinoAiKm(from, to, kmVeri, minutiVeri) {
-  const varianti = await variantiTratto(from, to);
-  if (!varianti.length) throw new Error('nessun percorso');
+// Fra piu' strade possibili, quella che misura quanto i chilometri veri --
+// scartando quelle che nel tempo vero non ci stanno.
+//
+// **Estratta e non copiata**: la usano il percorso diretto (`percorsoVicinoAiKm`)
+// e quello che passa dai punti dichiarati (`percorsoPerIPunti`). Due copie
+// della stessa regola un giorno divergono, su un numero che disegna una strada.
+export function piuVicinaAiKm(varianti, kmVeri, minutiVeri) {
+  if (!varianti?.length) throw new Error('nessun percorso');
   if (!(kmVeri > 0)) return { ...varianti[0], scelta_per_km: false };
-  // I chilometri da soli non bastano a dire che strada si e' fatta: fra
-  // Piacenza e Treviso la statale ne misura meno dell'autostrada, e scegliendo
-  // per i chilometri si disegnava la statale a chi era corso in A4. A
-  // smentirla e' il tempo: quella strada il navigatore la stima in sei ore e
-  // mezza, e il tracker dice due e venticinque. Le strade che nel tempo vero
-  // non ci stanno si scartano, per quanto i chilometri tornino. Il margine e'
-  // largo - le stime sono prudenti e in autostrada si va piu' svelti di quanto
-  // mettano in conto - ma sei ore contro due e mezza non le colma nessun
-  // margine.
   const tetto = minutiVeri > 0 ? minutiVeri * 1.35 + 10 : null;
   const possibili = tetto ? varianti.filter(v => !(v.duration_min > 0) || v.duration_min <= tetto) : varianti;
   const papabili = possibili.length ? possibili : varianti;
@@ -200,6 +196,45 @@ export async function percorsoVicinoAiKm(from, to, kmVeri, minutiVeri) {
     media_oraria: minutiVeri > 0 ? Math.round(kmVeri / (minutiVeri / 60)) : null,
     scartate: varianti.length - papabili.length };
 }
+
+// Il percorso che passa **dai punti dichiarati dal proprietario**.
+//
+// CarLock manda solo partenza e arrivo, e fra le strade possibili si prende
+// quella che misura quanto i chilometri veri. Ma i candidati sono due al
+// massimo, e la strada fatta davvero puo' non essere nessuna delle due: il
+// 21/11/2026 Novaledo-Udine passava per Bassano mentre erano passati per Vidor
+// e Pieve di Soligo. Quell'informazione la ha solo chi c'era.
+//
+// La geometria si cuce dalle tratte, perche' `percorsiConTappe` torna le
+// tratte e non una riga sola. I punti si attraversano **nell'ordine scritto**:
+// un ordine sbagliato da' una strada che torna indietro, e si deve vedere --
+// chi guarda la mappa se ne accorge, il programma no.
+//
+// `percorsi` si puo' sostituire: serve alle prove, che una suite che martella
+// i servizi gratuiti di percorsi e' un modo di farseli chiudere.
+export async function percorsoPerIPunti(from, punti, to, kmVeri, minutiVeri,
+                                        { percorsi = percorsiConTappe } = {}) {
+  const tappe = [from, ...(punti || []).filter(p => p?.lat != null && p?.lon != null), to];
+  if (tappe.length < 3) return percorsoVicinoAiKm(from, to, kmVeri, minutiVeri);
+  const varianti = await percorsi(tappe);
+  const scelta = piuVicinaAiKm(varianti, kmVeri, minutiVeri);
+  const geometry = [];
+  for (const t of (scelta.tratte || [])) {
+    for (const p of (t.geometry || [])) {
+      const ultimo = geometry[geometry.length - 1];
+      // Il capo di una tratta e' il capo della prossima: scritto due volte
+      // sarebbe un punto doppio in mezzo alla riga.
+      if (!ultimo || ultimo[0] !== p[0] || ultimo[1] !== p[1]) geometry.push(p);
+    }
+  }
+  return { ...scelta, geometry, per_i_punti: true };
+}
+
+export async function percorsoVicinoAiKm(from, to, kmVeri, minutiVeri) {
+  const varianti = await variantiTratto(from, to);
+  return piuVicinaAiKm(varianti, kmVeri, minutiVeri);
+}
+
 
 export async function percorsiConTappe(punti) {
   const tratte = [];
@@ -279,4 +314,42 @@ export async function poisAlongRoute(geometry, radiusM = 4000) {
     : /timed out|timeout/i.test(soste.errore) ? 'Ricerca troppo ampia per il servizio: prova un raggio piu\u2019 stretto'
     : 'Servizio mappe momentaneamente non disponibile';
   return { stops: uniq(stops).slice(0, 40), ...(avviso ? { warning: avviso } : {}) };
+}
+
+// I nomi dei posti scritti a mano diventano punti.
+//
+// Disegno: docs/superpowers/specs/2026-11-21-strada-ricostruita-design.md
+//
+// «Siamo passati per vidor e pieve di soligo»: due nomi, scritti come si
+// scrivono i nomi dei posti. Qui si cercano, con la stessa macchina che usa
+// l'import di CarLock -- piu' modi di scrivere lo stesso indirizzo
+// (`addressCandidates`) e una pausa fra una richiesta e l'altra, perche'
+// martellare i geocoder gratuiti e' il modo di farseli chiudere.
+//
+// **Un nome che non si trova non spegne gli altri, e resta scritto.** Buttarlo
+// in silenzio vorrebbe dire fargli riscrivere una cosa che ha gia' scritto,
+// senza dirgli perche' non ha funzionato. Resta li' con le coordinate vuote, e
+// chi chiama sa dirlo.
+//
+// E un geocoder che si lamenta non fa cadere tutto: i servizi gratuiti
+// rifiutano, ogni tanto, e un nome che non si e' potuto cercare e' un nome non
+// trovato -- non un errore che svuota la tappa.
+export async function puntiDichiarati(nomi, { cerca = geocode,
+                                              candidati = n => [n],
+                                              pausa = 250 } = {}) {
+  const puliti = (nomi || []).map(n => String(n ?? '').trim()).filter(Boolean);
+  const punti = [], non_trovati = [];
+  for (const nome of puliti) {
+    let trovato = null;
+    for (const c of candidati(nome)) {
+      try {
+        const r = await cerca(c);
+        if (r?.length) { trovato = { lat: r[0].lat, lon: r[0].lon }; break; }
+      } catch { /* un rifiuto e' un «non trovato», non un guasto */ }
+      if (pausa) await new Promise(r => setTimeout(r, pausa));
+    }
+    if (!trovato) non_trovati.push(nome);
+    punti.push({ nome, lat: trovato?.lat ?? null, lon: trovato?.lon ?? null });
+  }
+  return { punti, non_trovati };
 }
