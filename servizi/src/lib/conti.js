@@ -560,6 +560,12 @@ export async function tuttiIConti(bluetti) {
   out.consumo_ective.avviso = avviso;
   out.consumo_ective.eta_minuti = etaEctive;
   out.consumo_ective.vecchia = vecchie;
+  // La carica del pacco viaggia qui, accanto agli altri fatti del pacco
+  // (`lette`, `totali`, `per_batteria`), e non in un conto suo: non e' un
+  // conto, e' una lettura. Serve alla figura per poter dire «piene» soltanto
+  // quando lo sono davvero -- e riusarla da qui evita di ricalcolare
+  // `uscitaEctive` nella rotta, cioe' di avere due fonti per lo stesso numero.
+  out.consumo_ective.carica_pacco = u.carica_pacco;
 
   out.tempo_residuo_ective = u.watt == null
     ? manca('h', ['letture delle Ective'],

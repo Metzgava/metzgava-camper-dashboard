@@ -754,9 +754,41 @@ function vistaFlusso() {
         </g>
       </svg>
       ${f.ferma ? `<div class="perche" style="text-align:center;color:var(--ambra)">La figura &egrave; <b>ferma</b>: le ultime letture delle batterie sono di un pezzo fa, e far scorrere i puntini su numeri vecchi direbbe che sta entrando corrente adesso.</div>` : ''}
-      ${qualcosaCarica ? '' : (f.altrove
-        ? `<div class="perche" style="text-align:center">Le fonti producono, ma <b>nelle batterie non entra niente</b>: sono gi&agrave; cariche, e quella corrente sta andando ai consumi del camper invece che alla carica.</div>`
-        : `<div class="perche" style="text-align:center">Nessuna fonte sta caricando: non &egrave; un guasto, &egrave; quel che succede a motore spento, senza sole e senza 220.</div>`)}
+      ${qualcosaCarica ? '' : (() => {
+        // Tre frasi per tre stati, e non una per esclusione. Fino al
+        // 21/11/2026 qui c'era un `altrove ? A : B`, e la A diceva «sono
+        // gia' cariche» ogni volta che non stava entrando corrente -- anche
+        // con i quadranti al 95 % e 98 %, cioe' mentre le batterie si
+        // svuotavano. Lo stato lo decide `flusso.js`, dove girano le prove.
+        if (!f.spiegazione) {
+          return `<div class="perche" style="text-align:center">Nessuna fonte sta caricando: non &egrave; un guasto, &egrave; quel che succede a motore spento, senza sole e senza 220.</div>`;
+        }
+        // A figura ferma il tempo del verbo cambia: lo stato dice cos'era, e
+        // affermarlo al presente su letture di un pezzo fa e' la bugia che
+        // la fascia qui sopra sta già cercando di evitare.
+        const quando = f.ferma ? `<b>All&rsquo;ultima lettura</b>, non adesso: ` : '';
+        const dalleFonti = f.rami.reduce((s, r) => s + (r.watt > 0 ? r.watt : 0), 0);
+        const frase = f.spiegazione === 'piene'
+          ? `Le fonti producono, ma <b>nelle batterie non entra niente</b>: sono gi&agrave; cariche, e quella corrente sta andando ai consumi del camper invece che alla carica.`
+          : f.spiegazione === 'scarica'
+            // I consumi si dicono «almeno»: sul 12 V entrano anche fonti che
+            // non misuriamo -- il rele' separatore di fabbrica, la Bluetti
+            // sulla sua uscita a 12 V -- e un totale esatto sarebbe piu'
+            // basso del vero.
+            // L'articolo davanti al numero si evita di proposito: «i 8 W»
+            // e' sbagliato e «gli 8» dipende da come si pronuncia la cifra,
+            // che un modello di stringa non sa. Senza articolo e' giusto
+            // sempre, e il conto si legge anche meglio.
+            ? `Le fonti producono, ma <b>le batterie si stanno scaricando</b>: dal pacco escono ${num(u.watt, 0)} W, e le fonti ne coprono soltanto ${num(dalleFonti, 0)}. I consumi del camper sono <b>almeno ${num((u.watt || 0) + dalleFonti, 0)} W</b>: almeno, perch&eacute; una fonte sul 12 V che non misuro aggiungerebbe corrente senza farsi vedere.`
+            // Nominato e non lasciato all'`else`: un `else` muto si
+            // prenderebbe in silenzio anche uno stato futuro che flusso.js
+            // aggiungesse, e lo racconterebbe con la frase sbagliata.
+            : f.spiegazione === 'non_so'
+              ? `Le fonti producono, ma <b>nelle batterie non entra niente</b>. Perch&eacute; non te lo so dire: per distinguere un pacco pieno da un pacco che si scarica mi servono la carica delle batterie e quanto esce, e in questo momento una delle due non c&rsquo;&egrave;.`
+              : '';
+        const colore = f.spiegazione === 'scarica' ? ';color:var(--ambra)' : '';
+        return `<div class="perche" style="text-align:center${colore}">${quando}${frase}</div>`;
+      })()}
       ${avviso ? `<div class="perche" style="text-align:center;color:var(--ambra)">${esc(avviso)}</div>` : ''}
       ${(() => {
         const r = f.rami.find(x => x.attivo && x.certezza === 'dedotto');

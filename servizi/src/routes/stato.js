@@ -191,6 +191,11 @@ router.get('/stato', wrap(async (req, res) => {
       // delle due batterie -- e qui si passa soltanto. `null` quando le Ective
       // non si leggono, che e' un'altra cosa da zero.
       consumo: conti.consumo_ective?.valore ?? null,
+      // La carica del pacco, che serve a una cosa sola: poter dire «piene»
+      // soltanto quando lo sono davvero. Il 21/11/2026 la figura lo diceva
+      // con i quadranti al 95 % e 98 %, perche' questo numero non le
+      // arrivava e non aveva modo di sapere che stava mentendo.
+      carica: conti.consumo_ective?.carica_pacco ?? null,
     }),
     // La stessa figura per la Bluetti: due ingressi, due uscite. L'eta' della
     // lettura viaggia a parte, in `bluetti.vecchia`, e la pagina la scrive
