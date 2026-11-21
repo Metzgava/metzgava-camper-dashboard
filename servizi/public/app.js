@@ -1057,7 +1057,7 @@ function vistaEnergia() {
     </div>
     <div class="titolo">Quanto dura fermo</div>
     <div class="scheda">
-      ${rigaConto('Il camper sulla Bluetti', c.giorni_fermo_bluetti)}
+      ${rigaConto('Su tutta l’energia di bordo', c.giorni_fermo_bluetti)}
       ${rigaConto('Quanto costa la scatoletta', c.costo_scatoletta)}
     </div>`;
 }

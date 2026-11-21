@@ -258,3 +258,48 @@ export function consumoARiposo(righe, { a, batterie = [], notti = NOTTI,
     perche_manca: null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Il consumo a riposo, chiesto all'archivio
+// ---------------------------------------------------------------------------
+//
+// `consumoARiposo` qui sopra e' pura e riceve le righe: cosi' le prove le
+// possono dare una giornata inventata. Questa invece fa la query, e ha due
+// accortezze che servono perche' `/api/stato` si apre spesso.
+//
+// **La somma la fa Postgres.** Cinque giorni di letture ogni due minuti, su
+// quattro grandezze, sono piu' di diecimila righe: tirarle fuori tutte a ogni
+// apertura di pagina sarebbe sciocco quando il raggruppamento lo sa fare il
+// database. Si chiede la media per intervallo, per apparecchio e per
+// grandezza, cioe' esattamente quel che la funzione pura rimetterebbe in fila
+// da se'. E' lo stesso mestiere che fa gia' `/storia/uscite`.
+//
+// **E si tiene da parte.** Il consumo a riposo cambia una volta per notte, non
+// ogni tre secondi. Senza questo, la pagina aperta rifarebbe lo stesso conto su
+// cinque giorni di archivio a ogni occhiata.
+const RESPIRO_RIPOSO = 15 * 60 * 1000;
+let tenuto = { quando: 0, dato: null };
+
+export async function riposoDallArchivio(q, batterie, { notti = NOTTI,
+                                                        fine = FINE_MINUTI } = {}) {
+  if (tenuto.dato && Date.now() - tenuto.quando < RESPIRO_RIPOSO) return tenuto.dato;
+  const a = new Date();
+  const sec = fine * 60;
+  const righe = (await q(
+    `SELECT to_timestamp(floor(extract(epoch from quando) / $1) * $1) AS quando,
+            apparecchio, grandezza, avg(valore) AS valore
+       FROM misure
+      WHERE grandezza IN ('watt', 'pannelli_w', 'uscita_dc_w')
+        AND quando > now() - ($2 || ' days')::interval
+      GROUP BY 1, 2, 3
+      ORDER BY 1`, [sec, String(notti)])).rows;
+  const dato = consumoARiposo(righe, { a, batterie, notti, fine });
+  tenuto = { quando: Date.now(), dato };
+  return dato;
+}
+
+// Le prove che cambiano l'archivio sotto i piedi devono poter buttare quel che
+// si e' tenuto: senza questo la seconda prova vedrebbe il numero della prima.
+export function dimenticaIlRiposo() {
+  tenuto = { quando: 0, dato: null };
+}

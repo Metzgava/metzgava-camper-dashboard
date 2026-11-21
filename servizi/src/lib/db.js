@@ -31,6 +31,21 @@ export const q = (testo, parametri) => pool.query(testo, parametri);
 const NOTA_CHARGER = 'Riferito il 16/11/2026: il Charger 2 non supera i 700 W sulla Elite 300. '
   + 'Al minimo l’alternatore potrebbe darne meno, quindi i tempi veri possono allungarsi.';
 
+// Questo numero **non e' piu' quello da cui si parte**, ed e' per questo che
+// il suo bollino dice «stima» anche se una misura l'ha prodotto.
+//
+// Dal 21/11/2026 il consumo a riposo si ricava dalle notti in archivio -- buio
+// sui pannelli, nessuna erogazione dalla Bluetti sul 12 V -- e quel conto e'
+// sempre fresco. Questo serve soltanto finche' quelle notti non ci sono.
+//
+// E' lo stesso difetto che il 20/11 avevamo trovato nella riga degli
+// apparecchi attesi: un numero misurato una volta e poi mai piu' e' una stima
+// travestita da misura, e invecchia senza dirlo. Gli 11 W erano veri prima che
+// in camper arrivassero la scatoletta e Starlink.
+const NOTA_FERMO = 'Ripiego: dal 21/11/2026 il consumo a riposo si misura da se’, '
+  + 'dalle notti senza sole in archivio. Questo numero vale solo finche’ quelle notti '
+  + 'non ci sono. Misurato il 16/11/2026: batterie −0,29 A piu’ pannelli +0,5 A.';
+
 const IMPIANTO = [
   ['bluetti_wh', 2764, 'Wh', 'Capacita’ dell’Elite 300. Da catalogo: da correggere se il tuo modello differisce.', false],
   ['bluetti_carica_ac_w', 1800, 'W', 'Potenza di carica da presa 220 V (colonnina o casa).', false],
@@ -42,7 +57,7 @@ const IMPIANTO = [
   ['truma_el1_w', 900, 'W', 'Resistenza elettrica della Combi, livello 1 (EL 1 e MIX 1). Dal manuale Truma.', true],
   ['truma_el2_w', 1800, 'W', 'Resistenza elettrica della Combi, livello 2 (EL 2 e MIX 2). Dal manuale Truma.', true],
   ['rendimento_inverter_bluetti', 0.90, '', 'Rendimento dell’inverter della Bluetti verso la 230 V. Stima: si misura confrontando i watt in uscita con la discesa della carica.', false],
-  ['consumo_fermo_w', 11, 'W', 'Consumo del camper a riposo. Misurato il 16/11/2026: batterie −0,29 A piu’ pannelli +0,5 A.', true],
+  ['consumo_fermo_w', 11, 'W', NOTA_FERMO, false],
   ['starlink_w', 18.1, 'W', 'Consumo medio di Starlink. Misurato il 16/11/2026 su 900 campioni al secondo.', true],
   ['scatoletta_w', 1.5, 'W', 'Consumo del Raspberry in camper. Da misurare quando sara’ in funzione.', false],
 ];
@@ -151,6 +166,14 @@ export async function migrate() {
   // piu' di uno scritto dal codice, e non si sovrascrive mai dall'alto.
   await q(`UPDATE impianto SET valore=$1, misurato=true, nota=$2, aggiornato=now()
            WHERE chiave='charger_w' AND valore IS NULL`, [700, NOTA_CHARGER]);
+
+  // La riga di `consumo_fermo_w` esiste in produzione dal 16/11, e il seme
+  // qui sopra e' `ON CONFLICT DO NOTHING`: la nota nuova non arriverebbe mai
+  // da sola. Si aggiornano **la nota e il bollino**, non il valore -- quello
+  // serve ancora da ripiego, e un numero scritto a mano non si sovrascrive
+  // mai dall'alto.
+  await q(`UPDATE impianto SET nota=$1, misurato=false, aggiornato=now()
+           WHERE chiave='consumo_fermo_w' AND nota <> $1`, [NOTA_FERMO]);
 }
 
 export async function segna(tipo, testo, chi = null) {

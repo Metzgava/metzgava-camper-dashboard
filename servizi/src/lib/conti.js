@@ -12,7 +12,7 @@
 // di comodo.
 import { q } from './db.js';
 import { FERMA_DOPO_MINUTI } from './flusso.js';
-import { consumoRecente, FINESTRA_MINUTI } from './consumo.js';
+import { consumoRecente, riposoDallArchivio, FINESTRA_MINUTI } from './consumo.js';
 
 export async function impianto() {
   const righe = (await q('SELECT chiave, valore, unita, nota, misurato FROM impianto ORDER BY chiave')).rows;
@@ -393,6 +393,12 @@ export async function tuttiIConti(bluetti) {
     (await q(`SELECT quando, apparecchio, grandezza, valore FROM misure
                WHERE grandezza = 'watt' AND quando > $1`, [finestraDa])).rows,
     { da: finestraDa, a: new Date(), batterie: batterie.map(r => r.apparecchio) });
+
+  // Il consumo **a riposo**, ricavato dalle notti senza sole e senza la
+  // Bluetti sul 12 V. La somma la fa Postgres e il risultato si tiene da
+  // parte per un quarto d'ora: cambia una volta per notte, non ogni tre
+  // secondi.
+  const riposo = await riposoDallArchivio(q, batterie.map(r => r.apparecchio));
   const etaEctive = etaEctiveMinuti(vive);
   // Oltre la mezz'ora il numero resta scritto con la sua eta': e' l'eta' che
   // va detta, non il valore che va nascosto. Stessa regola della figura della
@@ -634,12 +640,61 @@ export async function tuttiIConti(bluetti) {
   out.tempo_residuo_ective.in_carica_minuti = daMedia ? recente.in_carica_minuti : null;
 
   // ---- quanto dura il camper fermo ----
-  out.giorni_fermo_bluetti = out.carica_residua.valore == null || fermoW == null
-    ? manca('giorni', ['consumo_fermo_w'], 'Serve il consumo a riposo.')
-    : conto(out.carica_residua.valore / fermoW / 24, 'giorni', {
-        base: misurato(m, 'consumo_fermo_w', 'bluetti_wh') ? 'misurato' : 'stima',
-        perche: `${out.carica_residua.valore} Wh a ${fermoW} W di consumo fermo`,
-        detto: dilloInOre(out.carica_residua.valore / fermoW),
+  // ---- quanto dura il camper fermo ----
+  //
+  // Disegno: docs/superpowers/specs/2026-11-21-durata-consumo-vivo-design.md
+  //
+  // Due difetti nello stesso conto, e il secondo era nascosto dal primo.
+  //
+  // Il consumo era `consumo_fermo_w`, **battuto in tabella** il 16/11/2026 e
+  // col bollino «misurato». Adesso si misura da se' dalle notti; quello in
+  // tabella resta come ripiego **dichiarato**, con la sua data.
+  //
+  // E il conto divideva i Wh della **sola Bluetti** per un consumo misurato
+  // sul 12 V delle Ective, come se la Bluetti servisse quel consumo senza
+  // perdite. Il proprietario ha scelto, fra quattro possibilita': **tutta
+  // l'energia di bordo** -- i Wh delle Ective, che adesso si misurano, piu'
+  // quelli della Bluetti scontati del rendimento della catena, perche' per
+  // arrivare al 12 V quella corrente passa da inverter e caricatore.
+  const daNotti = riposo.watt != null;
+  const consumoFermo = daNotti ? riposo.watt : fermoW;
+  const notaFermo = m.consumo_fermo_w?.nota || null;
+  const comeFermo = daNotti
+    ? `${Math.round(consumoFermo)} W di consumo a riposo, misurato su `
+      + `${riposo.notti} ${riposo.notti === 1 ? 'notte' : 'notti'} senza sole`
+    : `${consumoFermo} W di consumo a riposo dalla tabella`
+      + (notaFermo ? ` (${notaFermo})` : '');
+
+  const mancaFermo = [];
+  const pezzi = [];
+  let whBordo = 0;
+  if (u.residuo_wh == null) mancaFermo.push('capacità e carica delle Ective');
+  else {
+    whBordo += u.residuo_wh;
+    pezzi.push(`${Math.round(u.residuo_wh)} Wh nelle Ective`);
+  }
+  if (out.carica_residua.valore == null) mancaFermo.push('carica della Bluetti');
+  else if (rendimento == null) mancaFermo.push('rendimento_bluetti_ective');
+  else {
+    whBordo += out.carica_residua.valore * rendimento;
+    pezzi.push(`${Math.round(out.carica_residua.valore * rendimento)} Wh dalla Bluetti `
+      + `(${out.carica_residua.valore} Wh scontati del rendimento stimato ${virgola(rendimento, 2)})`);
+  }
+
+  out.giorni_fermo_bluetti = !pezzi.length || consumoFermo == null
+    ? manca('giorni', [...mancaFermo, ...(consumoFermo == null ? ['consumo_fermo_w'] : [])],
+        'Serve il consumo a riposo e almeno una delle due energie di bordo.')
+    : conto(whBordo / consumoFermo / 24, 'giorni', {
+        // **Stima, non misurato**, e vale la pena dire perche'. Dentro c'e'
+        // il rendimento della catena, che in tabella e' dichiarato una stima:
+        // un bollino «misurato» su un conto che contiene un numero di stima e'
+        // esattamente il difetto che questo lavoro sta togliendo. E quando il
+        // rendimento non c'e', il conto e' incompleto -- manca mezza energia
+        // di bordo -- che non e' «misurato» nemmeno allora.
+        base: 'stima',
+        perche: `${pezzi.join(' + ')}, a ${comeFermo}`,
+        detto: dilloInOre(whBordo / consumoFermo),
+        mancano: mancaFermo,
       });
 
   // ---- quanto costa la scatoletta ----
