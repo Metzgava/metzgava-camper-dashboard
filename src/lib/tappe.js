@@ -72,3 +72,25 @@ export function numeriDellaTappa(tappa, strada) {
     pedaggio_km: strada.pedaggio_km ?? null,
   };
 }
+
+// I punti dichiarati che si possono davvero usare per disegnare questa tappa.
+//
+// Disegno: docs/superpowers/specs/2026-11-21-strada-ricostruita-design.md
+//
+// Due filtri, e tutti e due dicono qualcosa:
+//
+//   - **solo in camper.** Una rotta e un volo le statali non le seguono, e
+//     disegnare l'autostrada sotto un aereo sarebbe un racconto falso. Se il
+//     mezzo e' cambiato dopo che i punti erano stati scritti, i punti restano
+//     salvati e si ignorano: butterebbero via un'informazione che tornera'
+//     utile se il mezzo torna quello di prima.
+//   - **solo quelli trovati.** Un nome che il geocoder non ha riconosciuto
+//     resta scritto -- cosi' chi l'ha scritto lo vede e lo corregge -- ma
+//     senza coordinate non si puo' passare da nessuna parte.
+//
+// Il mezzo mancante vale «camper», come dappertutto nel programma.
+export function puntiDaUsare(tappa) {
+  const mezzo = String(tappa?.mezzo || 'camper');
+  if (mezzo !== 'camper') return [];
+  return (tappa?.via || []).filter(p => p?.lat != null && p?.lon != null);
+}

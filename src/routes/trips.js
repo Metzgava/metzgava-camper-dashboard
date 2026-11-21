@@ -5,7 +5,7 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
-import { numeriDellaTappa } from '../lib/tappe.js';
+import { numeriDellaTappa, puntiDaUsare } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
@@ -776,7 +776,20 @@ router.put('/legs/:id', wrap(async (req, res) => {
   // Qui invece si ricalcola e basta: se i due capi si sono spostati, i
   // chilometri del tracker descrivono un'altra tappa e tenerli sarebbe
   // peggio che rifarli.
-  else if (changedPts || cambiaMezzo) { const r = await route(b.from || { lat: cur.from_lat, lon: cur.from_lon }, b.to || { lat: cur.to_lat, lon: cur.to_lon }); geo = r; }
+  else if (changedPts || cambiaMezzo) {
+    // Anche qui si passa dai punti dichiarati: spostare un capo o tornare al
+    // camper non cancella quel che il proprietario ha detto di aver fatto.
+    const r = await stradaDellaTappa({ ...cur, mezzo: m.mezzo },
+      b.from || { lat: cur.from_lat, lon: cur.from_lon },
+      b.to || { lat: cur.to_lat, lon: cur.to_lon },
+      // **Niente chilometri di riferimento quando i capi si sono spostati**:
+      // quelli di prima descrivono un'altra tappa, e sceglierci sopra
+      // significherebbe restare attaccati alla strada vecchia. Senza, si
+      // prende la piu' rapida, come faceva `route()` prima.
+      changedPts ? null : num(cur.distance_km),
+      changedPts ? null : num(cur.duration_min));
+    geo = r;
+  }
   // I chilometri di autostrada: quelli scritti a mano comandano, poi quelli
   // della strada appena scelta, altrimenti restano quelli che c'erano
   const pedKm = b.pedaggio_km !== undefined
@@ -804,6 +817,19 @@ router.put('/legs/:id', wrap(async (req, res) => {
 // misura quanto i chilometri veri. Serve alle tappe importate prima, quando si
 // prendeva sempre la piu' rapida e sulla mappa compariva l'autostrada anche se
 // si era passati per la statale.
+// La strada di una tappa, passando dai punti dichiarati quando ce ne sono.
+//
+// Sta in un posto solo perche' la usano tutte le strade che ridisegnano --
+// «Ridisegna», il salvataggio della tappa, «Porta nella tappa». Se ognuna
+// avesse la sua, la prima che se ne dimentica cancella in silenzio l'unica
+// informazione che viene da chi c'era.
+async function stradaDellaTappa(l, from, to, kmVeri, minutiVeri) {
+  const punti = puntiDaUsare(l);
+  return punti.length
+    ? percorsoPerIPunti(from, punti, to, kmVeri, minutiVeri)
+    : percorsoVicinoAiKm(from, to, kmVeri, minutiVeri);
+}
+
 // I punti per cui si e' passati davvero: «ci siamo passati per...».
 //
 // Disegno: docs/superpowers/specs/2026-11-21-strada-ricostruita-design.md
@@ -830,11 +856,9 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
   const buoni = punti.filter(p => p.lat != null && p.lon != null);
   if (mezzoValido(l.mezzo) === 'camper' && l.from_lat != null && l.to_lat != null) {
     try {
-      const scelto = buoni.length
-        ? await percorsoPerIPunti({ lat: l.from_lat, lon: l.from_lon }, buoni,
-            { lat: l.to_lat, lon: l.to_lon }, num(l.distance_km), num(l.duration_min))
-        : await percorsoVicinoAiKm({ lat: l.from_lat, lon: l.from_lon },
-            { lat: l.to_lat, lon: l.to_lon }, num(l.distance_km), num(l.duration_min));
+      const scelto = await stradaDellaTappa({ ...l, via: punti },
+        { lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon },
+        num(l.distance_km), num(l.duration_min));
       await q('UPDATE legs SET geometry=$2, pedaggio_km=$3 WHERE id=$1',
         [l.id, JSON.stringify(scelto.geometry), scelto.pedaggio_km ?? null]);
       await costiTappa(l.id);
@@ -852,7 +876,7 @@ router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
   const l = (await q('SELECT * FROM legs WHERE id=$1', [req.params.id])).rows[0];
   if (!l) return res.status(404).json({ error: 'Tappa non trovata' });
   if (l.from_lat == null || l.to_lat == null) return res.status(400).json({ error: 'La tappa non ha i due punti' });
-  const scelto = await percorsoVicinoAiKm(
+  const scelto = await stradaDellaTappa(l,
     { name: l.from_name, lat: l.from_lat, lon: l.from_lon },
     { name: l.to_name, lat: l.to_lat, lon: l.to_lon },
     num(l.distance_km), num(l.duration_min));
@@ -1054,7 +1078,10 @@ router.post('/legs/:id/carlock', upload.single('file'), wrap(async (req, res) =>
   // La strada da disegnare e' quella che misura quanto il contachilometri, e
   // che si poteva fare nel tempo che ci e' voluto
   let geometry = [[da.lat, da.lon], [a.lat, a.lon]], pedaggioKm = null;
-  try { const str = await percorsoVicinoAiKm(da, a, km, minuti); geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null; } catch { }
+  // Se la tappa ha gia' dei punti dichiarati, la strada nuova passa da li':
+  // portarci dentro un tragitto del tracker non e' una ragione per dimenticare
+  // quel che ha detto chi c'era.
+  try { const str = await stradaDellaTappa(leg, da, a, km, minuti); geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null; } catch { }
   const id_esterno = scelte.map(x => x.external_id).join('+');
   let aggiornata;
   try {
