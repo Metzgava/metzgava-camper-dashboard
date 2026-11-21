@@ -12,6 +12,7 @@
 // di comodo.
 import { q } from './db.js';
 import { FERMA_DOPO_MINUTI } from './flusso.js';
+import { consumoRecente, FINESTRA_MINUTI } from './consumo.js';
 
 export async function impianto() {
   const righe = (await q('SELECT chiave, valore, unita, nota, misurato FROM impianto ORDER BY chiave')).rows;
@@ -383,6 +384,15 @@ export async function tuttiIConti(bluetti) {
 
   // I due versi del pacco nascono qui, da un numero solo con il segno.
   const u = uscitaEctive(vive);
+
+  // Il consumo **recente**, dall'archivio: e' quello su cui si calcolano le
+  // durate. Si chiede solo la grandezza che serve e solo la finestra che
+  // serve, cosi' la query resta piccola anche con un archivio di mesi.
+  const finestraDa = new Date(Date.now() - FINESTRA_MINUTI * 60000);
+  const recente = consumoRecente(
+    (await q(`SELECT quando, apparecchio, grandezza, valore FROM misure
+               WHERE grandezza = 'watt' AND quando > $1`, [finestraDa])).rows,
+    { da: finestraDa, a: new Date(), batterie: batterie.map(r => r.apparecchio) });
   const etaEctive = etaEctiveMinuti(vive);
   // Oltre la mezz'ora il numero resta scritto con la sua eta': e' l'eta' che
   // va detta, non il valore che va nascosto. Stessa regola della figura della
@@ -567,28 +577,61 @@ export async function tuttiIConti(bluetti) {
   // `uscitaEctive` nella rotta, cioe' di avere due fonti per lo stesso numero.
   out.consumo_ective.carica_pacco = u.carica_pacco;
 
+  // **La durata si calcola sulla media recente, non sull'istante.**
+  //
+  // Disegno: docs/superpowers/specs/2026-11-21-durata-consumo-vivo-design.md
+  //
+  // Fino al 21/11/2026 questo conto divideva i Wh residui per i watt letti in
+  // quel momento. Aperta la pagina mentre parte il compressore del frigo,
+  // l'autonomia crollava a poche ore; un minuto dopo, a frigo spento, diceva
+  // quaranta. Nessuno dei due e' sbagliato come misura, e tutti e due sono
+  // inutili come durata.
+  //
+  // Quando la media non c'e' -- archivio corto, scatoletta appena accesa,
+  // finestra scoperta -- si ricade sull'istante **e si dice**: una durata su
+  // un istante dichiarato e' onesta, su un istante taciuto no.
+  const daMedia = recente.watt != null;
+  const consumoPerLaDurata = daMedia ? recente.watt : u.watt;
+  const ore = u.residuo_wh == null || !(consumoPerLaDurata > 0)
+    ? null : u.residuo_wh / consumoPerLaDurata;
+  // La finestra si scrive accanto al numero, e con lei quanta parte se n'e'
+  // stata in carica: a mezzogiorno col sole la media e' quasi nulla e
+  // l'autonomia sembra di settimane -- vero come media, ingannevole come
+  // promessa. Il numero non si cambia, si dice da dove viene.
+  const comeCalcolato = daMedia
+    ? `${Math.round(consumoPerLaDurata)} W di consumo medio delle ultime `
+      + `${dilloInOre(recente.finestra_minuti / 60)}`
+      + (recente.in_carica_minuti > 0
+        ? `, di cui ${dilloInOre(recente.in_carica_minuti / 60)} in carica` : '')
+    : `${Math.round(consumoPerLaDurata)} W di consumo in questo momento `
+      + '\u2014 non ho abbastanza letture recenti per una media';
+
   out.tempo_residuo_ective = u.watt == null
     ? manca('h', ['letture delle Ective'],
         'Le batterie parlano solo via Bluetooth: serve la scatoletta accesa in camper.')
-    : u.watt === 0
+    : !(consumoPerLaDurata > 0)
       ? conto(null, 'h', {
           base: 'incompleto',
-          perche: 'dalle batterie non esce niente: non c\u2019e\u2019 un consumo da cui partire',
+          perche: daMedia
+            ? 'nella media delle ultime ore dalle batterie non \u00e8 uscito niente: non c\u2019\u00e8 un consumo da cui partire'
+            : 'dalle batterie non esce niente: non c\u2019e\u2019 un consumo da cui partire',
           detto: 'niente esce',
         })
       : u.residuo_wh == null
         ? manca('h', ['capacit\u00e0 e carica delle Ective'],
             'Le batterie dicono volt e ampere ma non quanto hanno dentro in questo giro.')
-        : conto(u.ore, 'h', {
+        : conto(ore, 'h', {
             // Misurato per intero: i watt, i Wh residui e i volt vengono tutti
             // e tre dalle batterie. Nessun numero di catalogo.
             base: 'misurato',
-            perche: `${Math.round(u.residuo_wh)} Wh nelle batterie, a ${Math.round(u.watt)} W di consumo`,
-            detto: dilloInOre(u.ore),
+            perche: `${Math.round(u.residuo_wh)} Wh nelle batterie, a ${comeCalcolato}`,
+            detto: dilloInOre(ore),
           });
   out.tempo_residuo_ective.avviso = avviso;
   out.tempo_residuo_ective.eta_minuti = etaEctive;
   out.tempo_residuo_ective.vecchia = vecchie;
+  out.tempo_residuo_ective.finestra_minuti = daMedia ? recente.finestra_minuti : null;
+  out.tempo_residuo_ective.in_carica_minuti = daMedia ? recente.in_carica_minuti : null;
 
   // ---- quanto dura il camper fermo ----
   out.giorni_fermo_bluetti = out.carica_residua.valore == null || fermoW == null

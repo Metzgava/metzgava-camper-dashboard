@@ -43,10 +43,37 @@ const impianto = [
   { chiave: 'ective_v', valore: 12.8, unita: 'V', nota: '', misurato: true },
 ];
 
-const conti = async righe => {
+// Lo storico come sta in `misure`: `watt` per batteria, **positivo quando la
+// batteria carica**, come lo scrive agente.py. Le letture ogni due minuti,
+// come il passo vero della scatoletta, e tutte dentro la finestra.
+const EC = ['NWJ20220412010310', 'NWJ20220412010323'];
+const misura = (minuti, watt, chi) => ({
+  quando: new Date(Date.now() - minuti * 60000),
+  apparecchio: chi, grandezza: 'watt', valore: watt,
+});
+const storicoPacco = (esce, minuti = 120) => {
+  const fuori = [];
+  for (let m = minuti - 1; m >= 1; m -= 2) {
+    for (const b of EC) fuori.push(misura(m, -esce / EC.length, b));
+  }
+  return fuori;
+};
+// Meta' finestra in scarica e meta' in carica, cosi' la frase ha qualcosa da
+// dire su quanto se n'e' stata in carica.
+const storicoMezzoEMezzo = esce => {
+  const fuori = [];
+  for (let m = 119; m >= 1; m -= 2) {
+    const quanto = m > 60 ? esce : -esce;
+    for (const b of EC) fuori.push(misura(m, -quanto / EC.length, b));
+  }
+  return fuori;
+};
+
+const conti = async (righe, { storico = [], impianto: imp = impianto } = {}) => {
   archivio([
-    ['FROM impianto', impianto],
+    ['FROM impianto', imp],
     ['FROM istantanee', righe],
+    ['FROM misure', storico],
   ]);
   return tuttiIConti(null);
 };
@@ -87,6 +114,55 @@ test('batterie in carica: niente esce, e non e’ un dato che manca', async () =
   assert.equal(c.tempo_residuo_ective.valore, null);
   assert.match(c.tempo_residuo_ective.perche, /non esce niente/);
   assert.deepEqual(c.tempo_residuo_ective.mancano, []);
+});
+
+// ---------------------------------------------------------------------------
+// Le durate si calcolano sulla media, non sull'istante
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-21-durata-consumo-vivo-design.md
+//
+// Aprire la pagina mentre parte il compressore del frigo dava tre ore di
+// autonomia; un minuto dopo, quaranta. La domanda «quanto duro» non si
+// risponde con la potenza di un secondo.
+
+test('la durata usa la media, non l’istante', async () => {
+  // Istante anomalo -- il pacco a 786 W, come se fosse partito tutto insieme
+  // -- in una finestra tranquilla a venti watt. L'autonomia non deve crollare
+  // a due ore e mezza: a venti watt quei Wh durano giorni.
+  const c = await conti(istantanee(-30, -30), { storico: storicoPacco(20) });
+  assert.ok(c.tempo_residuo_ective.valore > 10,
+    `ore = ${c.tempo_residuo_ective.valore}`);
+  assert.match(c.tempo_residuo_ective.perche, /consumo medio/);
+});
+
+test('la frase dice la finestra E quanto se n’e’ stata in carica', async () => {
+  // Senza questo, a mezzogiorno col sole la media e' quasi nulla e
+  // l'autonomia sembra di settimane -- vero come media, ingannevole come
+  // promessa. Il numero non si cambia: si dice da dove viene.
+  const c = await conti(istantanee(-6, -4), { storico: storicoMezzoEMezzo(30) });
+  assert.match(c.tempo_residuo_ective.perche, /in carica/);
+});
+
+test('senza media si ricade sull’istante, e lo si DICE', async () => {
+  // Una durata su un istante dichiarato e' onesta; su un istante taciuto, no.
+  const c = await conti(istantanee(-6, -4), { storico: [] });
+  assert.ok(c.tempo_residuo_ective.valore > 0);
+  assert.match(c.tempo_residuo_ective.perche, /in questo momento/);
+});
+
+test('la durata si da’ anche mentre il pacco carica', async () => {
+  // Qui cade di proposito la prova di ieri, che chiedeva una casella vuota.
+  // Le due frasi non si contraddicono perche' rispondono a due domande:
+  // «adesso non esce niente» parla dell'istante, «cento ore sulla media»
+  // parla della durata -- ed e' la domanda di chi sta al sole e pensa alla
+  // notte.
+  const c = await conti(istantanee(6, 4), { storico: storicoPacco(20) });
+  assert.equal(c.consumo_ective.valore, 0);               // il non obiettivo
+  assert.equal(c.consumo_ective.detto, 'niente esce');
+  assert.ok(c.tempo_residuo_ective.valore > 0,            // la cosa nuova
+    `ore = ${c.tempo_residuo_ective.valore}`);
+  assert.match(c.tempo_residuo_ective.perche, /consumo medio/);
 });
 
 test('senza istantanee resta un «manca», con scritto cosa manca', async () => {
