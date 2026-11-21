@@ -14,6 +14,7 @@ import { statoBluetti, collegato, associa, comanda, COMANDI,
 import { tuttiIConti, impianto, etaEctiveMinuti } from '../lib/conti.js';
 import { leggiTravaso } from '../lib/travaso.js';
 import { ramiDellaCarica, ramiDellaBluetti } from '../lib/flusso.js';
+import { serieUscite, passoDelGrafico, FINE_MAX } from '../lib/storico.js';
 import { segnaOcchiata, ritmoRichiesto, ultimaOcchiata } from '../lib/occhiata.js';
 import { serveAccesso } from './auth.js';
 
@@ -208,6 +209,55 @@ router.get('/storia', wrap(async (req, res) => {
     ORDER BY quando`, [grandezza, String(giorni)])).rows;
   const grandezze = (await q('SELECT DISTINCT grandezza FROM misure ORDER BY grandezza')).rows.map(r => r.grandezza);
   res.json({ giorni, grandezza, grandezze, punti: righe });
+}));
+
+// Le due serie delle uscite, per i grafici della Storia.
+//
+// Il raggruppamento si fa **due volte**, e non e' uno spreco. In SQL per non
+// portarsi dietro la fila intera: novanta giorni di letture sono qualche
+// centinaio di migliaia di righe, e spedirle a Node per mediarle sarebbe
+// pagare il trasporto di numeri che vengono buttati subito. In `storico.js`
+// perche' li' c'e' la logica che conta -- i buchi, le somme fra apparecchi,
+// il mezzo pacco -- ed e' provata.
+//
+// Le due griglie sono **la stessa griglia**: `da` si arrotonda allo stesso
+// reticolo dell'SQL, altrimenti un intervallo potrebbe cadere a cavallo di
+// due e il grafico scivolerebbe di un passo.
+const USCITE = ['uscita_ac_w', 'uscita_dc_w', 'watt'];
+
+router.get('/storia/uscite', wrap(async (req, res) => {
+  const giorni = Math.min(Math.max(Number(req.query.giorni) || 7, 1), 180);
+  const passo = passoDelGrafico(giorni);
+  // L'SQL raggruppa sul righello **corto**, non su quello disegnato: il verso
+  // della corrente va guardato prima di mediare, o la notte che scarica e il
+  // giorno che carica si annullano a vicenda. Il perche' per esteso sta in
+  // `storico.js`, accanto a FINE_MAX.
+  const fine = Math.min(passo, FINE_MAX);
+  const sec = fine * 60;
+
+  // Chi e' una batteria lo dice la sua ultima lettura, non il nome: le celle
+  // sono il segno che il progetto usa dappertutto. `watt` e' una grandezza di
+  // tutti, e il solare dentro il pacco sarebbe un numero falso.
+  const batterie = (await q(
+    `SELECT apparecchio FROM istantanee WHERE dati->'celle_mv' IS NOT NULL`
+  )).rows.map(r => r.apparecchio);
+
+  const righe = (await q(
+    `SELECT to_timestamp(floor(extract(epoch from quando) / $1) * $1) AS quando,
+            apparecchio, grandezza, avg(valore) AS valore
+       FROM misure
+      WHERE grandezza = ANY($2)
+        AND quando > now() - ($3 || ' days')::interval
+      GROUP BY 1, 2, 3
+      ORDER BY 1`,
+    [sec, USCITE, String(giorni)])).rows;
+
+  // La griglia e' quella del passo disegnato, cosi' i due righelli combaciano
+  // e nessun intervallo corto cade a cavallo di due lunghi.
+  const griglia = passo * 60000;
+  const a = Math.ceil(Date.now() / griglia) * griglia;
+  const da = a - giorni * 86400000;
+  res.json(serieUscite(righe, { da: new Date(da), a: new Date(a), passo, fine, batterie }));
 }));
 
 router.get('/impianto', wrap(async (req, res) => {

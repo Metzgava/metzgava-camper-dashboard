@@ -1030,40 +1030,167 @@ function vistaEnergia() {
     </div>`;
 }
 
+// ---------- la storia: quanto e' uscito ----------
+//
+// Prima c'era un grafico solo, la carica della Bluetti in percentuale. Diceva
+// com'era piena, non cosa ha fatto. Al suo posto i due versi in uscita, con lo
+// stesso righello: e' la figura «Dentro e fuori» portata indietro nel tempo.
+//
+// I conti -- gli intervalli, i buchi, i kWh -- li fa il server in
+// `lib/storico.js`, dove ci sono le prove. Qui si disegna e basta.
+//
+// Tre scelte.
+//
+// 1. **Un buco resta un buco.** La linea si interrompe dove non ci sono
+//    letture. Una riga dritta sopra tre ore di silenzio e' la bugia piu'
+//    facile da disegnare e la piu' difficile da accorgersene.
+// 2. **Due scale indipendenti.** La Bluetti fa centinaia di watt e le Ective
+//    decine: una scala sola farebbe del secondo grafico una riga piatta sul
+//    fondo. E' la stessa ragione gia' scritta in `flusso.js`.
+// 3. **I kWh sotto, non solo i watt.** I watt dicono quanto forte, i kWh
+//    quanto in tutto -- ed e' il secondo che risponde a «quanto mi e' costata
+//    quella notte».
+
+// Il tetto della scala, arrotondato a un numero che si legge: 1, 2 o 5 per
+// una potenza di dieci. Un asse che finisce a 437 W non lo guarda nessuno.
+function scalaTonda(max) {
+  if (!(max > 0)) return 1;
+  const e = 10 ** Math.floor(Math.log10(max));
+  for (const m of [1, 2, 5, 10]) if (max <= m * e) return m * e;
+  return 10 * e;
+}
+
+// I tratti continui: gli indici si spezzano dove manca la lettura.
+function tratti(punti, ha) {
+  const fuori = [];
+  let corso = null;
+  punti.forEach((p, i) => {
+    if (ha(p)) (corso ||= fuori[fuori.push([]) - 1]).push(i);
+    else corso = null;
+  });
+  return fuori;
+}
+
+// Un grafico a bande impilate. `bande` e' dal basso verso l'alto.
+function graficoUscite(punti, bande, ha) {
+  const W = 600, H = 168, SX = 40, DX = 10, SU = 12, GIU = 20;
+  const n = punti.length;
+  if (!n) return '';
+  const tot = p => bande.reduce((a, b) => a + (p[b.campo] || 0), 0);
+  const visti = punti.filter(ha);
+  const cima = scalaTonda(visti.length ? Math.max(...visti.map(tot)) : 0);
+  const px = i => SX + (n === 1 ? 0 : i / (n - 1) * (W - SX - DX));
+  const py = v => H - GIU - (Math.max(0, v) / cima) * (H - GIU - SU);
+
+  const pezzi = tratti(punti, ha).map(run => {
+    if (run.length === 1) {
+      // Una lettura sola in mezzo a due buchi non e' una linea: e' un punto, e
+      // disegnarla come un trattino direbbe che e' durata un intervallo.
+      const i = run[0];
+      return `<circle cx="${px(i).toFixed(1)}" cy="${py(tot(punti[i])).toFixed(1)}" r="2.6"
+        fill="${bande[bande.length - 1].colore}"/>`;
+    }
+    let sotto = run.map(() => 0);
+    const strati = bande.map(b => {
+      const alto = run.map((i, k) => sotto[k] + (punti[i][b.campo] || 0));
+      const su = run.map((i, k) => `${px(i).toFixed(1)},${py(alto[k]).toFixed(1)}`);
+      const giu = run.map((i, k) => `${px(i).toFixed(1)},${py(sotto[k]).toFixed(1)}`).reverse();
+      sotto = alto;
+      return `<polygon points="${su.concat(giu).join(' ')}" fill="${b.colore}" opacity=".30"/>`;
+    }).join('');
+    const linea = run.map((i, k) => `${k ? 'L' : 'M'}${px(i).toFixed(1)},${py(sotto[k]).toFixed(1)}`).join('');
+    return strati + `<path d="${linea}" fill="none" stroke="${bande[bande.length - 1].colore}"
+      stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }).join('');
+
+  const tacca = (v, testo) => `<line class="asse" x1="${SX}" y1="${py(v).toFixed(1)}" x2="${W - DX}" y2="${py(v).toFixed(1)}"/>
+    <text x="${SX - 6}" y="${(py(v) + 3.5).toFixed(1)}" text-anchor="end">${testo}</text>`;
+
+  return `<svg class="grafico" style="height:auto" viewBox="0 0 ${W} ${H}"
+      aria-label="${visti.length ? `massimo ${Math.round(Math.max(...visti.map(tot)))} watt` : 'nessuna lettura nel periodo'}">
+    ${tacca(cima, num(cima, 0) + ' W')}
+    ${tacca(cima / 2, num(cima / 2, 0))}
+    ${tacca(0, '0')}
+    ${pezzi}
+  </svg>`;
+}
+
+const inEnergia = kwh => kwh == null ? { v: '—', u: '' }
+  : kwh < 1 ? { v: num(kwh * 1000, 0), u: 'Wh' }
+  : kwh < 10 ? { v: num(kwh, 2), u: 'kWh' }
+  : { v: num(kwh, 1), u: 'kWh' };
+
+// I tre numeri sotto ogni grafico. Il picco porta con se' la larghezza
+// dell'intervallo: senza, «900 W» sembra un istante, e invece e' una media su
+// mezz'ora -- cioe' un numero piu' basso del picco vero.
+function sottoGrafico(serie, passo, ha) {
+  const buchi = serie.punti.filter(p => !ha(p)).length;
+  const e = inEnergia(serie.kwh);
+  return `<div class="griglia stretta" style="margin-top:12px">
+    <div class="scheda"><div class="eti">Uscita</div>
+      <div class="cifra">${e.v}</div>
+      <div class="sotto">${e.u} nel periodo</div></div>
+    <div class="scheda"><div class="eti">Picco</div>
+      <div class="cifra">${serie.picco_w == null ? '—' : num(serie.picco_w, 0)}</div>
+      <div class="sotto">W &middot; media ${dilloInOre(passo / 60)}</div></div>
+    <div class="scheda"><div class="eti">Senza letture</div>
+      <div class="cifra">${serie.punti.length ? Math.round(buchi / serie.punti.length * 100) : 0}</div>
+      <div class="sotto">% del periodo</div></div>
+  </div>`;
+}
+
+const spiaLegenda = (colore, testo) =>
+  `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">
+    <span style="width:10px;height:10px;border-radius:3px;background:${colore};opacity:.55"></span>${testo}</span>`;
+
 async function vistaStoria() {
   const g = +(localStorage.getItem('giorni') || 7);
-  const s = await api(`/storia?giorni=${g}&grandezza=carica`);
-  const p = s.punti || [];
-  let grafico = '<div class="vuoto" style="padding:30px 0;text-align:center">Nessuna misura ancora. Le letture si accumulano da sole, una ogni quarto d\'ora.</div>';
-  if (p.length > 1) {
-    const t0 = new Date(p[0].quando).getTime(), t1 = new Date(p[p.length - 1].quando).getTime();
-    const W = 600, H = 160, span = Math.max(1, t1 - t0);
-    const px = v => 10 + (new Date(v).getTime() - t0) / span * (W - 20);
-    const py = v => H - 14 - (Math.max(0, Math.min(100, v)) / 100) * (H - 30);
-    const d = p.map((x, i) => `${i ? 'L' : 'M'}${px(x.quando).toFixed(1)},${py(x.valore).toFixed(1)}`).join('');
-    grafico = `<svg class="grafico" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-      <defs><linearGradient id="sfuma" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="var(--ambra)" stop-opacity=".35"/><stop offset="1" stop-color="var(--ambra)" stop-opacity="0"/>
-      </linearGradient></defs>
-      <line class="asse" x1="10" y1="${py(100)}" x2="${W - 10}" y2="${py(100)}"/>
-      <line class="asse" x1="10" y1="${py(50)}" x2="${W - 10}" y2="${py(50)}"/>
-      <line class="asse" x1="10" y1="${py(0)}" x2="${W - 10}" y2="${py(0)}"/>
-      <path class="area" d="${d}L${px(p[p.length - 1].quando).toFixed(1)},${py(0)}L${px(p[0].quando).toFixed(1)},${py(0)}Z"/>
-      <path class="linea" d="${d}"/>
-    </svg>
-    <div class="sotto">dal ${new Date(t0).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} a ${new Date(t1).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${p.length} letture</div>`;
-  }
+  const u = await api(`/storia/uscite?giorni=${g}`);
   const ev = await api('/eventi');
-  return `<div class="titolo">Carica della Bluetti</div>
-    <div class="scheda">
-      <div class="riga" style="padding-top:0">
-        <div class="cresci"><div class="eti">Ultimi giorni</div></div>
-        <select id="giorni" style="width:auto">
-          ${[1, 3, 7, 30, 90].map(x => `<option value="${x}" ${x === g ? 'selected' : ''}>${x} giorn${x === 1 ? 'o' : 'i'}</option>`).join('')}
-        </select>
-      </div>
-      ${grafico}
+  const t0 = u.da ? new Date(u.da) : null, t1 = u.a ? new Date(u.a) : null;
+  const quando = t0 && t1
+    ? `dal ${t0.toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+       a ${t1.toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+       · un punto ogni ${dilloInOre(u.passo_minuti / 60)}`
+    : '';
+
+  const vuoto = `<div class="vuoto" style="padding:26px 0;text-align:center">Nessuna misura in questo periodo.
+    Le letture si accumulano da sole: la Bluetti dal suo cloud, le batterie dalla scatoletta.</div>`;
+
+  const bl = u.bluetti;
+  const hoBl = bl && bl.punti.some(p => p.tot != null);
+  const ec = u.ective;
+  const hoEc = ec && ec.punti.some(p => p.watt != null);
+
+  return `<div class="riga scheda" style="margin-bottom:14px">
+      <div class="cresci"><div class="eti">Ultimi giorni</div>
+        <div class="perche">${quando}</div></div>
+      <select id="giorni" style="width:auto">
+        ${[1, 3, 7, 30, 90].map(x => `<option value="${x}" ${x === g ? 'selected' : ''}>${x} giorn${x === 1 ? 'o' : 'i'}</option>`).join('')}
+      </select>
     </div>
+
+    <div class="titolo">Quanto e’ uscito dalla Bluetti</div>
+    <div class="scheda">
+      ${hoBl ? graficoUscite(bl.punti, [
+          { campo: 'dc', colore: 'var(--carica)' },
+          { campo: 'ac', colore: 'var(--ambra)' },
+        ], p => p.tot != null) + `<div class="sotto" style="margin-top:8px">
+          ${spiaLegenda('var(--ambra)', '220 V')}${spiaLegenda('var(--carica)', '12 V')}</div>`
+        + sottoGrafico(bl, u.passo_minuti, p => p.tot != null)
+        : vuoto}
+    </div>
+
+    <div class="titolo">Quanto e’ uscito dalle batterie</div>
+    <div class="scheda">
+      ${ec == null
+        ? `<div class="vuoto" style="padding:26px 0;text-align:center">Nessuna batteria conosciuta: il pacco si riconosce dalle celle, e nessun apparecchio le ha ancora mandate.</div>`
+        : hoEc ? graficoUscite(ec.punti, [{ campo: 'watt', colore: 'var(--verde)' }], p => p.watt != null)
+            + sottoGrafico(ec, u.passo_minuti, p => p.watt != null)
+          : vuoto}
+      <div class="nota" style="margin-top:10px">Un intervallo conta solo se <b>tutte e due</b> le batterie hanno parlato: con una sola, il consumo sarebbe la meta’ di quello vero e l’autonomia il doppio. Quegli intervalli restano vuoti invece di mentire.</div>
+    </div>
+
     <div class="titolo">Registro</div>
     <div class="scheda">${(ev.eventi || []).length
       ? ev.eventi.slice(0, 30).map(e => `<div class="riga">
