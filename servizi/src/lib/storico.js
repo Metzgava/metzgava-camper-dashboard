@@ -75,6 +75,62 @@ const media = valori => {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 };
 
+// Quanto esce dal pacco, intervallo corto per intervallo corto.
+//
+// E' la parte che non si puo' sbagliare, e sta qui in una funzione sola perche'
+// la usano in due: i grafici della Storia e la media del consumo recente
+// (`consumo.js`). Averla scritta due volte vorrebbe dire due regole che un
+// giorno divergono, su un numero che decide un'autonomia.
+//
+// Tre regole dentro, ciascuna pagata con un difetto vero:
+//
+//   1. **Si somma fra batterie, si media fra istanti.** Due batterie a -3 A
+//      nello stesso minuto sono un pacco a -6 A, non due pacchi.
+//   2. **Un intervallo in cui ha parlato una batteria sola e' un buco**, non
+//      meta' del consumo. Mezzo pacco spacciato per il pacco intero e'
+//      un'autonomia doppia, cioe' l'errore nel verso ottimista.
+//   3. **Il verso si taglia PRIMA di mediare.** Mediare il netto con il segno
+//      fa annullare la scarica della notte con la carica del giorno: il
+//      21/11/2026 i grafici davano 0,35 kWh su novanta giorni e 5,44 su
+//      trenta. Lo stesso errore su un'autonomia la farebbe infinita.
+//
+// Torna i netti **con il segno** oltre ai watt tagliati, perche' chi deve dire
+// «di cui un'ora in carica» ha bisogno di distinguere un intervallo in carica
+// da un intervallo in equilibrio, e il taglio li rende identici.
+export function usciteDelPacco(righe, { da, a, fine, batterie = [] } = {}) {
+  const t0 = new Date(da).getTime();
+  const t1 = new Date(a).getTime();
+  const f = Math.max(1, fine || FINE_MAX);
+  const lf = f * 60000;
+  const quanti = Math.max(0, Math.ceil((t1 - t0) / lf));
+  const pacco = new Set(batterie);
+  const cestini = Array.from({ length: quanti }, () => new Map());
+  let letture = 0;
+
+  for (const r of (righe || [])) {
+    if (r.grandezza !== 'watt' || !pacco.has(r.apparecchio)) continue;
+    const v = num(r.valore);
+    if (v == null) continue;
+    const t = new Date(r.quando).getTime();
+    if (!Number.isFinite(t)) continue;
+    const i = Math.floor((t - t0) / lf);
+    if (i < 0 || i >= quanti) continue;
+    metti(cestini[i], r.apparecchio, v);
+    letture++;
+  }
+
+  // Positivo = dal pacco **esce**, com'e' il netto di `uscitaEctive`.
+  const netti = pacco.size === 0 ? null : cestini.map(c =>
+    ([...pacco].every(b => c.has(b)) ? -sommaDelleMedie(c) : null));
+
+  return {
+    netti,
+    fini: netti && netti.map(v => (v == null ? null : Math.max(0, v))),
+    letture,
+    fine_minuti: f,
+  };
+}
+
 export function serieUscite(righe, { da, a, passo, fine = null, batterie = [] } = {}) {
   const t0 = new Date(da).getTime();
   const t1 = new Date(a).getTime();
@@ -86,11 +142,12 @@ export function serieUscite(righe, { da, a, passo, fine = null, batterie = [] } 
   const quantiF = Math.max(0, Math.ceil((t1 - t0) / lf));
   const quanti = Math.max(0, Math.ceil((t1 - t0) / (passo * 60000)));
 
+  // Solo i due lati della Bluetti: il pacco lo raccoglie `usciteDelPacco`,
+  // che e' la stessa funzione usata dalla media del consumo recente.
   const cestini = Array.from({ length: quantiF }, () => ({
-    ac: new Map(), dc: new Map(), ba: new Map(),
+    ac: new Map(), dc: new Map(),
   }));
-  let letteBl = 0, letteBa = 0;
-  const pacco = new Set(batterie);
+  let letteBl = 0;
 
   for (const r of (righe || [])) {
     const v = num(r.valore);
@@ -103,23 +160,20 @@ export function serieUscite(righe, { da, a, passo, fine = null, batterie = [] } 
     if (dove) {
       metti(cestini[i][dove], r.apparecchio, v);
       letteBl++;
-    } else if (r.grandezza === 'watt' && pacco.has(r.apparecchio)) {
-      // Il filtro non e' per bellezza: `watt` e' una grandezza di tutti, e il
-      // solare dentro il pacco sarebbe un numero falso.
-      metti(cestini[i].ba, r.apparecchio, v);
-      letteBa++;
     }
   }
 
   // --- primo livello: il righello corto ---
   const finiAc = cestini.map(c => (c.ac.size ? sommaDelleMedie(c.ac) : null));
   const finiDc = cestini.map(c => (c.dc.size ? sommaDelleMedie(c.dc) : null));
-  // Se in un intervallo ha parlato una batteria sola, quell'intervallo e' un
-  // **buco**, non meta' del consumo: meta' pacco spacciato per il pacco intero
-  // e' un'autonomia doppia, ed e' il solo errore che fa restare fermi una
-  // notte in piu' contando su ore che non ci sono.
-  const finiEc = pacco.size === 0 ? null : cestini.map(c =>
-    ([...pacco].every(b => c.ba.has(b)) ? Math.max(0, -sommaDelleMedie(c.ba)) : null));
+  // Le uscite del pacco le fa `usciteDelPacco` qui sopra, con le tre regole
+  // scritte accanto a lei: una funzione sola, perche' la usa anche la media
+  // del consumo recente e due copie di quelle regole un giorno divergono.
+  // Il filtro su `watt` e sugli apparecchi del pacco e' dentro di lei, e non
+  // e' per bellezza: `watt` e' una grandezza di tutti, e il solare contato
+  // dentro il pacco sarebbe un numero falso.
+  const { fini: finiEc, letture: letteBa } = usciteDelPacco(
+    righe, { da, a, fine: f, batterie });
 
   // --- secondo livello: quel che si disegna ---
   const fetta = (fini, k) => fini.slice(k * dentro, (k + 1) * dentro);
