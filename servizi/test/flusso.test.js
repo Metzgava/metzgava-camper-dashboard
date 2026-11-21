@@ -134,17 +134,98 @@ test('senza letture non si disegna niente, come prima', () => {
 });
 
 test('una fonte che produce mentre nelle batterie non entra niente si vede', () => {
-  // Il caso vero del 19/11: i pannelli davano sei watt e le Ective, piene,
-  // non ne prendevano. Quella corrente non sparisce: va ai consumi del
-  // camper. Il numero della fonte resta, il ramo no.
+  // Il caso vero del 19/11: i pannelli davano sei watt e le Ective non ne
+  // prendevano. Quella corrente non sparisce: va ai consumi del camper. Il
+  // numero della fonte resta, il ramo no.
   const fuori = ramiDellaCarica({ valore: null, sole_w: 6, motore_w: 0, rete_w: null },
                                 { letture: true });
   const sole = fuori.rami.find(r => r.id === 'sole');
   assert.equal(sole.watt, 6, 'il sole produce sei watt e va scritto');
   assert.equal(sole.attivo, false, 'ma nelle batterie non sta entrando');
-  assert.equal(fuori.altrove, true, 'la pagina deve poter dire dove va');
+  // La pagina deve poter dire dove va. Senza la carica e senza il consumo non
+  // puo' dire **perche'**: e' «non so», non «sono gia' cariche».
+  assert.equal(fuori.spiegazione, 'non_so');
 });
 
-test('quando entra corrente non c’e’ niente da dire sull’altrove', () => {
-  assert.notEqual(ramiDellaCarica(fonti(6, 0, 1)).altrove, true);
+test('quando entra corrente non c’e’ niente da spiegare', () => {
+  assert.equal(ramiDellaCarica(fonti(6, 0, 1)).spiegazione, null);
+});
+
+// ---------------------------------------------------------------------------
+// I tre stati della spiegazione
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-21-potenza-netta-ective-design.md
+//
+// Qui c'era un booleano, `altrove`, e la pagina ne ricavava **una frase sola**:
+// «sono gia' cariche, e quella corrente sta andando ai consumi». Il 21/11/2026
+// il proprietario ha letto quella frase con le Ective al 95 % e 98 %: non
+// erano cariche, si stavano scaricando, e il sole copriva una parte dei
+// consumi. Un errore nel verso ottimista, il solo che faccia danno.
+
+// Le fonti producono e nelle batterie non entra niente: `valore` e' lo zero
+// **misurato** che `conti.js` da' da quando i due versi vengono dallo stesso
+// netto.
+const niente = sole => ({ valore: 0, sole_w: sole, motore_w: 0, rete_w: null,
+                          base: 'misurato' });
+
+test('pacco pieno e fermo: lo stato e’ «piene»', () => {
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: 2, carica: 100 });
+  assert.equal(f.spiegazione, 'piene');
+});
+
+test('pacco che si scarica mentre le fonti producono: lo stato e’ «scarica»', () => {
+  // Il caso vero del 21/11/2026: 8 W dal sole, Ective a 95 e 98, in scarica.
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: 37, carica: 96.5 });
+  assert.equal(f.spiegazione, 'scarica');
+});
+
+test('senza la carica non si attribuisce una causa', () => {
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: 37, carica: null });
+  assert.equal(f.spiegazione, 'non_so');
+});
+
+test('senza il consumo non si attribuisce una causa', () => {
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: null, carica: 100 });
+  assert.equal(f.spiegazione, 'non_so');
+});
+
+test('i quattro watt del riposo non fanno «scarica»', () => {
+  // Servono DUE soglie, non una. Un pacco davvero pieno non legge zero: il
+  // 16/11/2026 il proprietario ha misurato -0,29 A a riposo, cioe' ~3,8 W che
+  // escono. Con «non esce niente» inteso come zero esatto, «piene» non
+  // sarebbe scattato mai e la soglia sulla carica non avrebbe deciso niente.
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: 3.8, carica: 100 });
+  assert.equal(f.spiegazione, 'piene');
+});
+
+test('carica alta ma non piena, con consumo vero: «scarica»', () => {
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: 30, carica: 96 });
+  assert.equal(f.spiegazione, 'scarica');
+});
+
+test('pacco pieno che perde trenta watt: «scarica», non «piene»', () => {
+  // La carica alta da sola non basta: un pacco pieno che si sta svuotando a
+  // trenta watt si sta svuotando.
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: 30, carica: 100 });
+  assert.equal(f.spiegazione, 'scarica');
+});
+
+test('nessuna fonte che produce: non c’e’ un altrove da spiegare', () => {
+  // Resta il caso della pagina di oggi: «non e' un guasto, e' quel che
+  // succede a motore spento, senza sole e senza 220». Quella frase la scrive
+  // app.js quando nessun ramo e' attivo, e non ha bisogno di uno stato.
+  const f = ramiDellaCarica({ valore: 0, sole_w: 0, motore_w: 0, rete_w: null },
+                            { letture: true, consumo: 37, carica: 96 });
+  assert.equal(f.spiegazione, null);
+});
+
+test('la spiegazione si calcola anche a figura ferma: e’ il tempo del verbo che cambia', () => {
+  // Il vecchio `altrove` si spegneva quando la figura era ferma, e la pagina
+  // ricadeva su «nessuna fonte sta caricando» -- un'affermazione al presente
+  // su letture di un'ora prima. Lo stato resta, e chi scrive la frase sa dal
+  // campo `ferma` che non va detta al presente.
+  const f = ramiDellaCarica(niente(8), { letture: true, consumo: 37, carica: 96, minuti: 90 });
+  assert.equal(f.ferma, true);
+  assert.equal(f.spiegazione, 'scarica');
 });

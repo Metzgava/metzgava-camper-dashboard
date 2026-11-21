@@ -62,6 +62,33 @@ export const SOGLIA_W = 5;
 // verita'.
 export const RIFERIMENTO_USCITA_W = 300;
 
+// Le due soglie che decidono se il pacco si puo' chiamare **pieno**.
+//
+// Disegno: docs/superpowers/specs/2026-11-21-potenza-netta-ective-design.md
+//
+// Servono tutte e due, e la seconda e' quella che il primo disegno aveva
+// mancato. Il 21/11/2026 la pagina scriveva «sono gia' cariche» con i
+// quadranti al 95 % e 98 %: la carica, da sola, era la soglia che mancava. Ma
+// con la sola carica il conto non sarebbe scattato mai, perche' **un pacco
+// davvero pieno non legge zero**: a riposo il proprietario ha misurato -0,29 A
+// il 16/11/2026, cioe' circa 3,8 W che escono. Chiedere «esce esattamente
+// zero» vuol dire non chiamare mai pieno niente.
+//
+// `CARICA_PIENA_PCT`: il proprietario ha letto 95 e 98 e non le ha chiamate
+// piene. Una LiFePO4 in mantenimento sta sopra il 99 %.
+//
+// `USCITA_FERMA_W`: sopra i 3,8 W misurati a riposo, e sotto qualunque
+// apparecchio vero -- Starlink da solo ne prende diciotto. **Non e'
+// `SOGLIA_W`**: quella decide se *animare* un ramo, e qui sopra c'e' scritto
+// che per le Ective non vale. Questa decide quale *frase* dire, e sono due
+// mestieri diversi.
+//
+// E non nasconde niente: i watt in uscita restano scritti tali e quali
+// accanto al loro ramo. E' solo la parola «piene» che tollera i quattro watt
+// del riposo.
+export const CARICA_PIENA_PCT = 99;
+export const USCITA_FERMA_W = 6;
+
 // Le stesse di `travaso.js`, e per le stesse ragioni gia' scritte li'. Qui si
 // ripetono i nomi e non i numeri: una soglia che vive in due posti con due
 // valori diversi e' il modo di far dire a due parti della pagina cose
@@ -183,7 +210,8 @@ function numero(v) {
 export const FERMA_DOPO_MINUTI = 30;
 
 export function ramiDellaCarica(fonti, { letture = false, bluetti = null,
-                                         minuti = null, consumo = null } = {}) {
+                                         minuti = null, consumo = null,
+                                         carica = null } = {}) {
   // Un disegno che si muove su dati vecchi mente meglio di un numero fermo: i
   // puntini che scorrono dicono «sta entrando corrente **adesso**» con piu'
   // forza di quanta ne abbia uno zero immobile. Quindi oltre la mezz'ora i
@@ -232,7 +260,24 @@ export function ramiDellaCarica(fonti, { letture = false, bluetti = null,
   // corrente non sparisce, va ai consumi del camper. Il numero della fonte
   // resta scritto, il ramo no -- e la pagina puo' dire dove sta andando,
   // invece di lasciare un sei watt senza spiegazione accanto a uno zero.
-  const altrove = totale <= 0 && rami.some(r => (r.watt ?? 0) > 0);
+  //
+  // **Ma non basta sapere che va altrove: bisogna sapere perche'.** Fino al
+  // 21/11/2026 questo era un booleano e la pagina ne ricavava una frase sola,
+  // «sono gia' cariche». Sono due situazioni opposte:
+  //
+  //   - il pacco e' **pieno** e il caricatore si fa da parte: tutto bene, quei
+  //     watt vanno ai consumi e non servivano alle batterie;
+  //   - il pacco **si sta scaricando** e le fonti non bastano a coprire i
+  //     consumi: il sole paga una parte e il resto lo pagano le batterie, che
+  //     si svuotano.
+  //
+  // Dire la prima mentre succede la seconda e' un errore nel verso ottimista.
+  const produce = rami.some(r => (r.watt ?? 0) > 0);
+  const nonEntra = totale <= 0;
+  const spiegazione = !produce || !nonEntra ? null
+    : carica == null || consumo == null ? 'non_so'
+      : carica >= CARICA_PIENA_PCT && consumo < USCITA_FERMA_W ? 'piene'
+        : 'scarica';
 
   // Il ramo della 220 dice da dove viene, quando si puo' sapere. La
   // **quantita'** resta una sottrazione: sapere da dove viene non la rende
@@ -285,8 +330,12 @@ export function ramiDellaCarica(fonti, { letture = false, bluetti = null,
     }
   }
 
-  const fuori = { totale, rami, uscita };
-  if (altrove && !ferma) fuori.altrove = true;
+  // Lo stato si da' **anche a figura ferma**, al contrario del vecchio
+  // `altrove` che si spegneva: con quello, una pagina ferma ricadeva su
+  // «nessuna fonte sta caricando», che e' un'affermazione al presente su
+  // letture di un'ora prima. Lo stato dice cos'era; il campo `ferma`, accanto,
+  // dice a chi scrive la frase che non la deve mettere al presente.
+  const fuori = { totale, rami, uscita, spiegazione };
   if (ferma) fuori.ferma = true;
   return fuori;
 }
