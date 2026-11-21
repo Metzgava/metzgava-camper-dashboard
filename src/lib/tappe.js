@@ -38,3 +38,37 @@ export function tappeDaPercorso(percorso) {
       pedaggio_km: Number.isFinite(+t.pedaggio_km) ? +t.pedaggio_km : null,
     }));
 }
+
+// Quali numeri prende una tappa quando le si applica una strada.
+//
+// Disegno: docs/superpowers/specs/2026-11-21-strada-ricostruita-design.md
+//
+// **CarLock misura i chilometri e il tempo; la strada no.** Manda solo
+// partenza e arrivo, e la riga sulla mappa e' sempre una ricostruzione: fra le
+// strade possibili si prende quella che misura quanto i chilometri veri.
+//
+// Fino al 21/11/2026 non era cosi' nel salvataggio di una tappa: aprendo
+// «Modifica» la pagina mostra le strade possibili, e toccarne una scriveva i
+// chilometri e la durata **della variante** al posto di quelli del tracker.
+// Due tocchi, e la misura era persa -- con lei il gasolio, i totali del
+// viaggio e il costo al km. Non e' una cosa che si nota: i numeri restano
+// plausibili, solo non sono piu' quelli veri.
+//
+// Il pedaggio invece **segue la strada**, perche' dipende da lei e CarLock non
+// lo misura. E' la distinzione che conta: si protegge quel che e' misurato,
+// non tutto quel che e' scritto.
+export function numeriDellaTappa(tappa, strada) {
+  if (!strada) {
+    return { distance_km: tappa?.distance_km ?? null, duration_min: tappa?.duration_min ?? null,
+             geometry: tappa?.geometry ?? null, pedaggio_km: tappa?.pedaggio_km ?? null };
+  }
+  const dalTracker = tappa?.source === 'carlock';
+  return {
+    distance_km: dalTracker ? tappa.distance_km : strada.distance_km,
+    duration_min: dalTracker ? tappa.duration_min : strada.duration_min,
+    geometry: strada.geometry,
+    // `null` e non `0`: un percorso che non dice niente sui pedaggi non sta
+    // dicendo che non ce ne sono.
+    pedaggio_km: strada.pedaggio_km ?? null,
+  };
+}

@@ -5,6 +5,7 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
+import { numeriDellaTappa } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
@@ -766,7 +767,15 @@ router.put('/legs/:id', wrap(async (req, res) => {
       geo = await tragittoTappa(m.mezzo, b.from || { lat: cur.from_lat, lon: cur.from_lon }, b.to || { lat: cur.to_lat, lon: cur.to_lon },
         { ...b, distance_km: b.distance_km ?? (cambiaMezzo ? null : cur.distance_km), start_time: m.start_time, end_time: m.end_time });
     }
-  } else if (scelto) geo = scelto;
+  // Scegliere una strada cambia **il disegno**. Su una tappa CarLock i
+  // chilometri e la durata restano quelli del tracker: fino al 21/11/2026
+  // bastavano due tocchi in «Modifica» per sostituirli con quelli della
+  // variante, e con loro se ne andavano il gasolio e i totali del viaggio.
+  // La regola sta in `numeriDellaTappa`, dove girano le prove.
+  } else if (scelto) geo = numeriDellaTappa(cur, scelto);
+  // Qui invece si ricalcola e basta: se i due capi si sono spostati, i
+  // chilometri del tracker descrivono un'altra tappa e tenerli sarebbe
+  // peggio che rifarli.
   else if (changedPts || cambiaMezzo) { const r = await route(b.from || { lat: cur.from_lat, lon: cur.from_lon }, b.to || { lat: cur.to_lat, lon: cur.to_lon }); geo = r; }
   // I chilometri di autostrada: quelli scritti a mano comandano, poi quelli
   // della strada appena scelta, altrimenti restano quelli che c'erano
