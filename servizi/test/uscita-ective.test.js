@@ -147,3 +147,48 @@ test('una batteria sola non ha uno scarto, e non sapere non e’ «lontane»', (
     batt(12.8, -5, { quando: null }),
   ]).scarto_minuti, null);
 });
+
+// ---------------------------------------------------------------------------
+// Il netto con il segno
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-21-potenza-netta-ective-design.md
+//
+// Il netto lo calcolava gia' questa funzione, e lo buttava con un `max(0, ...)`
+// quando era negativo -- cioe' proprio quando serviva all'altro verso. Il
+// 21/11/2026 il proprietario ha letto le Ective al 95 e 98 % con la pagina che
+// diceva «sono gia' cariche»: la causa era `sommaPos`, che del verso opposto
+// non sapeva niente perche' questo numero non usciva da qui.
+
+test('il netto esce con il segno: negativo quando nel pacco ENTRA corrente', () => {
+  const u = uscitaEctive([batt(13.1, 6), batt(13.1, 4)]);
+  assert.ok(u.netto < 0, `netto = ${u.netto}`);
+  assert.ok(Math.abs(u.netto + 13.1 * 10) < 0.01, `netto = ${u.netto}`);
+  // E «esce» resta zero: il verso in uscita non si muove di un watt.
+  assert.equal(u.watt, 0);
+});
+
+test('il netto e’ positivo quando dal pacco ESCE corrente, e coincide con «esce»', () => {
+  const u = uscitaEctive([batt(13.1, -6), batt(13.1, -4)]);
+  assert.ok(Math.abs(u.netto - 13.1 * 10) < 0.01, `netto = ${u.netto}`);
+  assert.ok(Math.abs(u.watt - 13.1 * 10) < 0.01, `watt = ${u.watt}`);
+});
+
+test('senza letture il netto e’ null, non zero', () => {
+  // La regola della casa: `0` e' uno zero che si conosce, `null` e' non
+  // sapere. Uno zero qui direbbe «il pacco e' in equilibrio» a pacco muto.
+  assert.equal(uscitaEctive([]).netto, null);
+  assert.equal(uscitaEctive([]).carica_pacco, null);
+});
+
+test('la carica del pacco e’ la media di quelle dichiarate', () => {
+  // Il caso vero del 21/11/2026: 95 e 98. Serve alla figura per poter dire
+  // «piene» soltanto quando lo sono davvero.
+  const u = uscitaEctive([batt(13.1, -6, { dati: { carica: 95 } }),
+                          batt(13.1, -4, { dati: { carica: 98 } })]);
+  assert.ok(Math.abs(u.carica_pacco - 96.5) < 0.01, `carica = ${u.carica_pacco}`);
+});
+
+test('se nessuna batteria dichiara la carica, la carica del pacco e’ null', () => {
+  assert.equal(uscitaEctive([batt(13.1, -6), batt(13.1, -4)]).carica_pacco, null);
+});

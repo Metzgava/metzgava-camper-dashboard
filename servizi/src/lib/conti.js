@@ -100,7 +100,8 @@ export function uscitaEctive(righe) {
                  quando: r.quando }))
     .filter(b => b.volt != null && b.ampere != null);
 
-  const vuoto = { watt: null, ampere: null, residuo_wh: null, ore: null,
+  const vuoto = { watt: null, ampere: null, netto: null, carica_pacco: null,
+                  residuo_wh: null, ore: null,
                   lette: 0, totali: batterie.length, scarto_minuti: null,
                   per_batteria: [] };
   if (!con.length) return vuoto;
@@ -114,6 +115,20 @@ export function uscitaEctive(righe) {
   // riservato al non sapere, cioe' a nessuna lettura.
   const watt = Math.max(0, netto);
   const ampere = Math.max(0, -con.reduce((s, b) => s + b.ampere, 0));
+
+  // La carica del pacco, per chi deve decidere se chiamarlo **pieno**.
+  //
+  // Serve alla figura, e non e' un vezzo: il 21/11/2026 la pagina scriveva
+  // «sono gia' cariche» mentre i due quadranti dicevano 95 % e 98 %. Senza
+  // questo numero la figura non aveva modo di sapere che stava mentendo.
+  //
+  // Media semplice e non pesata sulla capacita': le due Ective sono gemelle,
+  // e pesare per una capacita' che una delle due puo' non dichiarare
+  // introdurrebbe un `null` dove serve un numero.
+  const conCarica = con.filter(b => b.carica != null);
+  const carica_pacco = conCarica.length
+    ? conCarica.reduce((s, b) => s + b.carica, 0) / conCarica.length
+    : null;
 
   // I Wh residui coi volt **misurati** adesso, non coi 12,8 nominali della
   // tabella dell'impianto: la tensione la si sta leggendo, sarebbe sciocco non
@@ -141,6 +156,12 @@ export function uscitaEctive(righe) {
   return {
     watt,
     ampere,
+    // Il netto con il segno: positivo quando dal pacco **esce** corrente,
+    // negativo quando ne **entra**. `watt` qui sopra e' questo numero tagliato
+    // a zero, e fino al 21/11/2026 il taglio buttava via la meta' negativa --
+    // cioe' esattamente il verso che serviva all'altra parte della pagina.
+    netto,
+    carica_pacco,
     residuo_wh,
     scarto_minuti,
     // Niente in uscita, nessuna autonomia da dare -- e nemmeno un infinito,
