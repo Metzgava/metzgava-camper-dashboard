@@ -101,7 +101,8 @@ async function viewViaggio(id) {
   const rigaTappa = (l, i) => `<div class="step"><div class="ordine"><div class="n">${i + 1}</div></div><div class="grow">
       <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div>
         <div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
-      <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + esc(l.start_time) + '–' + esc(l.end_time || '') : ''}</div></div></div>`;
+      <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + esc(l.start_time) + '–' + esc(l.end_time || '') : ''}</div>
+      ${l.source === 'carlock' ? `<div class="small muted">\u2022 \u2022 \u2022 Chilometri e orari <b>veri</b>, strada <b>ricostruita</b>: chi ha guidato ha registrato quanto, non per dove.</div>` : ''}</div></div>`;
 
   const rigaSosta = s => {
     const n = notti(s.from_date, s.to_date);
