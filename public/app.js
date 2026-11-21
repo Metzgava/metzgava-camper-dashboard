@@ -1671,8 +1671,10 @@ function disegnaGiro(d) {
   const legs = d.legs || [];
   legs.forEach((l, i) => {
     const g = tragittoDisegnato(l);
-    L.polyline(g, { color: COLORE_CAMPER, weight: 5, opacity: .9 }).addTo(map)
+    L.polyline(g, { color: COLORE_CAMPER, weight: 5, opacity: .9,
+      ...(stradaDedotta(l) ? { dashArray: TRATTO_RICOSTRUITO } : {}) }).addTo(map)
       .bindPopup(`<b>Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}`
+        + (stradaDedotta(l) ? '<br><i>strada ricostruita: il tracker misura i chilometri, non la strada</i>' : '')
         + (l.date ? `<br>${fdate(l.date)}` : l.giorno ? `<br>giorno ${l.giorno}` : ''));
     L.marker([l.from_lat, l.from_lon], { icon: pin(COLORE_CAMPER, i + 1) }).addTo(map).bindPopup(esc(l.from_name));
     if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(map).bindPopup(esc(l.to_name));
@@ -2929,7 +2931,8 @@ function mappaDelViaggio(el, d, opz = {}) {
     // perche' quella non e' una strada che si puo' percorrere
     const suGomma = inCamper(l);
     const suoStrato = strato(suGomma ? 'camper' : 'altri');
-    L.polyline(g, suGomma ? { color: COLORE_CAMPER, weight: 5, opacity: .85 }
+    L.polyline(g, suGomma ? { color: COLORE_CAMPER, weight: 5, opacity: .85,
+        ...(stradaDedotta(l) ? { dashArray: TRATTO_RICOSTRUITO } : {}) }
       : { color: COLORE_ALTRI_MEZZI, weight: 4, opacity: .9, dashArray: '10 8' })
       .addTo(suoStrato).bindPopup(`<b>${suGomma ? '' : MEZZI[mezzoDi(l)][0] + ' '}Tappa ${i + 1}</b><br>${esc(l.from_name.split(',')[0])} → ${esc(l.to_name.split(',')[0])}<br>${num(l.distance_km)} km · ${dur(l.duration_min * 60)}${l.compagnia || l.codice ? `<br>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}` : ''}${l.start_time ? `<br>${esc(l.start_time)}–${esc(l.end_time || '')}` : ''}`);
     L.marker([l.from_lat, l.from_lon], { icon: pin('#0f766e', i + 1) }).addTo(suoStrato).bindPopup(esc(l.from_name));
@@ -4556,6 +4559,24 @@ const COLORE_CAMPER = '#0f766e';
 // Le tappe fatte con un mezzo altrui: un colore solo per tutte, tanto a dire
 // quale mezzo e' ci pensa l'icona nel riquadro che si apre
 const COLORE_ALTRI_MEZZI = '#6366f1';
+// Il tratto di una strada **ricostruita**: una tappa di CarLock, dove i
+// chilometri e gli orari sono veri ma la strada no -- il tracker manda solo
+// partenza e arrivo, e la riga fra i due la sceglie il navigatore.
+//
+// A punti e non a trattini perche' il tratteggio e' gia' occupato sei volte su
+// questa mappa: quattro tracce di atleti (`TRATTI`), il traghetto e l'aereo
+// (`10 8`), le strade alternative fuori mappa (`8 7`). Un settimo significato
+// che riusasse un tratto gia' preso non sarebbe una spiegazione.
+//
+// `2 7` e' lo stesso tratto che l'altra app di questo progetto usa per il ramo
+// **dedotto** della figura delle batterie: un vocabolario solo per due
+// programmi vale piu' di due vocabolari coerenti ciascuno con se'.
+//
+// Il colore resta quello del camper, perche' la tappa e' su gomma: sono i
+// punti a dire che la strada non l'ha misurata nessuno.
+const TRATTO_RICOSTRUITO = '2 7';
+// Una tappa la cui strada e' dedotta: CarLock misura quanto, non per dove.
+const stradaDedotta = l => l?.source === 'carlock';
 const COLORI_SPORT = {
   'Bicicletta': '#2563eb',
   'Escursione': '#16a34a',
