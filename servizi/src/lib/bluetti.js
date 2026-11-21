@@ -317,6 +317,49 @@ async function rinnovaEVerifica(rinnovo) {
 //
 // `avviso` e non `errore`: la pagina su `errore` sostituisce il manometro con
 // un rettangolo rosso, ed e' esattamente quel che non si vuole.
+// Oltre questa eta' uno zero non si mostra piu' come zero.
+//
+// Disegno: docs/superpowers/specs/2026-11-21-zero-vecchio-design.md
+//
+// Il ritmo di lettura e' un giro al minuto (`RESPIRO` qui sopra), quindi
+// cinque minuti sono cinque letture perse: abbastanza da non far lampeggiare
+// la pagina per un giro saltato, abbastanza poco da non raccontare per venti
+// minuti che il 220 e' chiuso mentre e' aperto.
+//
+// **Non e' `FERMA_DOPO_MINUTI`**, che e' mezz'ora: quella ferma le
+// *animazioni*, e riguarda il movimento. Questa riguarda il **numero**, ed e'
+// per forza molto piu' corta.
+export const ZERI_VECCHI_DOPO_MINUTI = 5;
+
+// Le quattro potenze, e **non la carica**: uno zero di carica non e' un caso
+// reale sulla Bluetti, e una regola applicata dove non serve e' soltanto un
+// posto in piu' dove sbagliare.
+const POTENZE = ['fotovoltaico_w', 'rete_w', 'uscita_ac_w', 'uscita_dc_w'];
+
+// Uno zero vecchio **non e' un valore vecchio: e' un'affermazione vecchia**, e
+// l'affermazione e' «non sta succedendo niente».
+//
+// Un 436 W di cinque minuti fa si legge subito per quel che e' -- un numero
+// grosso con un'eta' accanto si capisce. Uno zero no: lo zero non sembra un
+// numero, sembra lo stato del mondo, e letto accanto a un ramo grigio e
+// immobile dice «niente» con piu' forza di quanta ne abbia la riga piccola che
+// lo smentisce. Il 19 e il 21/11/2026 ha vinto due volte su quella riga, con
+// la Bluetti che erogava quattrocento watt.
+//
+// Qui dentro `—` vuol dire «non so» e `0` vuol dire «uno zero che conosco».
+// Uno zero che ha saltato cinque letture non lo conosciamo piu'.
+//
+// I valori **diversi da zero** restano, con la loro eta' come prima: quelli si
+// leggono gia' per quel che sono.
+function senzaZeriVecchi(dati, minuti) {
+  if (!dati || minuti < ZERI_VECCHI_DOPO_MINUTI) return dati;
+  const fuori = { ...dati };
+  for (const k of POTENZE) {
+    if (fuori[k] != null && Number(fuori[k]) === 0) fuori[k] = null;
+  }
+  return fuori;
+}
+
 async function ultimaBuona(avviso) {
   const r = await q(`SELECT apparecchio, dati, quando FROM istantanee
                      WHERE fonte='bluetti' ORDER BY quando DESC`);
@@ -333,7 +376,8 @@ async function ultimaBuona(avviso) {
     vecchia: true,
     minuti,
     avviso,
-    apparecchi: r.rows.map(x => x.dati).filter(Boolean),
+    apparecchi: r.rows.map(x => x.dati).filter(Boolean)
+      .map(d => senzaZeriVecchi(d, minuti)),
   };
   // In cache come una lettura buona: le aperture di pagina del minuto
   // successivo non toccano nemmeno la rete. Senza questo, ogni cambio di

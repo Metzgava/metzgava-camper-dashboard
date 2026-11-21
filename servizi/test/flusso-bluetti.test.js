@@ -96,3 +96,46 @@ test('spessore e velocita’ restano nei limiti con numeri assurdi', () => {
 test('una potenza negativa non e’ un ramo attivo', () => {
   assert.equal(ramo(ramiDellaBluetti(b({ uscita_ac_w: -200 })).uscita, 'ac').attivo, false);
 });
+
+// ---------------------------------------------------------------------------
+// Quando gli zeri vecchi sono stati togliuti
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-21-zero-vecchio-design.md
+//
+// Oltre cinque minuti `bluetti.js` porta a `null` le potenze che valevano
+// zero: uno zero che ha saltato cinque letture non lo conosciamo piu'. Qui si
+// chiude l'anello -- la figura deve disegnarli **ignoti**, cioe' lo stato che
+// sapeva gia' fare, e non spenti.
+//
+// La differenza si vede e conta: un ramo spento dice «qui non passa niente»,
+// un ramo ignoto dice «non lo so». Il 19 e il 21/11/2026 la Bluetti erogava
+// quattrocento watt e la figura mostrava rami spenti.
+
+test('potenze a «non so»: i rami sono IGNOTI, non spenti', () => {
+  const f = ramiDellaBluetti(b({ carica: 100, fotovoltaico_w: null, rete_w: null,
+                                 uscita_ac_w: null, uscita_dc_w: null }));
+  for (const lato of [f.entrata, f.uscita]) {
+    for (const r of lato.rami) {
+      assert.equal(r.ignoto, true, `${r.id} non e’ ignoto`);
+      assert.equal(r.attivo, false);
+      assert.equal(r.watt, null, `${r.id} ha un numero che non dovrebbe avere`);
+    }
+  }
+  // E la carica resta: la regola degli zeri vecchi non la tocca, perche' uno
+  // zero di carica non e' un caso reale sulla Bluetti.
+  assert.equal(f.carica, 100);
+});
+
+test('uno zero conosciuto resta un ramo SPENTO, non ignoto', () => {
+  // La distinzione e' tutta qui, e deve reggere nei due versi.
+  const f = ramiDellaBluetti(b({ carica: 100, fotovoltaico_w: 0, rete_w: 0,
+                                 uscita_ac_w: 0, uscita_dc_w: 0 }));
+  for (const lato of [f.entrata, f.uscita]) {
+    for (const r of lato.rami) {
+      assert.notEqual(r.ignoto, true, `${r.id} e’ ignoto e invece lo sappiamo`);
+      assert.equal(r.attivo, false);
+      assert.equal(r.watt, 0);
+    }
+  }
+});

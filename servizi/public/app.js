@@ -80,11 +80,30 @@ const bollo = base => `<span class="bollo ${base}">${BOLLI[base] || base}</span>
 // apparecchio acceso che non fa niente consuma qualche watt, e non e' una
 // scarica.
 const VERSO_W = 5;
+
+// Una somma che torna **`null` quando non sa niente**, invece di zero.
+//
+// Un `b.rete_w || 0` su quattro «non so» da' uno zero, e uno zero in pagina
+// afferma: «non sta succedendo niente». Da quando `bluetti.js` toglie gli
+// zeri vecchi -- oltre cinque minuti una potenza a zero diventa `null` --
+// quella somma rimetteva in pagina esattamente l'affermazione appena togliuta.
+//
+// Se **almeno uno** dei pezzi si conosce, la somma si fa su quelli: e' un
+// numero parziale ma vero, e i pezzi stanno scritti sotto, ciascuno col suo
+// `—` o col suo valore.
+const somma = (...v) => (v.every(x => x == null)
+  ? null
+  : v.reduce((s, x) => s + (x || 0), 0));
+
 function versoBluetti(b) {
   if (!b) return null;
-  const dentro = (b.fotovoltaico_w || 0) + (b.rete_w || 0);
-  const fuori = (b.uscita_ac_w || 0) + (b.uscita_dc_w || 0);
-  const netto = dentro - fuori;
+  const dentro = somma(b.fotovoltaico_w, b.rete_w);
+  const fuori = somma(b.uscita_ac_w, b.uscita_dc_w);
+  // Senza nessuno dei quattro numeri non c'e' un verso da dichiarare: la
+  // lancetta resta ferma e nera, che qui vuol dire «ferma davvero» -- e
+  // dichiarare «carica» o «scarica» su niente sarebbe peggio di tacere.
+  if (dentro == null && fuori == null) return null;
+  const netto = (dentro || 0) - (fuori || 0);
   return netto > VERSO_W ? 'carica' : netto < -VERSO_W ? 'scarica' : null;
 }
 
@@ -287,8 +306,8 @@ function vistaAdesso() {
   const err = dati.bluetti?.errore;
   const c = dati.conti || {};
 
-  const dentro = b ? (b.fotovoltaico_w || 0) + (b.rete_w || 0) : null;
-  const fuori = b ? (b.uscita_ac_w || 0) + (b.uscita_dc_w || 0) : null;
+  const dentro = b ? somma(b.fotovoltaico_w, b.rete_w) : null;
+  const fuori = b ? somma(b.uscita_ac_w, b.uscita_dc_w) : null;
   // L'eta' va scritta **accanto al numero**, non solo nella fascia sopra. Il
   // 19/11/2026 la Bluetti e' rimasta ferma sei minuti su una lettura presa un
   // istante prima che il 220 venisse acceso: quadrante al 100%, entra 0,
@@ -535,7 +554,8 @@ function catena() {
       ${riga('Arriva alle Ective', f.rete_w == null ? '<span class="vuoto">—</span>' : num(f.rete_w, 0) + ' W', 'solo la parte che viene dalla 220')}
       ${riga('Ne arriva', (k.valore == null ? '<span class="vuoto">—</span>' : num(k.valore, 0) + ' %') + ' ' + bollo(k.base || 'incompleto'), esc(k.perche || ''))}
       ${f.valore != null ? `<div class="perche" style="margin-top:8px">Nelle Ective entrano <b>${num(f.valore, 0)} W</b> in tutto:
-        ${num(f.sole_w || 0, 0)} dal sole, ${num(f.motore_w || 0, 0)} dall’alternatore, ${num(f.rete_w || 0, 0)} dalla 220.</div>` : ''}
+        ${forse(f.sole_w, '')} dal sole, ${forse(f.motore_w, '')} dall’alternatore, ${forse(f.rete_w, '')} dalla 220.
+        <br>Il ramo della 220 si ottiene <b>per differenza</b>: quando nelle batterie non entra niente, quella differenza non esiste e resta <span class="vuoto">—</span>, non zero.</div>` : ''}
       <div class="nota" style="margin-top:8px">La differenza fra quel che esce e quel che arriva <b>non è solo perdita del caricabatterie</b>:
         sulla 220 c’è attaccato anche il resto del camper. E la parte «dalla 220» si ottiene <b>per differenza</b>,
         togliendo sole e alternatore che si misurano: per questo porta il bollino della stima quando conta davvero.</div>
@@ -875,8 +895,30 @@ function vistaFlussoBluetti() {
             f.carica == null ? '—' : num(f.carica, 0) + ' %'}</text>
         </g>
       </svg>
-      ${muove ? '' : `<div class="perche" style="text-align:center">Non entra e non esce niente${
-        vecchia ? ' <b>secondo l’ultima lettura buona</b>, che non &egrave; di adesso' : ''}.</div>`}
+      ${muove ? '' : (() => {
+        // Due frasi, e la differenza fra loro e' tutta la grammatica di questa
+        // pagina: «non entra e non esce niente» e' un'**affermazione**, e si
+        // puo' fare solo sui numeri che si conoscono.
+        //
+        // Il 19 e il 21/11/2026 la Bluetti erogava quattrocento watt e la
+        // pagina scriveva quella frase, perche' il cloud rifiutava e l'ultima
+        // lettura buona era di prima che il 220 venisse acceso. La fascia
+        // dell'eta' c'era e lo diceva; ha perso tutte e due le volte, perche'
+        // uno zero non sembra un numero vecchio, sembra lo stato del mondo.
+        //
+        // Da quando `bluetti.js` toglie gli zeri vecchi, qui i rami arrivano
+        // **ignoti** -- e un ramo ignoto non autorizza nessuna affermazione.
+        const tuttoIgnoto = [...f.entrata.rami, ...f.uscita.rami].every(r => r.ignoto);
+        if (tuttoIgnoto) {
+          const eta = dati.bluetti?.minuti == null ? null : dilloInMinuti(dati.bluetti.minuti);
+          return `<div class="perche" style="text-align:center;color:var(--ambra)">
+            <b>Non so se entra o esce</b>: la Bluetti non si legge${eta ? ` da <b>${esc(eta)}</b>` : ''},
+            e l&rsquo;ultima lettura buona segnava zero. Uno zero di allora direbbe
+            &laquo;non sta succedendo niente&raquo;, che adesso non lo so.</div>`;
+        }
+        return `<div class="perche" style="text-align:center">Non entra e non esce niente${
+          vecchia ? ' <b>secondo l’ultima lettura buona</b>, che non &egrave; di adesso' : ''}.</div>`;
+      })()}
     </div>`;
 }
 
