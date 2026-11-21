@@ -2939,6 +2939,12 @@ function mappaDelViaggio(el, d, opz = {}) {
     L.marker([l.from_lat, l.from_lon], { icon: pin('#0f766e', i + 1) }).addTo(suoStrato).bindPopup(esc(l.from_name));
     if (i === legs.length - 1) L.marker([l.to_lat, l.to_lon], { icon: pin('#dc2626', '🏁') }).addTo(suoStrato).bindPopup(esc(l.to_name));
     g.forEach(p => bounds.push(p));
+    // I punti dichiarati si segnano: sono l'unica parte di quella riga che
+    // viene da chi ha guidato, e vederli dice anche se sono finiti dove ci si
+    // aspettava -- un nome ambiguo puo' essere stato riconosciuto altrove.
+    (l.via || []).filter(v => v.lat != null && v.lon != null).forEach(v =>
+      L.marker([+v.lat, +v.lon], { icon: dotIcon(COLORE_CAMPER, '\u2022') }).addTo(suoStrato)
+        .bindPopup(`<b>${esc(v.nome)}</b><br>ci siete passati: la riga passa di qui`));
     segna(suGomma ? 'camper' : 'altri', g);
     (l.pois?.stops || []).forEach(s => L.marker([s.lat, s.lon], { icon: dotIcon('#f59e0b', s.kind === 'area_sosta' ? '🅿️' : s.kind === 'campeggio' ? '⛺' : '🚰') }).addTo(suoStrato).bindPopup(`<b>${esc(s.name)}</b><br>${s.kind.replace('_', ' ')}${s.fee ? '<br>Tariffa: ' + esc(s.fee) : ''}${s.website ? `<br><a href="${esc(s.website)}" target="_blank">sito</a>` : ''}`));
   });
@@ -3316,7 +3322,11 @@ async function viewTrip(id) {
     </div><div class="grow">
       <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${!inCamper(l) ? 'in ' + MEZZI[mezzoDi(l)][1].toLowerCase().replace('in camper', 'camper') : conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
       <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' \u00b7 \ud83d\udcac ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
-      ${stradaDedotta(l) ? `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 <b>Chilometri e orari veri</b>, strada <b>ricostruita</b>: il tracker registra quanto si \u00e8 percorso, non per dove.</div>` : ''}
+      ${stradaDedotta(l) ? `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 <b>Chilometri e orari veri</b>, strada <b>ricostruita</b>${
+        (l.via || []).some(p => p.lat != null) ? ` <b>passando per ${esc((l.via || []).filter(p => p.lat != null).map(p => p.nome).join(', '))}</b>, come hai detto tu` : ''
+      }: il tracker registra quanto si \u00e8 percorso, non per dove.${
+        (l.via || []).some(p => p.lat == null) ? ` <b>Non ho trovato ${esc((l.via || []).filter(p => p.lat == null).map(p => p.nome).join(', '))}</b>: prova un nome pi\u00f9 preciso.` : ''
+      }</div>` : ''}
       ${rigaCosti(l)}
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}${inCamper(l) ? `<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>` : ''}${inCamper(l) && l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   // Ogni materiale si presenta per quello che e': l'appunto si legge, il link
@@ -4088,11 +4098,15 @@ function legForm(trip, legs, leg = null, costi = null) {
       <div><label class="f">Condizioni</label><textarea name="condizioni" rows="2" placeholder="Es. cabina interna, camper fino a 7 m, modificabile entro 48 h, bagaglio 20 kg">${esc(leg?.condizioni || '')}</textarea></div>
       <p class="small muted" style="margin:-4px 0 0">La tariffa entra da sola fra le spese del viaggio, nella categoria del mezzo. I chilometri di questa tappa non contano come chilometri di camper, e le ore non sono ore di guida.</p>
     </div>
-    <div><label class="f">Soste lungo la strada e note</label><input name="notes" maxlength="500" value="${esc(leg?.notes || '')}" placeholder="Es. pranzo a Ferrara, rifornimento in A1, deviazione per il borgo">
-      <div class="small muted" style="margin-top:4px">Le fermate fatte in viaggio: quelle che non sono un pernotto e non hanno una scheda tutta loro.</div></div>
+    ${leg && leg.source === 'carlock' ? `<div><label class="f">Ci siamo passati per\u2026 <span class="small muted">(cambia la riga sulla mappa)</span></label>
+      <input name="via" maxlength="300" value="${esc((leg.via || []).map(p => p.nome).join(', '))}" placeholder="Es. Vidor, Pieve di Soligo">
+      <div class="small muted" style="margin-top:4px">Il tracker registra <b>quanto</b> si \u00e8 percorso, non <b>per dove</b>: la riga sulla mappa \u00e8 ricostruita, e di suo prende la strada pi\u00f9 probabile. Scrivi qui i posti attraversati, nell\u2019ordine, e la riga passa di l\u00ec. I chilometri non cambiano: quelli sono veri.</div></div>` : ''}
+    <div><label class="f">Soste lungo la strada e note <span class="small muted">(non cambia la riga sulla mappa)</span></label><input name="notes" maxlength="500" value="${esc(leg?.notes || '')}" placeholder="Es. pranzo a Ferrara, rifornimento in A1, deviazione per il borgo">
+      <div class="small muted" style="margin-top:4px">Le fermate fatte in viaggio: quelle che non sono un pernotto e non hanno una scheda tutta loro. Per <b>disegnare</b> una strada diversa c\u2019\u00e8 il campo qui sopra.</div></div>
     <div id="costi-camper">${leg ? `<div class="form-grid">
       <div><label class="f">Costo gasolio €</label><input type="number" step="0.01" min="0" name="costo_gasolio" value="${costi?.gMano && costi.g != null ? (+costi.g).toFixed(2) : ''}" placeholder="${costi?.g != null ? (+costi.g).toFixed(2) : 'calcolato'}"></div>
-      <div><label class="f">Km in autostrada</label><input type="number" step="0.1" min="0" name="pedaggio_km" value="${leg.pedaggio_km ?? ''}" placeholder="0"></div>
+      <div><label class="f">Km in autostrada</label><input type="number" step="0.1" min="0" name="pedaggio_km" value="${leg.pedaggio_km ?? ''}" placeholder="0">
+        <div class="small muted" style="margin-top:4px">Dipende dalla strada: se la riga si ridisegna, questo numero si rif\u00e0.</div></div>
       <div><label class="f">Costo pedaggi €</label><input type="number" step="0.01" min="0" name="costo_pedaggio" value="${costi?.pMano && costi.p != null ? (+costi.p).toFixed(2) : ''}" placeholder="${costi?.p != null ? (+costi.p).toFixed(2) : 'calcolato'}"></div></div>
     <p class="small muted" style="margin:-4px 0 0">Lascia vuoti gli importi e li calcola: il gasolio dai chilometri e dal prezzo al litro, il pedaggio dai chilometri di autostrada a ${eur(settings.vehicle?.toll_per_km ?? 0.09)} al km. Scrivi una cifra e resta quella, anche nel totale del viaggio; svuota il campo per tornare al calcolo.</p>
     <label class="riga-scelta"><input type="checkbox" name="gasolio" ${leg.senza_gasolio ? '' : 'checked'}> Calcola da solo il gasolio di questa tappa
@@ -4202,6 +4216,17 @@ function legForm(trip, legs, leg = null, costi = null) {
         }
         const r = leg ? await api('/legs/' + leg.id, { method: 'PUT', body }) : await api(`/trips/${trip.id}/legs`, { method: 'POST', body });
         if (r.routing_warning) toast(r.routing_warning, true);
+        // I punti per cui si e' passati vanno per la loro strada: il
+        // geocoding e il ridisegno stanno in una rotta sua, e il salvataggio
+        // della tappa non deve aspettarli ne' fallire per loro.
+        if (leg && fd.via !== undefined && fd.via !== (leg.via || []).map(x => x.nome).join(', ')) {
+          const v = await api(`/legs/${leg.id}/via`, { method: 'POST', body: { nomi: fd.via } });
+          if (v?.non_trovati?.length) {
+            toast(`Non ho trovato: ${v.non_trovati.join(', ')}. Il nome resta scritto: provane uno piu\u2019 preciso.`, true);
+          } else if (v?.ridisegnata === false) {
+            toast('Punti salvati, ma il servizio dei percorsi non ha risposto: la riga si rifa\u2019 al prossimo tentativo.', true);
+          }
+        }
         close(); restaQui();
       });
     });
