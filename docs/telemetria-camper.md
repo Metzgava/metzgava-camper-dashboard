@@ -1462,3 +1462,67 @@ Il rimedio non e' ricordarselo. L'impronta dei file c'era gia', la calcola
 `/api/health` all'avvio: ora `index.html` si serve sostituendo il `?v=` con
 quella. Cambia un file, cambia l'indirizzo, il browser riscarica. Il numero a
 mano non esiste piu' e non si puo' piu' dimenticare.
+
+## 21/11/2026: i watt in ingresso, trovati con un interruttore
+
+Due risultati in mezz'ora, e il secondo è arrivato di rimbalzo dal primo.
+
+### Il Charger 2 non si comanda via Bluetooth, e adesso è provato
+
+Finora gli avevamo fatto **una sola** delle quattro domande che MODBUS
+prevede: la funzione 3, i registri di mantenimento. Un interruttore, di solito,
+non è un registro: è una **bobina**, funzione 1 in lettura e 5 in scrittura, e
+sta in uno spazio di indirizzi separato.
+
+Chieste tutte e quattro (`funzioni-charger.py`, solo letture):
+
+| domanda | risposta del Charger |
+|---|---|
+| 1 — bobine | **muto** |
+| 2 — ingressi discreti | **muto** |
+| 3 — registri | 120 leggibili, nessuno si muove |
+| 4 — registri in lettura | **muto** |
+
+E qui vale la distinzione già imparata sull'ESP32: **muto e rifiutato sono due
+risposte diverse.** Sugli indirizzi che non ha, il Charger risponde in modo
+regolare «indirizzo inesistente» (codice 2). Alle funzioni 1, 2 e 4 non
+risponde affatto: non le implementa. L'interruttore non è lì, e non è che non
+l'abbiamo trovato — non c'è.
+
+Il proprietario ha spento e riacceso il Charger dall'app mentre la scatoletta
+fotografava una volta al minuto: **centoventi registri, zero mossi.**
+
+### Ma l'effetto del Charger lo vede l'Elite 300
+
+Confronto dei suoi registri a cavallo dell'accensione (10:31 → 10:47), e poi
+di nuovo quando la carica è finita da sé al 100 %:
+
+| registro | fermo | in carica | finita | il cloud dice |
+|---|---|---|---|---|
+| `[101]` | 2 | **565** | **4** | ingresso: 700 W al massimo, poi 0 |
+| `[102]` | 99 | 99 | **100** | carica: 100 % |
+| `[103]` | 0 | **1** | 0 | — |
+| `[144]` | 0 | 631 | 0 | — |
+| `[188]` | 0 | 98 | 2 | — |
+
+**`[101]` sono i watt in ingresso.** Due coincidenze col cloud nei due versi
+opposti e nello stesso minuto: sale quando la carica comincia, crolla quando
+finisce. È il registro cercato dal 18 novembre, per cui si aspettava il
+prossimo viaggio o una colonnina.
+
+`[102]` è la carica in percentuale, già nota, e qui si conferma sul solo
+estremo della scala che mancava.
+
+`[103]` è un interruttore 0/1 che segue la carica: non è il comando del
+Charger, è lo stato della Bluetti che riceve.
+
+`[144]` e `[188]` si muovono insieme agli altri e **non hanno ancora un nome**:
+una coincidenza sola è un caso. Servirà un'altra carica, con i numeri del cloud
+dello stesso minuto.
+
+### Cosa resta aperto
+
+Come faccia l'app a spegnere il Charger. Non passa dal MODBUS del Charger —
+quello è esaurito — e dai registri dell'Elite 300 si vede solo l'**effetto**,
+non il comando. Resta possibile che sia un comando proprietario sulla stessa
+caratteristica BLE, che non somiglia a MODBUS.
