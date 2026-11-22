@@ -13,7 +13,7 @@
 const C = window.Camper;
 if (!C || !window.OSPITE) return;
 const { $, $$, esc, num, eur, dur, fdate, fdt, notti, legendaViaggio, mappaDelViaggio, rottaSvg,
-  sportIco, MEZZI, mezzoDi, inCamper, nomeViaggio, facciaMedia, datiLente, giorniViaggio,
+  sportIco, MEZZI, mezzoDi, inCamper, stradaDedotta, nomeViaggio, facciaMedia, datiLente, giorniViaggio,
   stileRitaglio, itinerario, nomeStato, atletiDi, trattoFra } = C;
 
 const chiama = async percorso => {
@@ -102,7 +102,7 @@ async function viewViaggio(id) {
       <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div>
         <div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">· ${dur(l.duration_min * 60)}</span></div></div>
       <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + esc(l.start_time) + '–' + esc(l.end_time || '') : ''}</div>
-      ${l.source === 'carlock' ? `<div class="small muted">\u2022 \u2022 \u2022 Chilometri e orari <b>veri</b>, strada <b>ricostruita</b>: chi ha guidato ha registrato quanto, non per dove.</div>` : ''}</div></div>`;
+      ${stradaDedotta(l) ? `<div class="small muted">\u2022 \u2022 \u2022 Chilometri e orari <b>veri</b>, strada <b>ricostruita</b>: chi ha guidato ha registrato quanto, non per dove.</div>` : ''}</div></div>`;
 
   const rigaSosta = s => {
     const n = notti(s.from_date, s.to_date);

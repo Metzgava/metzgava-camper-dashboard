@@ -75,3 +75,49 @@ test('la pagina dice che un ridisegno rifa’ i chilometri di autostrada', () =>
   assert.match(campo, /ridisegn/i,
     'chi scrive i km di autostrada a mano non sa che un ridisegno li rifa’');
 });
+
+// ---------------------------------------------------------------------------
+// La frase dice solo quel che la riga contiene
+// ---------------------------------------------------------------------------
+//
+// Trovati in revisione il 21/11/2026.
+//
+// §F: i punti si salvano anche quando il ridisegno fallisce -- scelta giusta,
+// una riga vecchia e' meglio di nessuna riga -- ma la frase era calcolata sui
+// punti *dichiarati*, non su quelli che la riga tocca davvero. Il messaggio
+// passava una volta; al ricaricamento la pagina affermava per sempre un
+// passaggio che la geometria non conteneva.
+//
+// §E: i due numeri che spiegano «strada da ridisegnare» stavano solo in un
+// `title=`. Sull'iPad si leggeva «strada da ridisegnare» accanto a «passando
+// per Vidor, come hai detto tu»: due messaggi che si contraddicono e nessuno
+// dei due spiegabile senza mouse. Lo stesso difetto per cui il lavoro e' nato,
+// in un angolo diverso della stessa riga.
+
+test('la frase guarda la riga, non quel che e’ stato dichiarato', () => {
+  assert.match(app, /const passaDa = /,
+    'nessuno controlla se la riga passa davvero dai punti');
+  const riga = blocco('strada da ridisegnare');
+  assert.match(riga, /puntiSullaRiga\(l\)/,
+    'la frase afferma i punti dichiarati invece di quelli che la riga tocca');
+  assert.match(riga, /non passa ancora per/i,
+    'non si dice quando un punto dichiarato non e’ ancora sulla riga');
+});
+
+test('i numeri dell’avviso si leggono senza mouse', () => {
+  const riga = blocco('strada da ridisegnare').replace(/title="[^"]*"/g, '');
+  assert.match(riga, /lunga \$\{num\(lungaQuanto/,
+    'la lunghezza della riga sta ancora solo nel suggerimento');
+  assert.match(riga, /contro \$\{num\(l\.distance_km/,
+    'i chilometri veri stanno ancora solo nel suggerimento');
+});
+
+test('col punto dichiarato il consiglio cambia: «Ridisegna» non serve piu’', () => {
+  // Prima «Ridisegna» ignorava i punti, perche' non c'erano. Adesso li
+  // rispetta: su punti sbagliati o nell'ordine sbagliato ridarebbe la stessa
+  // riga sospetta, e chi preme il tasto che la pagina gli indica non vedrebbe
+  // cambiare niente, senza sapere perche'.
+  const riga = blocco('strada da ridisegnare');
+  assert.match(riga, /controlla l.{0,8}ordine o i nomi/,
+    'il consiglio non cambia quando i punti ci sono');
+});

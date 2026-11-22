@@ -334,22 +334,43 @@ export async function poisAlongRoute(geometry, radiusM = 4000) {
 // E un geocoder che si lamenta non fa cadere tutto: i servizi gratuiti
 // rifiutano, ogni tanto, e un nome che non si e' potuto cercare e' un nome non
 // trovato -- non un errore che svuota la tappa.
+// Quanti punti si accettano in una volta.
+//
+// Trovato in revisione il 21/11/2026: non c'era nessun limite. Ogni nome costa
+// fino a due richieste ai geocoder gratuiti, con l'attesa obbligatoria di
+// Nominatim, e poi il percorso fa due richieste per **ogni segmento**. Una
+// riga di dieci nomi tiene la risposta aperta per minuti; chi non vede
+// muoversi niente ricarica, e le richieste raddoppiano verso i servizi che
+// tutto il resto di questo file e' attentissimo a non martellare.
+//
+// Otto bastano per raccontare una giornata di strada, e sono gia' nove tratte.
+export const PUNTI_MASSIMI = 8;
+
 export async function puntiDichiarati(nomi, { cerca = geocode,
                                               candidati = n => [n],
                                               pausa = 250 } = {}) {
-  const puliti = (nomi || []).map(n => String(n ?? '').trim()).filter(Boolean);
+  const tutti = (nomi || []).map(n => String(n ?? '').trim()).filter(Boolean);
+  const puliti = tutti.slice(0, PUNTI_MASSIMI);
   const punti = [], non_trovati = [];
+  // Lo stesso nome due volte si cerca una volta sola: e' la stessa attenzione
+  // che ha gia' l'import di CarLock con la sua cache per indirizzo.
+  const visti = new Map();
   for (const nome of puliti) {
-    let trovato = null;
-    for (const c of candidati(nome)) {
-      try {
-        const r = await cerca(c);
-        if (r?.length) { trovato = { lat: r[0].lat, lon: r[0].lon }; break; }
-      } catch { /* un rifiuto e' un «non trovato», non un guasto */ }
-      if (pausa) await new Promise(r => setTimeout(r, pausa));
+    let trovato = visti.has(nome) ? visti.get(nome) : null;
+    if (!visti.has(nome)) {
+      const prove = candidati(nome);
+      for (let i = 0; i < prove.length; i++) {
+        try {
+          const r = await cerca(prove[i]);
+          if (r?.length) { trovato = { lat: r[0].lat, lon: r[0].lon }; break; }
+        } catch { /* un rifiuto e' un «non trovato», non un guasto */ }
+        // Dopo l'ultimo tentativo la pausa non serve a nessuno.
+        if (pausa && i < prove.length - 1) await new Promise(r => setTimeout(r, pausa));
+      }
+      visti.set(nome, trovato);
     }
     if (!trovato) non_trovati.push(nome);
     punti.push({ nome, lat: trovato?.lat ?? null, lon: trovato?.lon ?? null });
   }
-  return { punti, non_trovati };
+  return { punti, non_trovati, troppi: tutti.length - puliti.length };
 }

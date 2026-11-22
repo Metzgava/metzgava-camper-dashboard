@@ -57,12 +57,22 @@ export function tappeDaPercorso(percorso) {
 // Il pedaggio invece **segue la strada**, perche' dipende da lei e CarLock non
 // lo misura. E' la distinzione che conta: si protegge quel che e' misurato,
 // non tutto quel che e' scritto.
-export function numeriDellaTappa(tappa, strada) {
+// `capiSpostati`: quando partenza o arrivo si sono mossi, i chilometri del
+// tracker descrivono **un'altra tappa** e tenerli sarebbe peggio che rifarli.
+// In tutti gli altri casi -- un cambio di mezzo, una strada scelta a mano --
+// i capi sono gli stessi e la misura vale ancora. Di suo protegge: il verso
+// prudente e' quello che non butta una misura per distrazione.
+// `scrittoAMano`: un chilometraggio battuto nel riquadro **comanda**, anche su
+// una tappa del tracker. La protezione difende dagli effetti collaterali, non
+// dalle correzioni volute: togliere anche questa gli leverebbe l'unico modo di
+// rimediare a un import sbagliato, e lui lo fa vedendolo.
+export function numeriDellaTappa(tappa, strada,
+                                 { capiSpostati = false, scrittoAMano = false } = {}) {
   if (!strada) {
     return { distance_km: tappa?.distance_km ?? null, duration_min: tappa?.duration_min ?? null,
              geometry: tappa?.geometry ?? null, pedaggio_km: tappa?.pedaggio_km ?? null };
   }
-  const dalTracker = tappa?.source === 'carlock';
+  const dalTracker = tappa?.source === 'carlock' && !capiSpostati && !scrittoAMano;
   return {
     distance_km: dalTracker ? tappa.distance_km : strada.distance_km,
     duration_min: dalTracker ? tappa.duration_min : strada.duration_min,

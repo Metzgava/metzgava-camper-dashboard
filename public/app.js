@@ -3284,6 +3284,25 @@ async function viewTrip(id) {
     }
     return t;
   };
+  // **La riga passa davvero da quel punto?**
+  //
+  // Trovato in revisione il 21/11/2026: la frase diceva «passando per Vidor,
+  // come hai detto tu» anche quando la geometria salvata per Vidor non
+  // passava -- perche' il ridisegno era fallito, o perche' un'altra strada
+  // l'aveva sovrascritta. In archivio non c'e' niente che distingua «punti
+  // dichiarati» da «punti applicati», ma **la riga ce l'abbiamo**: basta
+  // guardarla invece di fidarsi.
+  //
+  // Dieci chilometri di tolleranza: un paese non e' un punto, e il navigatore
+  // aggancia il passaggio alla strada piu' vicina, non al centro del paese.
+  const passaDa = (g, p) => Array.isArray(g) && g.some(([la, lo]) => {
+    const rad = x => x * Math.PI / 180;
+    const h = Math.sin(rad(p.lat - la) / 2) ** 2
+      + Math.cos(rad(la)) * Math.cos(rad(p.lat)) * Math.sin(rad(p.lon - lo) / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(h)) <= 10;
+  });
+  const puntiSullaRiga = l => (l.via || []).filter(p => p.lat != null && passaDa(l.geometry, p));
+  const puntiFuoriDallaRiga = l => (l.via || []).filter(p => p.lat != null && !passaDa(l.geometry, p));
   const stradaSospetta = l => l.source === 'carlock' && l.distance_km > 0
     && Math.abs(lungaQuanto(l.geometry) - l.distance_km) > Math.max(15, l.distance_km * 0.08);
   const inStrada = l => {
@@ -3322,11 +3341,20 @@ async function viewTrip(id) {
     </div><div class="grow">
       <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${!inCamper(l) ? 'in ' + MEZZI[mezzoDi(l)][1].toLowerCase().replace('in camper', 'camper') : conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
       <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' \u00b7 \ud83d\udcac ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
-      ${stradaDedotta(l) ? `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 <b>Chilometri e orari veri</b>, strada <b>ricostruita</b>${
-        (l.via || []).some(p => p.lat != null) ? ` <b>passando per ${esc((l.via || []).filter(p => p.lat != null).map(p => p.nome).join(', '))}</b>, come hai detto tu` : ''
-      }: il tracker registra quanto si \u00e8 percorso, non per dove.${
-        (l.via || []).some(p => p.lat == null) ? ` <b>Non ho trovato ${esc((l.via || []).filter(p => p.lat == null).map(p => p.nome).join(', '))}</b>: prova un nome pi\u00f9 preciso.` : ''
-      }</div>` : ''}
+      ${stradaDedotta(l) ? (() => {
+        const sulla = puntiSullaRiga(l), fuori = puntiFuoriDallaRiga(l);
+        const persi = (l.via || []).filter(p => p.lat == null);
+        const nomi = v => esc(v.map(p => p.nome).join(', '));
+        return `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 <b>Chilometri e orari veri</b>, strada <b>ricostruita</b>${
+          sulla.length ? ` <b>passando per ${nomi(sulla)}</b>, come hai detto tu` : ''
+        }: il tracker registra quanto si \u00e8 percorso, non per dove.${
+          fuori.length ? ` <b>Ma la riga non passa ancora per ${nomi(fuori)}</b>: il ridisegno non \u00e8 riuscito, riprova da Modifica.` : ''
+        }${persi.length ? ` <b>Non ho trovato ${nomi(persi)}</b>: prova un nome pi\u00f9 preciso.` : ''}${
+          stradaSospetta(l) ? ` <b>La riga \u00e8 lunga ${num(lungaQuanto(l.geometry), 0)} km contro ${num(l.distance_km, 0)} veri</b>: ${
+            sulla.length ? 'controlla l\u2019ordine o i nomi dei posti' : 'la strada ricostruita non \u00e8 quella percorsa \u2014 prova \u00ab\ud83e\udded Ridisegna\u00bb'
+          }.` : ''
+        }</div>`;
+      })() : ''}
       ${rigaCosti(l)}
       <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}${inCamper(l) ? `<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>` : ''}${inCamper(l) && l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: ridisegna scegliendo quella che misura ${num(l.distance_km)} km">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   // Ogni materiale si presenta per quello che e': l'appunto si legge, il link
@@ -4221,10 +4249,18 @@ function legForm(trip, legs, leg = null, costi = null) {
         // della tappa non deve aspettarli ne' fallire per loro.
         if (leg && fd.via !== undefined && fd.via !== (leg.via || []).map(x => x.nome).join(', ')) {
           const v = await api(`/legs/${leg.id}/via`, { method: 'POST', body: { nomi: fd.via } });
+          if (v?.troppi > 0) {
+            toast(`Ne tengo ${v.via.length}: gli altri ${v.troppi} li ho lasciati fuori, perch\u00e9 ogni posto costa una ricerca e un pezzo di strada da calcolare.`, true);
+          }
           if (v?.non_trovati?.length) {
             toast(`Non ho trovato: ${v.non_trovati.join(', ')}. Il nome resta scritto: provane uno piu\u2019 preciso.`, true);
           } else if (v?.ridisegnata === false) {
-            toast('Punti salvati, ma il servizio dei percorsi non ha risposto: la riga si rifa\u2019 al prossimo tentativo.', true);
+            toast('Punti salvati, ma la riga non si \u00e8 rifatta: riprova da Modifica.', true);
+          } else if (v?.stimata) {
+            // Il servizio dei percorsi non ha risposto e la riga e' una stima
+            // in linea d'aria: va detto, come lo dice la creazione di una
+            // tappa. Una riga dritta fra due paesi non e' una strada.
+            toast('Il servizio dei percorsi non ha risposto: la riga \u00e8 una stima in linea d\u2019aria, non una strada.', true);
           }
         }
         close(); restaQui();
@@ -4603,7 +4639,17 @@ const COLORE_ALTRI_MEZZI = '#6366f1';
 // punti a dire che la strada non l'ha misurata nessuno.
 const TRATTO_RICOSTRUITO = '2 7';
 // Una tappa la cui strada e' dedotta: CarLock misura quanto, non per dove.
-const stradaDedotta = l => l?.source === 'carlock';
+//
+// **Anche il mezzo conta.** Una tappa del tracker marcata traghetto o aereo
+// non ha nessuna strada ricostruita: la riga e' una linea fra due punti,
+// perche' una rotta e un volo le statali non le seguono. Dirla «ricostruita»
+// sarebbe falso, e dire «chilometri veri» accanto lo sarebbe pure -- li' i
+// chilometri sono la distanza in linea d'aria.
+//
+// La legenda e la polilinea guardavano gia' il mezzo; questa no, e la
+// revisione del 21/11/2026 ha trovato le due regole che dissentivano. Una
+// guardia con un nome serve a questo: a non averne due.
+const stradaDedotta = l => l?.source === 'carlock' && inCamper(l);
 const COLORI_SPORT = {
   'Bicicletta': '#2563eb',
   'Escursione': '#16a34a',
@@ -6026,7 +6072,7 @@ document.addEventListener('click', e => { const a = e.target.closest('[data-logo
 // questa stessa mappa, queste stesse foto e lo stesso modo di rivedere un
 // percorso: invece di riscriverli, glieli si passa. E l'app di casa, li', non
 // si avvia nemmeno: non c'e' nessuno da far entrare.
-window.Camper = { $, $$, esc, num, eur, dur, fdate, fdt, iso, notti, toast, apriLente,
+window.Camper = { $, $$, esc, num, eur, dur, fdate, fdt, iso, notti, toast, apriLente, stradaDedotta,
   legendaViaggio, mappaDelViaggio, rottaSvg, sportIco, coloreSport, ICO_SCARPA, coloreAtleta,
   atletiDi, trattoFra, MEZZI, mezzoDi, inCamper, nomeViaggio, nomeStato, giorniViaggio,
   itinerario, stileRitaglio, eVideo, facciaMedia, datiLente };

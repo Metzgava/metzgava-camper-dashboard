@@ -772,7 +772,21 @@ router.put('/legs/:id', wrap(async (req, res) => {
   // bastavano due tocchi in «Modifica» per sostituirli con quelli della
   // variante, e con loro se ne andavano il gasolio e i totali del viaggio.
   // La regola sta in `numeriDellaTappa`, dove girano le prove.
-  } else if (scelto) geo = numeriDellaTappa(cur, scelto);
+  } else if (scelto) {
+    // **Una strada scelta nel riquadro e' calcolata fra i DUE SOLI CAPI**: il
+    // client chiede `/route/opzioni` con partenza e arrivo, e di punti
+    // dichiarati non sa niente. Applicarla cosi' butterebbe via la strada per
+    // Vidor mentre la riga della tappa continua a dire «passando per Vidor,
+    // come hai detto tu» -- cioe' la domanda da cui e' nato tutto questo, con
+    // sopra una frase che da' torto a chi la fa.
+    //
+    // Trovato in revisione il 21/11/2026: le rotte che ridisegnano erano
+    // quattro, non tre, e questa e' la piu' battuta.
+    geo = puntiDaUsare(cur).length
+      ? await stradaDellaTappa(cur, { lat: cur.from_lat, lon: cur.from_lon },
+          { lat: cur.to_lat, lon: cur.to_lon }, num(cur.distance_km), num(cur.duration_min))
+      : scelto;
+  }
   // Qui invece si ricalcola e basta: se i due capi si sono spostati, i
   // chilometri del tracker descrivono un'altra tappa e tenerli sarebbe
   // peggio che rifarli.
@@ -790,6 +804,19 @@ router.put('/legs/:id', wrap(async (req, res) => {
       changedPts ? null : num(cur.duration_min));
     geo = r;
   }
+  // **La misura del tracker si protegge qui, in un punto solo.**
+  //
+  // Prima stava dentro il ramo della strada scelta, e la revisione del
+  // 21/11/2026 ha trovato che gli altri due rami la cancellavano lo stesso:
+  // bastava mettere «Traghetto» sulla tendina e rimettere «Camper» per
+  // sostituire i 187 chilometri veri con una linea d'aria -- mentre la riga
+  // continuava a dire «Chilometri e orari veri dal tracker».
+  //
+  // Qui ci passano tutti i rami, e l'unico caso in cui i numeri si rifanno e'
+  // quello in cui i capi si sono spostati: li' la misura era di un'altra
+  // tappa.
+  geo = numeriDellaTappa(cur, geo, { capiSpostati: !!changedPts, scrittoAMano: b.distance_km != null });
+
   // I chilometri di autostrada: quelli scritti a mano comandano, poi quelli
   // della strada appena scelta, altrimenti restano quelli che c'erano
   const pedKm = b.pedaggio_km !== undefined
@@ -847,14 +874,31 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
   if (!l) return res.status(404).json({ error: 'Tappa non trovata' });
   const nomi = Array.isArray(req.body?.nomi) ? req.body.nomi
     : String(req.body?.nomi ?? '').split(/[,;\n]/);
-  const { punti, non_trovati } = await puntiDichiarati(nomi, { candidati: addressCandidates });
+  // **Niente `addressCandidates` qui.** E' l'euristica per le stringhe che
+  // genera CarLock, e come ultima rete accorcia il nome di una o due parole:
+  // su un indirizzo macchina e' quel che serve, su un nome battuto a mano e'
+  // una trappola. «Santo Stefano di Cadore» non trovato diventa «Santo
+  // Stefano», che esiste in mezza Italia, e il primo risultato si prende senza
+  // controlli -- con `non_trovati` vuoto, quindi senza che nessuno avvisi.
+  // Qui il nome si cerca com'e' scritto, e se non si trova lo si dice.
+  const puliti = (Array.isArray(nomi) ? nomi : []).map(x => String(x ?? '').trim()).filter(Boolean);
+  const { punti, non_trovati, troppi } = await puntiDichiarati(nomi);
   await q('UPDATE legs SET via=$2 WHERE id=$1', [l.id, punti.length ? JSON.stringify(punti) : null]);
 
   // Il disegno si rifa' solo se ha senso: per il traghetto e l'aereo i punti
   // si ignorano, perche' una rotta e un volo le statali non le seguono.
-  let ridisegnata = false;
+  let ridisegnata = false, stimata = false;
   const buoni = punti.filter(p => p.lat != null && p.lon != null);
-  if (mezzoValido(l.mezzo) === 'camper' && l.from_lat != null && l.to_lat != null) {
+  // **Non si ridisegna se non si e' trovato niente.** Trovato in revisione:
+  // scrivendo «Vidorr» per sbaglio, nessun punto si trovava e la riga veniva
+  // comunque rifatta sulla variante piu' vicina ai chilometri -- buttando via
+  // una strada che magari era stata scelta a mano. Senza punti nuovi non c'e'
+  // niente da applicare: si tiene quel che c'e'.
+  //
+  // Il campo svuotato e' un'altra cosa: li' si e' deciso di togliere i punti,
+  // e la riga torna quella diretta.
+  const daRifare = buoni.length > 0 || puliti.length === 0;
+  if (daRifare && mezzoValido(l.mezzo) === 'camper' && l.from_lat != null && l.to_lat != null) {
     try {
       const scelto = await stradaDellaTappa({ ...l, via: punti },
         { lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon },
@@ -863,13 +907,17 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
         [l.id, JSON.stringify(scelto.geometry), scelto.pedaggio_km ?? null]);
       await costiTappa(l.id);
       ridisegnata = true;
+      // `route()` non lancia quasi mai: quando i percorsi non rispondono
+      // torna una **stima in linea d'aria**. Chi guarda deve saperlo, come
+      // glielo dice gia' la creazione di una tappa.
+      if (scelto.source === 'stima' || scelto.stimato) stimata = true;
     } catch (e) {
       // Una riga vecchia e' meglio di nessuna riga: se i percorsi non
       // rispondono, i punti restano salvati e si ridisegna un'altra volta.
       console.warn(`tappa ${l.id}: punti salvati ma non ridisegnata:`, String(e.message).slice(0, 160));
     }
   }
-  res.json({ ok: true, via: punti, non_trovati, ridisegnata });
+  res.json({ ok: true, via: punti, non_trovati, troppi, ridisegnata, stimata });
 }));
 
 router.post('/legs/:id/ridisegna', wrap(async (req, res) => {

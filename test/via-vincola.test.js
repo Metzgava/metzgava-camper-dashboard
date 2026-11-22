@@ -10,6 +10,7 @@
 // cura la classe di difetto che la cura chiude.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { puntiDaUsare } from '../src/lib/tappe.js';
 
 const VIDOR = { nome: 'Vidor', lat: 45.8833, lon: 12.0167 };
@@ -42,4 +43,24 @@ test('senza punti dichiarati non c’e’ niente da usare', () => {
 
 test('una tappa senza mezzo e’ in camper, come dappertutto nel programma', () => {
   assert.equal(puntiDaUsare({ via: [VIDOR] }).length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Anche la quarta strada che ridisegna
+// ---------------------------------------------------------------------------
+//
+// Trovato in revisione: le rotte che ridisegnano erano **quattro**, non tre.
+// La piu' battuta -- toccare una strada nel riquadro di modifica -- non
+// passava dalla guardia, e quella strada il client la calcola fra i due soli
+// capi. Risultato: la geometria tornava per Bassano mentre la riga continuava
+// a dire «passando per Vidor, come hai detto tu».
+test('il ramo della strada scelta passa dai punti quando ce ne sono', () => {
+  const rotta = readFileSync(new URL('../src/routes/trips.js', import.meta.url), 'utf8');
+  const i = rotta.indexOf('} else if (scelto)');
+  assert.ok(i > 0, 'il ramo della strada scelta non si trova piu’');
+  const ramo = rotta.slice(i, i + 1600);
+  assert.match(ramo, /puntiDaUsare\(cur\)/,
+    'la strada scelta si applica senza guardare i punti dichiarati');
+  assert.match(ramo, /stradaDellaTappa/,
+    'il ramo non passa dalla strada che rispetta i punti');
 });

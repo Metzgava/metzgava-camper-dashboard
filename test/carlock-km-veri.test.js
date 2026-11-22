@@ -64,3 +64,56 @@ test('senza una strada nuova la tappa resta quella che era', () => {
   assert.deepEqual(n.geometry, tappa.geometry);
   assert.equal(n.pedaggio_km, 12);
 });
+
+// ---------------------------------------------------------------------------
+// Non basta proteggere il ramo della strada scelta
+// ---------------------------------------------------------------------------
+//
+// Trovato dalla revisione del 21/11/2026: la protezione copriva **un ramo
+// solo** del salvataggio. Gli altri due -- quello del mezzo non in camper e
+// quello del cambio di mezzo -- scrivevano i numeri calcolati senza passare di
+// qui, e bastavano due tocchi come prima:
+//
+//   1. sulla tendina «Come» si mette «Traghetto» e si salva: i chilometri
+//      diventano la distanza in linea d'aria, 143 invece di 187;
+//   2. ci si accorge e si rimette «Camper»: si riscrivono quelli della strada.
+//
+// E `source` resta 'carlock', quindi la riga continua a mostrare «Chilometri e
+// orari veri dal tracker» sopra un numero che e' una linea d'aria. La
+// direzione rassicurante dell'errore, cioe' quella che questo lavoro chiude.
+//
+// Il ruling diceva «solo il ramo della strada scelta, perche' se i capi si
+// spostano i km del tracker descrivono un'altra tappa». Il **principio** era
+// giusto, l'applicazione troppo stretta: cambiare mezzo non sposta nessun capo.
+
+test('cambiare mezzo non sposta i capi: i chilometri del tracker restano', () => {
+  const tappa = { source: 'carlock', distance_km: 187.4, duration_min: 142 };
+  const inLineaDAria = { distance_km: 143, duration_min: 90, geometry: [[46, 11], [46, 13]] };
+  const n = numeriDellaTappa(tappa, inLineaDAria, { capiSpostati: false });
+  assert.equal(n.distance_km, 187.4);
+  assert.equal(n.duration_min, 142);
+});
+
+test('spostati i capi, i numeri si rifanno: quelli di prima erano di un’altra tappa', () => {
+  const tappa = { source: 'carlock', distance_km: 187.4, duration_min: 142 };
+  const altrove = { distance_km: 64, duration_min: 55, geometry: [[45, 10], [45, 11]] };
+  const n = numeriDellaTappa(tappa, altrove, { capiSpostati: true });
+  assert.equal(n.distance_km, 64);
+  assert.equal(n.duration_min, 55);
+});
+
+test('senza dire niente sui capi si protegge, che e’ il verso prudente', () => {
+  const tappa = { source: 'carlock', distance_km: 187.4, duration_min: 142 };
+  const n = numeriDellaTappa(tappa, { distance_km: 9, duration_min: 9, geometry: [] });
+  assert.equal(n.distance_km, 187.4);
+});
+
+test('un numero battuto a mano comanda: e’ l’unico modo di rimediare a un import sbagliato', () => {
+  // La protezione difende dagli effetti collaterali, non dalle correzioni
+  // volute. Togliere anche questa gli leverebbe l'unico modo di sistemare una
+  // tappa importata male -- e lui lo fa vedendolo, non per distrazione.
+  const tappa = { source: 'carlock', distance_km: 187.4, duration_min: 142 };
+  const n = numeriDellaTappa(tappa, { distance_km: 201, duration_min: 142, geometry: [] },
+    { scrittoAMano: true });
+  assert.equal(n.distance_km, 201);
+});

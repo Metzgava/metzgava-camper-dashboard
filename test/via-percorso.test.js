@@ -14,6 +14,7 @@
 // che martella i servizi gratuiti di percorsi e' un modo di farseli chiudere.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { percorsoPerIPunti, piuVicinaAiKm } from '../src/lib/geo.js';
 
 const NOVALEDO = { lat: 46.0167, lon: 11.3167 };
@@ -137,4 +138,56 @@ test('i nomi vuoti si buttano, gli spazi si tolgono', async () => {
     cerca: finsceGeocoder({ Vidor: VIDOR }), pausa: 0 });
   assert.equal(r.punti.length, 1);
   assert.equal(r.punti[0].nome, 'Vidor');
+});
+
+// ---------------------------------------------------------------------------
+// I nomi battuti a mano non si accorciano, e non se ne accettano a decine
+// ---------------------------------------------------------------------------
+//
+// Trovati dalla revisione del 21/11/2026.
+//
+// `addressCandidates` e' un'euristica per le stringhe che **genera CarLock**:
+// come ultima rete accorcia il nome di una o due parole. Su un indirizzo
+// macchina e' quel che serve; su un nome battuto a mano e' una trappola --
+// «Santo Stefano di Cadore» non trovato diventa «Santo Stefano», che esiste in
+// mezza Italia. Il primo risultato si prende senza controlli, `non_trovati`
+// resta **vuoto**, e la riga dice «passando per Santo Stefano di Cadore» con
+// la geometria che fa un cappio di trecento chilometri.
+
+test('i nomi scritti a mano non si accorciano per farli entrare', async () => {
+  const chiesti = [];
+  await puntiDichiarati(['Santo Stefano di Cadore'], {
+    cerca: async t => { chiesti.push(t); return []; }, pausa: 0 });
+  assert.deepEqual(chiesti, ['Santo Stefano di Cadore'],
+    'ha provato anche dei nomi piu’ corti, che sono altri posti');
+});
+
+test('i punti si fermano a un numero sensato, e lo si dice', async () => {
+  // Ogni nome costa fino a due richieste ai geocoder gratuiti con la loro
+  // attesa, e poi `percorsiConTappe` fa due richieste per ogni segmento. Una
+  // riga di dieci nomi tiene la risposta aperta per minuti, e chi non vede
+  // muoversi niente ricarica -- raddoppiando tutto.
+  const tanti = Array.from({ length: 14 }, (_, i) => `Posto ${i}`);
+  const r = await puntiDichiarati(tanti, { cerca: async () => [], pausa: 0 });
+  assert.ok(r.punti.length <= 8, `ne ha tenuti ${r.punti.length}`);
+  assert.ok(r.troppi > 0, 'non dice che ne ha lasciati fuori');
+});
+
+test('lo stesso nome due volte si cerca una volta sola', async () => {
+  let quante = 0;
+  await puntiDichiarati(['Vidor', 'Vidor'], {
+    cerca: async () => { quante++; return [VIDOR]; }, pausa: 0 });
+  assert.equal(quante, 1, 'ha chiesto due volte la stessa cosa ai geocoder');
+});
+
+test('la rotta non passa l’euristica di CarLock ai nomi battuti a mano', () => {
+  // La difesa vera sta nel punto di chiamata: `puntiDichiarati` di suo non
+  // accorcia, ma la rotta le passava `addressCandidates`. Questa prova guarda
+  // il cablaggio, che e' dove il difetto stava.
+  const rotta = readFileSync(new URL('../src/routes/trips.js', import.meta.url), 'utf8');
+  const i = rotta.indexOf('puntiDichiarati(');
+  assert.ok(i > 0, 'la rotta non chiama piu’ puntiDichiarati');
+  const chiamata = rotta.slice(i, rotta.indexOf(';', i));
+  assert.doesNotMatch(chiamata, /addressCandidates/,
+    'i nomi battuti a mano passano ancora dall’euristica che li accorcia');
 });

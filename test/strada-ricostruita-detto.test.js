@@ -74,3 +74,31 @@ test('la legenda della mappa distingue la strada ricostruita', () => {
   assert.match(blocco(app, 'data-strato="camper"'), /ricostruit/i,
     'la legenda non dice niente della strada ricostruita');
 });
+
+// ---------------------------------------------------------------------------
+// La frase non deve parlare di strada ricostruita sotto un aereo
+// ---------------------------------------------------------------------------
+//
+// Trovato dalla revisione del 21/11/2026. `stradaDedotta` guardava solo
+// `source === 'carlock'`, mentre la legenda e la polilinea guardavano anche il
+// mezzo. Due regole per la stessa cosa -- cioe' quel che la guardia con un
+// nome doveva evitare.
+//
+// Su una tappa del tracker marcata «Traghetto» la riga sulla mappa e' una
+// linea fra due punti e i chilometri sono la distanza in linea d'aria, eppure
+// sotto la tappa si leggeva «Chilometri e orari veri, strada ricostruita».
+// Due affermazioni false in una riga sola.
+
+test('la guardia guarda anche il mezzo, come fanno la legenda e la riga', () => {
+  assert.match(app, /const stradaDedotta = l => l\?\.source === 'carlock' && inCamper\(l\)/,
+    'la guardia non guarda il mezzo');
+});
+
+test('l’ospite usa la stessa guardia, non una copia scritta a mano', () => {
+  // `ospite.js` prende tutto il resto da `app.js`: una condizione ricopiata
+  // e' una terza regola che un giorno diverge dalle altre due.
+  assert.match(ospite, /stradaDedotta/,
+    'la pagina dell’ospite ripete la condizione invece di usare la guardia');
+  assert.doesNotMatch(ospite, /l\.source === 'carlock'/,
+    'nell’ospite c’e’ ancora una copia della condizione');
+});
