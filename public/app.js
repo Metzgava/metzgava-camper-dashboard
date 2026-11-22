@@ -3415,8 +3415,13 @@ async function viewTrip(id) {
         const sulla = puntiSullaRiga(l), fuori = puntiFuoriDallaRiga(l);
         const persi = (l.via || []).filter(p => p.lat == null);
         const nomi = v => esc(v.map(p => p.nome).join(', '));
+        // L'autostrada dichiarata sta nella stessa frase dei luoghi: sono la
+        // stessa informazione, e vengono tutte e due da chi ha guidato.
+        const autostrada = l.pedaggi_dichiarati === 'no' ? 'senza autostrada'
+          : l.pedaggi_dichiarati === 'si' ? 'in autostrada' : '';
+        const detto = [sulla.length ? `passando per ${nomi(sulla)}` : '', autostrada].filter(Boolean).join(', ');
         return `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 <b>Chilometri e orari veri</b>, strada <b>ricostruita</b>${
-          sulla.length ? ` <b>passando per ${nomi(sulla)}</b>, come hai detto tu` : ''
+          detto ? ` <b>${detto}</b>, come hai detto tu` : ''
         }: il tracker registra quanto si \u00e8 percorso, non per dove.${
           fuori.length ? ` <b>Ma la riga non passa ancora per ${nomi(fuori)}</b>: il ridisegno non \u00e8 riuscito, riprova da Modifica.` : ''
         }${persi.length ? ` <b>Non ho trovato ${nomi(persi)}</b>: prova un nome pi\u00f9 preciso.` : ''}${
@@ -4360,6 +4365,12 @@ function ridisegnaTappa(l) {
         <input name="via" maxlength="300" value="${esc(scritti)}" placeholder="Es. Vidor, Pieve di Soligo" autocomplete="off">
         <div class="small muted" style="margin-top:4px">I posti attraversati, <b>nell\u2019ordine</b>, separati da virgola. Fino a otto.
           Lascia vuoto e rifaccio il conto da solo, scegliendo la strada che misura pi\u00f9 vicino ai ${num(l.distance_km)} km veri.</div></div>
+      <div><label class="f">Avete fatto l’autostrada?</label>
+        ${[['', 'Non lo so', `scelgo io la strada che misura più vicino ai ${num(l.distance_km)} km veri`],
+           ['si', 'Sì', 'prendo la più rapida, che è quella che usa l’autostrada'],
+           ['no', 'No', 'chiedo la strada che evita i pedaggi']].map(([v, titolo, spiega]) =>
+          `<label class="riga-scelta"><input type="radio" name="pedaggi" value="${v}" ${(l.pedaggi_dichiarati || '') === v ? 'checked' : ''}> ${titolo}
+            <span class="small muted">— ${spiega}</span></label>`).join('')}</div>
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Ridisegna</button></div>
     </form>`,
     (el, close) => {
@@ -4367,10 +4378,21 @@ function ridisegnaTappa(l) {
       $('#f', el).onsubmit = safe(async e => {
         e.preventDefault();
         const nomi = $('[name=via]', el).value;
-        toast(nomi.trim() ? 'Cerco i posti e rifaccio la strada\u2026' : 'Cerco la strada che misura quei chilometri\u2026');
-        const r = await api(`/legs/${l.id}/via`, { method: 'POST', body: { nomi } });
+        const pedaggi = $('[name=pedaggi]:checked', el)?.value ?? '';
+        toast(pedaggi === 'no' ? 'Cerco la strada che evita i pedaggi\u2026'
+          : nomi.trim() ? 'Cerco i posti e rifaccio la strada\u2026' : 'Cerco la strada che misura quei chilometri\u2026');
+        const r = await api(`/legs/${l.id}/via`, { method: 'POST', body: { nomi, pedaggi } });
         close();
         if (r.troppi > 0) toast(`Ne tengo ${r.via.length}: gli altri ${r.troppi} li ho lasciati fuori, perch\u00e9 ogni posto costa una ricerca e un pezzo di strada da calcolare.`, true);
+        // L'autostrada dichiarata contro quella che e' venuta fuori. Disegnare
+        // un'autostrada dopo un \u00abniente autostrada\u00bb senza dirlo e' la direzione
+        // rassicurante dell'errore, cioe' quella che questo lavoro chiude.
+        if (r.pedaggi_avviso === 'ne_fa_comunque')
+          toast(`Fra quei posti non ho trovato una strada senza pedaggi: questa ne fa ${num(r.pedaggio_km)} km. La riga l\u2019ho disegnata comunque.`, true);
+        else if (r.pedaggi_avviso === 'non_ne_fa')
+          toast('Hai detto autostrada, ma su questa strada non ce n\u2019\u00e8: di pedaggi non ne fa nemmeno un chilometro.', true);
+        else if (r.pedaggi_avviso === 'non_chiedibile')
+          toast('La strada senza pedaggi non l\u2019ho potuta chiedere: il servizio dei percorsi non ha risposto. Ho disegnato la pi\u00f9 rapida, che l\u2019autostrada la usa.', true);
         if (r.non_trovati?.length) toast(`Non ho trovato: ${r.non_trovati.join(', ')}. Il nome resta scritto: provane uno pi\u00f9 preciso.`, true);
         else if (r.ridisegnata === false) toast('La riga non si \u00e8 rifatta: riprova fra poco.', true);
         else if (r.stimata) toast('Il servizio dei percorsi non ha risposto: la riga \u00e8 una stima in linea d\u2019aria, non una strada.', true);
