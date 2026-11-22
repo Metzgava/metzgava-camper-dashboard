@@ -375,6 +375,48 @@ def ective_leggi(flusso: str):
     return d
 
 
+# Quanto si aspetta fra un assaggio e l'altro del flusso che arriva. Un quarto
+# di secondo: abbastanza fitto da non aggiungere ritardo che si noti,
+# abbastanza rado da non macinare la macchina per niente.
+FETTA_ASCOLTO_S = 0.25
+
+
+async def ascolta_ective(flusso, tetto_s, leggi=ective_leggi,
+                         fetta_s=FETTA_ASCOLTO_S, pausa=asyncio.sleep,
+                         orologio=time.monotonic):
+    """Sta in ascolto finche' il record e' intero, non per un tempo fisso.
+
+    Torna `(record, secondi)`.
+
+    Prima si aspettavano venti secondi **a prescindere**: non che i dati
+    arrivassero, proprio venti secondi. Per due batterie erano quaranta
+    secondi, ed era quasi tutto il giro lento -- il ritardo che si vede sulla
+    percentuale di carica rispetto all'app Ective, che invece parla alle
+    batterie direttamente dal telefono.
+
+    La batteria manda il suo record in continuazione, non una volta sola:
+    appena ce n'e' uno intero non c'e' piu' niente da aspettare, e ogni secondo
+    in piu' e' radio accesa a vuoto.
+
+    **Qui non si baratta niente.** Di solito «piu' svelto» si paga in corrente;
+    staccarsi prima ne consuma **meno**.
+
+    `tetto_s` resta il massimo: una batteria muta ferma il giro li', come
+    prima. Si sbaglia **verso il corto** -- restare attaccati piu' a lungo di
+    quanto promesso costa corrente alla batteria servizi, e nessuno se ne
+    accorgerebbe finche' il camper non resta al buio.
+    """
+    inizio = orologio()
+    while True:
+        d = leggi(flusso.get("testo", ""))
+        if d is not None:
+            return d, orologio() - inizio
+        passato = orologio() - inizio
+        if passato >= tetto_s:
+            return None, passato
+        await pausa(min(fetta_s, tetto_s - passato))
+
+
 # ----------------------------------------------------------------------------
 # Il giro della radio
 # ----------------------------------------------------------------------------
@@ -516,13 +558,16 @@ async def giro_bluetooth(conf):
             async with BleakClient(dispositivo, timeout=20) as cliente:
                 def pezzo(_c, dati: bytearray):
                     flusso["testo"] += dati.decode("latin1")
+                tetto = conf.get("secondi_ective", 20)
                 await cliente.start_notify(FFE4, pezzo)
-                await asyncio.sleep(conf.get("secondi_ective", 20))
+                # Ci si stacca appena il record e' intero, non dopo un tempo
+                # fisso: la batteria lo manda in continuazione.
+                d, quanto = await ascolta_ective(flusso, tetto)
                 await cliente.stop_notify(FFE4)
+            log.info("%s: letta in %.1fs (tetto %ss)", pulito, quanto, tetto)
         except Exception as e:                        # noqa: BLE001
             log.warning("%s non si e' fatta leggere: %s", pulito, e)
             continue
-        d = ective_leggi(flusso["testo"])
         if not d:
             log.warning("%s: nessun record intero in questo giro", pulito)
             continue
