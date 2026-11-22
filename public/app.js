@@ -3373,7 +3373,15 @@ async function viewTrip(id) {
   });
   const puntiSullaRiga = l => (l.via || []).filter(p => p.lat != null && passaDa(l.geometry, p));
   const puntiFuoriDallaRiga = l => (l.via || []).filter(p => p.lat != null && !passaDa(l.geometry, p));
+  // Il confronto coi chilometri veri serve quando la strada l'ha scelta il
+  // programma: li' la lunghezza e' l'unico indizio che ha. Su una strada
+  // **dichiarata** non vale piu': quella senza pedaggi e' piu' lunga, ed e' il
+  // motivo per cui la si sceglie. Lasciarlo acceso faceva comparire il cartello
+  // che invita a rifare la riga subito sotto «senza autostrada» -- il
+  // programma si smentiva nello stesso paragrafo e consigliava di rifare una
+  // cosa appena fatta bene.
   const stradaSospetta = l => l.source === 'carlock' && l.distance_km > 0
+    && !l.pedaggi_dichiarati
     && Math.abs(lungaQuanto(l.geometry) - l.distance_km) > Math.max(15, l.distance_km * 0.08);
   const inStrada = l => {
     const m = t => { const x = String(t || '').match(/^(\d{1,2}):(\d{2})/); return x ? +x[1] * 60 + +x[2] : null; };
@@ -3417,14 +3425,33 @@ async function viewTrip(id) {
         const nomi = v => esc(v.map(p => p.nome).join(', '));
         // L'autostrada dichiarata sta nella stessa frase dei luoghi: sono la
         // stessa informazione, e vengono tutte e due da chi ha guidato.
-        const autostrada = l.pedaggi_dichiarati === 'no' ? 'senza autostrada'
-          : l.pedaggi_dichiarati === 'si' ? 'in autostrada' : '';
+        //
+        // **Ma la frase guarda anche la strada che e' stata disegnata.** Un
+        // avviso che passa non puo' reggere un'affermazione che la riga ripete
+        // a ogni apertura: se la strada senza pedaggi non si e' ottenuta,
+        // dire per sempre «senza autostrada» sopra una riga di costi che dice
+        // «54 km di autostrada» sono due righe attaccate che si smentiscono -
+        // e quella nella voce del programma, attribuita a chi ha guidato, e'
+        // la rassicurante. I due dati che servono sono gia' tutti e due qui.
+        const pedKm = l.pedaggio_km == null ? null : +l.pedaggio_km;
+        const autostrada = l.pedaggi_dichiarati === 'no'
+          ? (pedKm == null ? 'senza autostrada' : pedKm > 0 ? '' : 'senza autostrada')
+          : l.pedaggi_dichiarati === 'si' ? (pedKm === 0 ? '' : 'in autostrada') : '';
+        // Quando quel che e' uscito smentisce quel che e' stato detto, lo dice
+        // la riga, non solo l'avviso del momento.
+        const smentita = l.pedaggi_dichiarati === 'no' && pedKm > 0
+          ? ` <b>Avevi detto senza autostrada, ma la riga ne fa ${num(pedKm, 0)} km</b>: una strada senza pedaggi fra questi posti non si è trovata.`
+          : l.pedaggi_dichiarati === 'si' && pedKm === 0
+            ? ' <b>Avevi detto autostrada, ma su questa riga non ce n’è</b>: di pedaggi non ne fa nemmeno un chilometro.'
+            : l.pedaggi_dichiarati && pedKm == null
+              ? ' <b>Dei pedaggi però non so dire</b>: il servizio dei percorsi non li ha misurati su questa strada.'
+              : '';
         const detto = [sulla.length ? `passando per ${nomi(sulla)}` : '', autostrada].filter(Boolean).join(', ');
         return `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 <b>Chilometri e orari veri</b>, strada <b>ricostruita</b>${
           detto ? ` <b>${detto}</b>, come hai detto tu` : ''
         }: il tracker registra quanto si \u00e8 percorso, non per dove.${
           fuori.length ? ` <b>Ma la riga non passa ancora per ${nomi(fuori)}</b>: il ridisegno non \u00e8 riuscito, riprova da Modifica.` : ''
-        }${persi.length ? ` <b>Non ho trovato ${nomi(persi)}</b>: prova un nome pi\u00f9 preciso.` : ''}${
+        }${smentita}${persi.length ? ` <b>Non ho trovato ${nomi(persi)}</b>: prova un nome pi\u00f9 preciso.` : ''}${
           stradaSospetta(l) ? ` <b>La riga \u00e8 lunga ${num(lungaQuanto(l.geometry), 0)} km contro ${num(l.distance_km, 0)} veri</b>: ${
             sulla.length ? 'controlla l\u2019ordine o i nomi dei posti' : 'la strada ricostruita non \u00e8 quella percorsa \u2014 prova \u00ab\ud83e\udded Ridisegna\u00bb'
           }.` : ''

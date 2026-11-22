@@ -301,8 +301,15 @@ export async function percorsiConTappe(punti, { pedaggi, varianti = variantiTrat
       ...(mancata ? { senza_pedaggi_mancata: true } : {}),
       distance_km: +scelte.reduce((a, t) => a + t.distance_km, 0).toFixed(1),
       duration_min: scelte.reduce((a, t) => a + t.duration_min, 0),
-      pedaggio_km: scelte.some(t => t.pedaggio_km != null)
-        ? +scelte.reduce((a, t) => a + (t.pedaggio_km || 0), 0).toFixed(1) : null,
+      // **Un pezzo di cui non si sanno i pedaggi rende ignoto tutto il totale.**
+      // Prima bastava che **uno** si sapesse, e ogni pezzo ignoto ci metteva
+      // dentro uno zero: con tre pezzi senza pedaggi e uno di ripiego da OSRM
+      // -- che dei pedaggi non sa niente -- usciva `0`, e da li' la stima del
+      // pedaggio spariva su un quarto di strada che nessuno ha misurato.
+      // `0` vuol dire «uno zero che conosco»: fabbricarlo da un «non so» e' il
+      // difetto contro cui questo programma e' costruito.
+      pedaggio_km: scelte.every(t => t.pedaggio_km != null)
+        ? +scelte.reduce((a, t) => a + t.pedaggio_km, 0).toFixed(1) : null,
       stimato: scelte.some(t => t.source === 'stima'),
       tratte: scelte,
     };

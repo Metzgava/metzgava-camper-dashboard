@@ -105,7 +105,9 @@ test('la frase guarda la riga, non quel che e’ stato dichiarato', () => {
 });
 
 test('i numeri dell’avviso si leggono senza mouse', () => {
-  const riga = blocco('strada da ridisegnare').replace(/title="[^"]*"/g, '');
+  // Finestra larga: fra il cartello e la frase c'e' tutta l'intestazione della
+  // riga, che e' una riga di sorgente sola e lunghissima.
+  const riga = blocco('strada da ridisegnare', 6000).replace(/title="[^"]*"/g, '');
   assert.match(riga, /lunga \$\{num\(lungaQuanto/,
     'la lunghezza della riga sta ancora solo nel suggerimento');
   assert.match(riga, /contro \$\{num\(l\.distance_km/,
@@ -117,7 +119,7 @@ test('col punto dichiarato il consiglio cambia: «Ridisegna» non serve piu’',
   // rispetta: su punti sbagliati o nell'ordine sbagliato ridarebbe la stessa
   // riga sospetta, e chi preme il tasto che la pagina gli indica non vedrebbe
   // cambiare niente, senza sapere perche'.
-  const riga = blocco('strada da ridisegnare');
+  const riga = blocco('strada da ridisegnare', 6000);
   assert.match(riga, /controlla l.{0,8}ordine o i nomi/,
     'il consiglio non cambia quando i punti ci sono');
 });

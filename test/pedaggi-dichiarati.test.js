@@ -69,3 +69,50 @@ test('senza dichiarazione non c’e’ niente da contraddire', () => {
   assert.equal(pedaggiNonTornano(null, 54), null);
   assert.equal(pedaggiNonTornano(undefined, 0), null);
 });
+
+// ---------------------------------------------------------------------------
+// Le due condizioni che la revisione ha trovato storte
+// ---------------------------------------------------------------------------
+//
+// Trovate il 22/11/2026 dalla revisione dell'intero ramo. Tutte e due stavano
+// dentro `src/routes/trips.js`, dentro la finestra che le prove leggevano, e
+// tutte e due sono passate sotto centocinquantasette prove verdi: una prova
+// che cerca delle parole non vede una **condizione** sbagliata. Qui le
+// condizioni diventano funzioni pure, e si provano per quello che fanno.
+import { laTappaHaDetto, daRidisegnare } from '../src/lib/tappe.js';
+
+test('una tappa che ha dichiarato l’autostrada ha detto qualcosa, anche senza luoghi', () => {
+  // Il difetto: la guardia del salvataggio guardava **solo i luoghi**. Una
+  // tappa con «niente autostrada» e nessun luogo finiva nel ramo che applica
+  // la strada scelta a mano nel riquadro -- calcolata fra i due soli capi, che
+  // della dichiarazione non sa niente. Due tocchi e l'autostrada tornava
+  // disegnata sopra un «no», senza che niente lo dicesse.
+  assert.equal(laTappaHaDetto({ mezzo: 'camper', pedaggi_dichiarati: 'no' }), true);
+  assert.equal(laTappaHaDetto({ mezzo: 'camper', via: [{ nome: 'Vidor', lat: 45.8, lon: 12 }] }), true);
+  assert.equal(laTappaHaDetto({ mezzo: 'camper' }), false);
+  assert.equal(laTappaHaDetto(null), false);
+});
+
+test('fuori dal camper non ha detto niente che riguardi la strada', () => {
+  assert.equal(laTappaHaDetto({ mezzo: 'traghetto', pedaggi_dichiarati: 'no' }), false);
+});
+
+test('un nome sbagliato non butta via la riga costruita a mano', () => {
+  // Il difetto reintrodotto: il riquadro manda **sempre** il campo
+  // dell'autostrada, quindi «ha ridichiarato» era sempre vero e bastava un
+  // «Vidorr» battuto male per rifare da zero una riga passata per Vidor e
+  // Pieve di Soligo. Quel che conta non e' che il campo sia arrivato: e' che
+  // la risposta sia **cambiata**.
+  assert.equal(daRidisegnare({ buoni: 0, puliti: 1, prima: 'no', adesso: 'no' }), false);
+  assert.equal(daRidisegnare({ buoni: 0, puliti: 1, prima: null, adesso: null }), false);
+});
+
+test('se la risposta sull’autostrada cambia, la riga si rifa’ comunque', () => {
+  assert.equal(daRidisegnare({ buoni: 0, puliti: 1, prima: null, adesso: 'no' }), true);
+  assert.equal(daRidisegnare({ buoni: 0, puliti: 1, prima: 'no', adesso: null }), true);
+});
+
+test('con dei luoghi trovati, o col campo svuotato, si rifa’ come prima', () => {
+  assert.equal(daRidisegnare({ buoni: 2, puliti: 2, prima: null, adesso: null }), true);
+  assert.equal(daRidisegnare({ buoni: 0, puliti: 0, prima: null, adesso: null }), true);
+});

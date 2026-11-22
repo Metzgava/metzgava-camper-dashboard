@@ -5,7 +5,7 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
-import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano } from '../lib/tappe.js';
+import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
@@ -782,7 +782,15 @@ router.put('/legs/:id', wrap(async (req, res) => {
     //
     // Trovato in revisione il 21/11/2026: le rotte che ridisegnano erano
     // quattro, non tre, e questa e' la piu' battuta.
-    geo = puntiDaUsare(cur).length
+    //
+    // **E non solo i luoghi.** La revisione del 22/11/2026: la guardia
+    // guardava solo quelli, quindi una tappa con «niente autostrada» e nessun
+    // luogo finiva qui sotto e si prendeva la strada scelta nel riquadro --
+    // l'autostrada disegnata sopra un «no», senza che niente lo dicesse. La
+    // prova che doveva accorgersi di una quarta via contava le chiamate ai
+    // percorsi, e questo ramo non ne fa nessuna: assegna una geometria
+    // calcolata altrove. Era cieca proprio dove serviva.
+    geo = laTappaHaDetto(cur)
       ? await stradaDellaTappa(cur, { lat: cur.from_lat, lon: cur.from_lon },
           { lat: cur.to_lat, lon: cur.to_lon }, num(cur.distance_km), num(cur.duration_min))
       : scelto;
@@ -909,10 +917,13 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
   // Il campo svuotato e' un'altra cosa: li' si e' deciso di togliere i punti,
   // e la riga torna quella diretta.
   //
-  // Ridire l'autostrada e' a sua volta qualcosa da applicare: se si e' scelto
-  // «niente autostrada», la riga va rifatta anche quando dei luoghi non si e'
-  // trovato nessuno.
-  const daRifare = buoni.length > 0 || puliti.length === 0 || ridichiara;
+  // Ridire l'autostrada e' a sua volta qualcosa da applicare -- ma solo se la
+  // risposta **cambia**: il riquadro manda sempre quel campo, quindi guardare
+  // se e' arrivato faceva rifare da zero una riga costruita a mano ogni volta
+  // che un nome veniva battuto male. La regola sta in `daRidisegnare`, dove
+  // girano le prove.
+  const daRifare = daRidisegnare({ buoni: buoni.length, puliti: puliti.length,
+    prima: pedaggiDichiarati(l.pedaggi_dichiarati), adesso: pedaggi });
   if (daRifare && mezzoValido(l.mezzo) === 'camper' && l.from_lat != null && l.to_lat != null) {
     try {
       const scelto = await stradaDellaTappa({ ...l, via: punti, pedaggi_dichiarati: pedaggi },

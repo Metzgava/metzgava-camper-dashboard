@@ -90,3 +90,25 @@ test('i costi si rifanno dopo il ridisegno, zero compreso', () => {
   assert.match(toll, /!\(km > 0\)/, 'zero km di autostrada non azzerano piu’ la stima');
   assert.match(toll, /ex && !ex\.edited/, 'un importo scritto a mano verrebbe cancellato');
 });
+
+// ---------------------------------------------------------------------------
+// La quarta via che ridisegna, e la guardia che la mancava
+// ---------------------------------------------------------------------------
+//
+// Trovata il 22/11/2026 dalla revisione. Il ramo della strada scelta nel
+// riquadro di modifica guardava **solo i luoghi dichiarati**: con una
+// dichiarazione e nessun luogo, applicava la strada calcolata fra i due soli
+// capi, che della dichiarazione non sa niente. La prova che doveva accorgersi
+// di una quarta via contava le chiamate ai percorsi -- e questo ramo non ne
+// chiama nessuna, assegna una geometria calcolata altrove. Era cieca proprio
+// dove serviva.
+test('la strada scelta a mano non scavalca quel che la tappa ha dichiarato', () => {
+  const r = rotta.slice(rotta.indexOf('} else if (scelto)'), rotta.indexOf('} else if (scelto)') + 1800);
+  assert.match(r, /laTappaHaDetto\(cur\)/,
+    'il ramo della strada scelta guarda solo i luoghi, non la dichiarazione');
+});
+
+test('il ridisegno si decide con la regola provata, non con una condizione scritta qui', () => {
+  assert.match(rottaDelVia, /daRidisegnare\(/,
+    'la condizione del ridisegno vive nella rotta, dove nessuna prova la esegue');
+});

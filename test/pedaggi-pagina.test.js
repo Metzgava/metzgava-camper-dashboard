@@ -69,7 +69,58 @@ test('la riga della tappa dice l’autostrada dichiarata', () => {
   // codice, e la prova guardava la finestra sbagliata.
   const i = app.indexOf('come hai detto tu`');
   assert.ok(i > 0, 'la frase dei luoghi dichiarati non si trova piu’');
-  const riga = app.slice(i - 900, i + 300);
+  const riga = app.slice(i - 1800, i + 300);
   assert.match(riga, /senza autostrada/);
   assert.match(riga, /in autostrada/);
+});
+
+// ---------------------------------------------------------------------------
+// La riga non ripete per sempre quel che un avviso ha detto una volta sola
+// ---------------------------------------------------------------------------
+//
+// Trovato il 22/11/2026 dalla revisione, ed e' il difetto peggiore del ramo.
+// La frase «senza autostrada, come hai detto tu» usciva dalla **sola**
+// dichiarazione, senza guardare la strada che era stata davvero disegnata. Se
+// la strada senza pedaggi non si otteneva, un avviso di passaggio lo diceva --
+// e poi, per sempre, la riga diceva «senza autostrada» sopra una riga di costi
+// che diceva «🛣️ 4,86 € (54 km)». Due righe attaccate che si smentiscono, e
+// quella nella voce del programma, attribuita a chi ha guidato, e' la
+// rassicurante.
+//
+// Un avviso che passa non puo' reggere un'affermazione che la riga ripete a
+// ogni apertura. La riga deve dire la verita' da se', e i due dati che le
+// servono -- la dichiarazione e i chilometri a pedaggio -- ce li ha gia'
+// tutti e due addosso.
+test('la frase sull’autostrada guarda anche la strada che e’ stata disegnata', () => {
+  const i = app.indexOf('come hai detto tu`');
+  const riga = app.slice(i - 1400, i + 300);
+  assert.match(riga, /pedaggio_km/,
+    'la frase esce dalla sola dichiarazione, senza guardare la strada disegnata');
+});
+
+test('quando la strada smentisce la dichiarazione, la riga lo dice', () => {
+  const i = app.indexOf('come hai detto tu`');
+  const riga = app.slice(i - 1400, i + 300);
+  assert.match(riga, /ma la riga ne fa|ma la strada ne fa/,
+    'una strada con pedaggi sotto un «niente autostrada» non viene smentita');
+});
+
+test('e quando dei pedaggi non si sa niente, non si fa finta di saperlo', () => {
+  const i = app.indexOf('come hai detto tu`');
+  const riga = app.slice(i - 1400, i + 300);
+  assert.match(riga, /non so dire|non lo so/,
+    'pedaggi sconosciuti vengono raccontati come una dichiarazione onorata');
+});
+
+test('una dichiarazione non si fa sgridare dal confronto coi chilometri', () => {
+  // La strada senza pedaggi e' piu' lunga: e' il motivo per cui la si sceglie.
+  // Il confronto coi chilometri veri -- che serve quando il programma ha
+  // indovinato da solo -- su una strada dichiarata diceva «strada da
+  // ridisegnare» subito sotto «senza autostrada, come hai detto tu»: il
+  // programma si smentiva da solo nello stesso paragrafo, e consigliava di
+  // rifare una cosa appena fatta bene.
+  const i = app.indexOf('const stradaSospetta');
+  assert.ok(i > 0, 'la regola della strada sospetta non si trova piu’');
+  assert.match(app.slice(i, i + 600), /pedaggi_dichiarati/,
+    'il confronto coi chilometri sgrida anche una strada dichiarata');
 });

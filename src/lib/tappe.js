@@ -161,3 +161,36 @@ export function pedaggiNonTornano(dichiarato, pedaggioKm, { sannoEvitare = true 
   if (dichiarato === 'no') return km > 0 ? 'ne_fa_comunque' : null;
   return km > 0 ? null : 'non_ne_fa';
 }
+
+// ---------------------------------------------------------------------------
+// Quel che la tappa ha detto, e quando vale la pena rifare la riga
+// ---------------------------------------------------------------------------
+//
+// Due condizioni che vivevano dentro la rotta e che la revisione del
+// 22/11/2026 ha trovato storte tutte e due. Stavano dentro la finestra che le
+// prove leggevano, e sono passate sotto centocinquantasette prove verdi: una
+// prova che cerca delle parole non vede una condizione sbagliata. Qui sono
+// funzioni, e si provano per quello che fanno.
+
+// **La tappa ha detto qualcosa sulla sua strada**: dei luoghi, o l'autostrada,
+// o tutti e due. Serve a chi sta per applicarle una strada calcolata altrove:
+// una strada scelta nel riquadro di modifica e' calcolata fra i due soli capi
+// e della dichiarazione non sa niente, quindi applicarla sopra un «niente
+// autostrada» rimetterebbe l'autostrada disegnata in silenzio.
+export function laTappaHaDetto(tappa) {
+  return puntiDaUsare(tappa).length > 0 || pedaggiDaUsare(tappa) != null;
+}
+
+// **Quando rifare la riga.** Senza niente di nuovo da applicare si tiene
+// quella che c'e': una riga costruita a mano, passata per i posti giusti, vale
+// piu' di una ricalcolata al volo.
+//
+// `prima` e `adesso` sono la dichiarazione sull'autostrada com'era e com'e'.
+// Guardare se il campo e' **arrivato** non basta: il riquadro lo manda
+// sempre, quindi bastava un nome battuto male per rifare da zero una riga
+// passata per Vidor e Pieve di Soligo. Quel che conta e' che sia **cambiata**.
+export function daRidisegnare({ buoni = 0, puliti = 0, prima = null, adesso = null } = {}) {
+  if (buoni > 0) return true;            // dei luoghi nuovi da attraversare
+  if (puliti === 0) return true;         // il campo svuotato: si tolgono i luoghi
+  return (prima ?? null) !== (adesso ?? null);   // la risposta sull'autostrada e' cambiata
+}

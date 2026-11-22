@@ -127,3 +127,35 @@ test('percorsoPerIPunti passa la dichiarazione a chi calcola', async () => {
   await percorsoPerIPunti(NOVALEDO, [VIDOR], UDINE, 187, 142, { percorsi, pedaggi: 'no' });
   assert.equal(vista, 'no');
 });
+
+// ---------------------------------------------------------------------------
+// Un pezzo di strada di cui non si sanno i pedaggi non vale zero
+// ---------------------------------------------------------------------------
+//
+// Trovato il 22/11/2026 dalla revisione. La somma dei chilometri a pedaggio
+// diceva «conosciuta» appena **un** pezzo lo era, e ogni pezzo ignoto ci
+// metteva dentro uno zero. Con quattro pezzi, tre senza pedaggi da
+// OpenRouteService e uno di ripiego da OSRM -- che dei pedaggi non sa niente
+// -- il totale usciva `0`: e da li' la stima del pedaggio spariva e il totale
+// del viaggio scendeva, su un quarto di strada che nessuno ha misurato.
+//
+// `0` vuol dire «uno zero che conosco». Fabbricarlo da un «non so» e' il
+// difetto contro cui questo programma e' costruito.
+test('un pezzo di strada senza pedaggi noti rende ignoto tutto il totale', async () => {
+  const varianti = async from => [{
+    chiave: 'senza_pedaggi', evita_pedaggi: true, distance_km: 50, duration_min: 45,
+    // Il secondo pezzo e' di ripiego: OSRM non dice niente sui pedaggi.
+    pedaggio_km: from === VIDOR ? undefined : 0, geometry: [[46, 11], [46, 12]],
+  }];
+  const r = await percorsiConTappe([NOVALEDO, VIDOR, UDINE], { pedaggi: 'no', varianti });
+  assert.equal(r[0].pedaggio_km, null,
+    'uno zero fabbricato da un pezzo di strada che nessuno ha misurato');
+});
+
+test('quando tutti i pezzi si sanno, il totale resta un numero', async () => {
+  const varianti = async () => [{
+    chiave: 'rapido', distance_km: 50, duration_min: 45, pedaggio_km: 12, geometry: [[46, 11], [46, 12]],
+  }];
+  const r = await percorsiConTappe([NOVALEDO, VIDOR, UDINE], { pedaggi: 'si', varianti });
+  assert.equal(r[0].pedaggio_km, 24);
+});

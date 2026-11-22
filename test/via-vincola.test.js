@@ -59,8 +59,13 @@ test('il ramo della strada scelta passa dai punti quando ce ne sono', () => {
   const i = rotta.indexOf('} else if (scelto)');
   assert.ok(i > 0, 'il ramo della strada scelta non si trova piu’');
   const ramo = rotta.slice(i, i + 1600);
-  assert.match(ramo, /puntiDaUsare\(cur\)/,
-    'la strada scelta si applica senza guardare i punti dichiarati');
+  // Dal 22/11/2026 la guardia e' piu' larga: `laTappaHaDetto` comprende i
+  // punti dichiarati **e** l'autostrada dichiarata. La revisione aveva trovato
+  // che guardare i soli punti lasciava passare una tappa con «niente
+  // autostrada» e nessun luogo, che si prendeva la strada scelta a mano --
+  // calcolata fra i due soli capi, che della dichiarazione non sa niente.
+  assert.match(ramo, /laTappaHaDetto\(cur\)/,
+    'la strada scelta si applica senza guardare quel che la tappa ha dichiarato');
   assert.match(ramo, /stradaDellaTappa/,
     'il ramo non passa dalla strada che rispetta i punti');
 });
