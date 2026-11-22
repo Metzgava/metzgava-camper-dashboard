@@ -14,3 +14,7 @@ scatoletta/ambiente/
 # Python: le cartelle che il compilatore si crea da solo
 __pycache__/
 *.pyc
+
+# I registri del server sul Mac: li scrive launchd, crescono da soli e non
+# dicono niente a chi clona. Il programma li mette in log/server.log.
+log/

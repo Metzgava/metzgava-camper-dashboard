@@ -6,7 +6,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "server:installa": "node scripts/installa-server.js",
+    "server:rimuovi": "node scripts/installa-server.js --rimuovi"
   },
   "engines": {
     "node": ">=20"
