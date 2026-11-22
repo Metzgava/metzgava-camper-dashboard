@@ -18,6 +18,28 @@ export const pool = new Pool({
     : false,
 });
 
+// **Una connessione ferma che scade non deve far morire il programma.**
+//
+// Il 22/11/2026, nel registro del server: due morti su cinque avvii.
+//
+//   Error: read ETIMEDOUT
+//   Emitted 'error' event on BoundPool instance
+//
+// Il database sta su Railway e ci si arriva dal proxy pubblico, che chiude le
+// connessioni ferme. `pg` lo segnala emettendo un `error` sulla riserva; se
+// nessuno ascolta, Node considera l'errore non gestito e abbatte il processo
+// intero. launchd riaccende, quindi dal di fuori sembra che non succeda
+// niente -- ma per qualche secondo l'app non c'e', e chi stava salvando una
+// tappa si prende un errore senza capire perche'.
+//
+// Ascoltare basta: la riserva butta la connessione morta e tira avanti con le
+// altre. Si scrive una riga nel registro, perche' un errore ingoiato in
+// silenzio e' un guasto che non si trova piu'.
+pool.on('error', e => {
+  console.warn('database: una connessione ferma e\u2019 caduta (' + String(e?.message || e).slice(0, 120)
+    + '). La riserva ne apre un\u2019altra: il programma non si ferma.');
+});
+
 export const q = (text, params) => pool.query(text, params);
 
 

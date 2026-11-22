@@ -121,3 +121,15 @@ test('col punto dichiarato il consiglio cambia: «Ridisegna» non serve piu’',
   assert.match(riga, /controlla l.{0,8}ordine o i nomi/,
     'il consiglio non cambia quando i punti ci sono');
 });
+
+test('ogni aiuto che il riquadro di «Ridisegna» chiama esiste davvero', () => {
+  // Scritto dopo averlo sbagliato due volte di fila: `numeroP4n` e
+  // `lungaQuantoRiga` erano **chiamati e mai definiti**, e le prove che
+  // leggono il sorgente non potevano accorgersene -- la pagina sarebbe
+  // morta al primo tocco. Qui si cercano le definizioni.
+  for (const aiuto of ['lungaQuantoRiga', 'numeroP4n', 'ridisegnaTappa',
+                       'stradaDedotta', 'passaDa', 'puntiSullaRiga']) {
+    assert.match(app, new RegExp(`(const|function) ${aiuto}\\b`),
+      `${aiuto} viene chiamato ma non e’ definito da nessuna parte`);
+  }
+});
