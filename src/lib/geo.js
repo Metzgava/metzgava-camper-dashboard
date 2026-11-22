@@ -149,15 +149,55 @@ async function percorsoOrs(from, to, evitare = []) {
 // Le varianti di un singolo tratto. Quella senza pedaggi compare solo se esiste
 // davvero ed e' diversa dalla rapida: proporre due volte la stessa strada
 // sarebbe una scelta finta.
-export async function variantiTratto(from, to) {
+// **La dichiarazione entra nella richiesta, non filtra il risultato.**
+//
+// Disegno: docs/superpowers/specs/2026-11-22-pedaggi-dichiarati-design.md
+//
+// Quando chi ha guidato dice se ha fatto l'autostrada, non c'e' niente da
+// confrontare: si chiede **la strada giusta**, una domanda invece di due. Con
+// otto luoghi dichiarati i pezzi di strada sono nove, quindi e' la meta'
+// dell'attesa. E soprattutto la risposta non e' ambigua: filtrare l'elenco non
+// saprebbe distinguere «non esiste una strada senza pedaggi» da «la piu' rapida
+// gia' non ne fa», perche' la variante senza pedaggi entra nell'elenco solo se
+// **differisce** dalla rapida.
+//
+// `'si'` chiede la piu' rapida: nessun servizio ha un «preferisci i pedaggi»,
+// e la piu' rapida e' quel che in pratica usa l'autostrada. Si racconta con
+// quelle parole, non come un'autostrada richiesta.
+//
+// Se la strada senza pedaggi **non si ottiene** -- il servizio rifiuta, o la
+// chiave non c'e' -- si torna la piu' rapida col segno
+// `senza_pedaggi_mancata`, e chi la riceve lo dice. Il segno non si deduce da
+// `pedaggio_km`: senza ORS quel numero e' sconosciuto, e dedurlo da un campo
+// vuoto rimetterebbe dentro l'autostrada disegnata in silenzio.
+//
+// `ors`, `veloce` e `sannoEvitare` si sostituiscono: servono alle prove, che
+// una suite la quale martella i servizi gratuiti e' un modo di farseli chiudere.
+export async function variantiTratto(from, to, { pedaggi, ors = percorsoOrs, veloce = route,
+                                                 sannoEvitare = !!CHIAVE_ORS } = {}) {
+  const piuRapida = async () => (sannoEvitare
+    ? await ors(from, to).catch(() => veloce(from, to))
+    : await veloce(from, to));
+
+  if (pedaggi === 'no' || pedaggi === 'si') {
+    if (pedaggi === 'no' && sannoEvitare) {
+      try {
+        const senza = await ors(from, to, ['tollways']);
+        return [{ chiave: 'senza_pedaggi', nome: 'Senza pedaggi', evita_pedaggi: true, ...senza }];
+      } catch (e) {
+        console.warn('percorsi: la strada senza pedaggi non si e\u2019 ottenuta:', String(e.message).slice(0, 160));
+      }
+    }
+    return [{ chiave: 'rapido', nome: 'Il piu\u2019 rapido', ...(await piuRapida()),
+              ...(pedaggi === 'no' ? { senza_pedaggi_mancata: true } : {}) }];
+  }
+
   const fuori = [];
-  const rapido = CHIAVE_ORS
-    ? await percorsoOrs(from, to).catch(() => route(from, to))
-    : await route(from, to);
+  const rapido = await piuRapida();
   fuori.push({ chiave: 'rapido', nome: 'Il piu\u2019 rapido', ...rapido });
-  if (CHIAVE_ORS) {
+  if (sannoEvitare) {
     try {
-      const senza = await percorsoOrs(from, to, ['tollways']);
+      const senza = await ors(from, to, ['tollways']);
       avvisatoOrs = false;
       const differisce = Math.abs(senza.distance_km - rapido.distance_km) > 0.5
         || Math.abs(senza.duration_min - rapido.duration_min) > 3;
@@ -213,10 +253,10 @@ export function piuVicinaAiKm(varianti, kmVeri, minutiVeri) {
 // `percorsi` si puo' sostituire: serve alle prove, che una suite che martella
 // i servizi gratuiti di percorsi e' un modo di farseli chiudere.
 export async function percorsoPerIPunti(from, punti, to, kmVeri, minutiVeri,
-                                        { percorsi = percorsiConTappe } = {}) {
+                                        { percorsi = percorsiConTappe, pedaggi } = {}) {
   const tappe = [from, ...(punti || []).filter(p => p?.lat != null && p?.lon != null), to];
-  if (tappe.length < 3) return percorsoVicinoAiKm(from, to, kmVeri, minutiVeri);
-  const varianti = await percorsi(tappe);
+  if (tappe.length < 3) return percorsoVicinoAiKm(from, to, kmVeri, minutiVeri, { pedaggi });
+  const varianti = await percorsi(tappe, { pedaggi });
   const scelta = piuVicinaAiKm(varianti, kmVeri, minutiVeri);
   const geometry = [];
   for (const t of (scelta.tratte || [])) {
@@ -230,25 +270,35 @@ export async function percorsoPerIPunti(from, punti, to, kmVeri, minutiVeri,
   return { ...scelta, geometry, per_i_punti: true };
 }
 
-export async function percorsoVicinoAiKm(from, to, kmVeri, minutiVeri) {
-  const varianti = await variantiTratto(from, to);
+export async function percorsoVicinoAiKm(from, to, kmVeri, minutiVeri, { pedaggi } = {}) {
+  const varianti = await variantiTratto(from, to, { pedaggi });
   return piuVicinaAiKm(varianti, kmVeri, minutiVeri);
 }
 
 
-export async function percorsiConTappe(punti) {
+export async function percorsiConTappe(punti, { pedaggi, varianti = variantiTratto } = {}) {
   const tratte = [];
-  for (let i = 0; i + 1 < punti.length; i++) tratte.push(await variantiTratto(punti[i], punti[i + 1]));
-  const chiavi = ['rapido', ...(tratte.every(t => t.some(v => v.chiave === 'senza_pedaggi')) ? ['senza_pedaggi'] : [])];
+  for (let i = 0; i + 1 < punti.length; i++) tratte.push(await varianti(punti[i], punti[i + 1], { pedaggi }));
+  // Con una dichiarazione ogni pezzo torna **una** strada, e la chiave si
+  // prende da quella che e' arrivata -- non da quella che si era chiesta.
+  // Altrimenti un pezzo ripescato di ripiego finirebbe chiamato «Senza
+  // pedaggi»: disegna bene e racconta male, che qui e' il difetto peggiore.
+  const chiavi = pedaggi
+    ? [tratte[0]?.[0]?.chiave || 'rapido']
+    : ['rapido', ...(tratte.every(t => t.some(v => v.chiave === 'senza_pedaggi')) ? ['senza_pedaggi'] : [])];
   return chiavi.map(chiave => {
     const scelte = tratte.map((t, i) => ({
       ...(t.find(v => v.chiave === chiave) || t[0]),
       from: punti[i], to: punti[i + 1],
     }));
+    // Un pezzo solo dove i pedaggi non si sono potuti evitare basta a dire che
+    // la tappa ne fa: il segno vale per tutta la strada.
+    const mancata = scelte.some(t => t.senza_pedaggi_mancata);
     return {
       chiave,
       nome: chiave === 'rapido' ? 'Il piu\u2019 rapido' : 'Senza pedaggi',
-      evita_pedaggi: chiave === 'senza_pedaggi',
+      evita_pedaggi: chiave === 'senza_pedaggi' && !mancata,
+      ...(mancata ? { senza_pedaggi_mancata: true } : {}),
       distance_km: +scelte.reduce((a, t) => a + t.distance_km, 0).toFixed(1),
       duration_min: scelte.reduce((a, t) => a + t.duration_min, 0),
       pedaggio_km: scelte.some(t => t.pedaggio_km != null)
