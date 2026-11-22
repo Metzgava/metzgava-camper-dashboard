@@ -1160,7 +1160,18 @@ function propostaForm(tripId, p, dopo) {
         posto = { name: r.nome, lat: r.lat, lon: r.lon };
         if (!campo.value.trim() || campo.value.trim() === p?.nome) campo.value = r.nome || campo.value;
         el.dataset.tipoP4n = r.tipo || '';
-        esito.textContent = `Trovato: ${r.nome}${r.tipo ? ` · ${r.tipo}` : ''}`;
+        // **Un collegamento, non del testo.** Prima qui c'era `textContent`:
+        // l'indirizzo compariva scritto e non si poteva toccare, e il link
+        // vero arrivava solo dopo aver salvato, nella scheda del posto.
+        //
+        // L'indirizzo e' gia' quello giusto per aprire l'app: park4night
+        // dichiara `*/place/*` fra quelli che le appartengono, e il segmento
+        // della lingua davanti non da' fastidio. Su iPhone e Android si apre
+        // l'app, altrove il sito.
+        const idP4n = r.id || numeroP4n(v);
+        const dove = idP4n ? `https://park4night.com/it/place/${encodeURIComponent(idP4n)}` : null;
+        esito.innerHTML = `Trovato: <b>${esc(r.nome || '')}</b>${r.tipo ? ` · ${esc(r.tipo)}` : ''}`
+          + (dove ? ` · <a href="${esc(dove)}" target="_blank" rel="noopener">apri la scheda ↗</a>` : '');
       } catch (err) {
         esito.textContent = err?.message || 'Questo codice non l’ho trovato: mettilo tu sulla mappa';
       }
