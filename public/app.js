@@ -5795,6 +5795,12 @@ async function viewSettings() {
   const rubrica = adm ? await api('/rubrica') : null;
   const endpoint = location.origin + '/api/ingest/health';
   $('#app').innerHTML = layout(`<h1 style="margin-bottom:12px">Impostazioni</h1>
+    <div class="card" style="margin-bottom:14px"><h2>Il programma</h2>
+      <div class="small muted">Stai usando la versione <b id="mia-versione">${esc(MIA_VERSIONE || '—')}</b>.
+        <span id="versione-serve"></span></div>
+      <div class="row" style="margin-top:8px"><button class="btn" type="button" data-ricarica-programma>🔄 Prendi il programma nuovo</button></div>
+      <div class="small muted" style="margin-top:6px">Un’app aggiunta alla schermata Home <b>non si ricarica da sola</b>: resta sospesa col programma che aveva, anche per giorni.
+        Chiuderla da sola non le è permesso da iPhone e iPad, quindi questo tasto fa l’altra metà del lavoro: riscarica la pagina da capo e si riprende il programma nuovo.</div></div>
     <div class="grid cols-2">
     <div class="card"><h2>🚐 Camper</h2><form id="veh" class="form-grid" style="margin-top:12px"><div><label class="f">Lunghezza (m)</label><input type="number" step="0.1" name="length_m" value="${v.length_m ?? 6}"></div><div><label class="f">Consumo (km/l)</label><input type="number" step="0.1" name="km_per_liter" value="${v.km_per_liter ?? 10}"></div><div><label class="f">Prezzo gasolio predefinito (€/l)</label><input type="number" step="0.001" name="fuel_price" value="${v.fuel_price ?? 1.75}"></div><div><label class="f">Pedaggio stimato (€/km)</label><input type="number" step="0.001" name="toll_per_km" value="${v.toll_per_km ?? 0.09}" title="In Italia un camper sta in classe B: circa nove centesimi al chilometro"></div><div><label class="f">Casa</label><input name="casa" value="${esc(settings.casa || 'Susegana')}" title="Intorno a casa non si cercano aree sosta"></div><div style="align-self:end"><button class="btn primary" style="width:100%">Salva</button></div></form>
       <p class="small muted" style="margin:10px 0 0">Il prezzo si può cambiare per ogni viaggio e per ogni singola tappa. Le spese gasolio si ricalcolano finché non le modifichi a mano.</p></div>
@@ -5862,6 +5868,18 @@ async function viewSettings() {
           <button class="btn sm ghost danger" data-elimina-link="${x.id}" title="Elimina">\ud83d\uddd1</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun link. Creane uno per far vedere un viaggio a chi non ha un posto qui dentro.</td></tr>'}</tbody></table></div></div>`;
     })() : ''}
     <div class="card small muted" style="margin-top:14px">Dati mappa © OpenStreetMap · percorsi OSRM · aree sosta da OpenStreetMap (Overpass). <a href="#" data-logout>Esci</a></div>`);
+  // Quale versione sta servendo il server, accanto a quella che si ha in mano:
+  // il numero da solo non risponde alla domanda che ci si fa davvero, cioe'
+  // «sto usando l'ultimo?».
+  $('[data-ricarica-programma]').onclick = () => location.reload(true);
+  fetch('/api/health', { cache: 'no-store' }).then(r => r.json()).then(d => {
+    const dove = $('#versione-serve');
+    if (!dove || !d?.versione) return;
+    dove.innerHTML = !MIA_VERSIONE ? ''
+      : d.versione === MIA_VERSIONE
+        ? 'È l’ultima: non c’è niente di nuovo da prendere.'
+        : `Il server ne serve una più nuova (<b>${esc(d.versione)}</b>): premi qui sotto per prenderla.`;
+  }).catch(() => { /* senza rete non si sa, e non si dice niente */ });
   $('#veh').onsubmit = safe(async e => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target));
