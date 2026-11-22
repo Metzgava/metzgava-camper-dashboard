@@ -5,7 +5,7 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
-import { numeriDellaTappa, puntiDaUsare } from '../lib/tappe.js';
+import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
@@ -852,9 +852,13 @@ router.put('/legs/:id', wrap(async (req, res) => {
 // informazione che viene da chi c'era.
 async function stradaDellaTappa(l, from, to, kmVeri, minutiVeri) {
   const punti = puntiDaUsare(l);
+  // L'autostrada dichiarata viaggia con la tappa come i luoghi, e si legge
+  // qui per lo stesso motivo: una regola che vive in quattro posti si
+  // dimentica un posto alla volta.
+  const pedaggi = pedaggiDaUsare(l);
   return punti.length
-    ? percorsoPerIPunti(from, punti, to, kmVeri, minutiVeri)
-    : percorsoVicinoAiKm(from, to, kmVeri, minutiVeri);
+    ? percorsoPerIPunti(from, punti, to, kmVeri, minutiVeri, { pedaggi })
+    : percorsoVicinoAiKm(from, to, kmVeri, minutiVeri, { pedaggi });
 }
 
 // I punti per cui si e' passati davvero: «ci siamo passati per...».
@@ -883,11 +887,18 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
   // Qui il nome si cerca com'e' scritto, e se non si trova lo si dice.
   const puliti = (Array.isArray(nomi) ? nomi : []).map(x => String(x ?? '').trim()).filter(Boolean);
   const { punti, non_trovati, troppi } = await puntiDichiarati(nomi);
-  await q('UPDATE legs SET via=$2 WHERE id=$1', [l.id, punti.length ? JSON.stringify(punti) : null]);
+  // L'autostrada: il campo **assente** non e' una dichiarazione vuota. I
+  // luoghi si correggono anche senza ridire ogni volta se si e' pagato un
+  // casello, e azzerare quel che era stato detto perche' non e' stato ripetuto
+  // sarebbe perdere l'unica informazione che viene da chi c'era.
+  const ridichiara = req.body?.pedaggi !== undefined;
+  const pedaggi = pedaggiDichiarati(ridichiara ? req.body.pedaggi : l.pedaggi_dichiarati);
+  await q('UPDATE legs SET via=$2, pedaggi_dichiarati=$3 WHERE id=$1',
+    [l.id, punti.length ? JSON.stringify(punti) : null, pedaggi]);
 
   // Il disegno si rifa' solo se ha senso: per il traghetto e l'aereo i punti
   // si ignorano, perche' una rotta e un volo le statali non le seguono.
-  let ridisegnata = false, stimata = false;
+  let ridisegnata = false, stimata = false, pedaggi_avviso = null, pedaggio_km = null;
   const buoni = punti.filter(p => p.lat != null && p.lon != null);
   // **Non si ridisegna se non si e' trovato niente.** Trovato in revisione:
   // scrivendo «Vidorr» per sbaglio, nessun punto si trovava e la riga veniva
@@ -897,16 +908,33 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
   //
   // Il campo svuotato e' un'altra cosa: li' si e' deciso di togliere i punti,
   // e la riga torna quella diretta.
-  const daRifare = buoni.length > 0 || puliti.length === 0;
+  //
+  // Ridire l'autostrada e' a sua volta qualcosa da applicare: se si e' scelto
+  // «niente autostrada», la riga va rifatta anche quando dei luoghi non si e'
+  // trovato nessuno.
+  const daRifare = buoni.length > 0 || puliti.length === 0 || ridichiara;
   if (daRifare && mezzoValido(l.mezzo) === 'camper' && l.from_lat != null && l.to_lat != null) {
     try {
-      const scelto = await stradaDellaTappa({ ...l, via: punti },
+      const scelto = await stradaDellaTappa({ ...l, via: punti, pedaggi_dichiarati: pedaggi },
         { lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon },
         num(l.distance_km), num(l.duration_min));
       await q('UPDATE legs SET geometry=$2, pedaggio_km=$3 WHERE id=$1',
         [l.id, JSON.stringify(scelto.geometry), scelto.pedaggio_km ?? null]);
+      // I chilometri a pedaggio appena scritti rifanno la stima del pedaggio
+      // della tappa -- **zero compreso**: con una strada senza pedaggi la
+      // stima se ne va e il totale del viaggio scende di conseguenza. Un
+      // importo battuto a mano al casello resta dov'e'.
       await costiTappa(l.id);
       ridisegnata = true;
+      pedaggio_km = scelto.pedaggio_km ?? null;
+      // Il controllo di quel che e' uscito contro quel che e' stato
+      // dichiarato. `senza_pedaggi_mancata` vale piu' di `pedaggio_km`: quando
+      // la strada senza pedaggi non si e' ottenuta, quel numero puo' essere
+      // sconosciuto, e leggerlo come «nessun pedaggio» sarebbe l'autostrada
+      // disegnata in silenzio -- cioe' il difetto che questo lavoro chiude.
+      pedaggi_avviso = pedaggiNonTornano(
+        pedaggiDaUsare({ ...l, pedaggi_dichiarati: pedaggi }), scelto.pedaggio_km,
+        { sannoEvitare: sannoEvitareIPedaggi() && !scelto.senza_pedaggi_mancata });
       // `route()` non lancia quasi mai: quando i percorsi non rispondono
       // torna una **stima in linea d'aria**. Chi guarda deve saperlo, come
       // glielo dice gia' la creazione di una tappa.
@@ -917,7 +945,8 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
       console.warn(`tappa ${l.id}: punti salvati ma non ridisegnata:`, String(e.message).slice(0, 160));
     }
   }
-  res.json({ ok: true, via: punti, non_trovati, troppi, ridisegnata, stimata });
+  res.json({ ok: true, via: punti, non_trovati, troppi, ridisegnata, stimata,
+    pedaggi, pedaggio_km, pedaggi_avviso });
 }));
 
 router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
