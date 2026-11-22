@@ -344,6 +344,20 @@ export async function migrate() {
   -- Una lista di { nome, lat, lon }, nell'ordine scritto; lat e lon sono
   -- vuoti quando il nome non si e' trovato, e il nome resta comunque.
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS via JSONB;
+
+  -- L'autostrada **dichiarata da chi ha guidato**: 'si', 'no', e vuoto che
+  -- vuol dire «non lo so». Tre stati e non due: vuoto e' quel che hanno tutte
+  -- le tappe di prima, e se collassasse su 'no' ognuna dichiarerebbe da sola
+  -- una cosa che nessuno ha detto.
+  --
+  -- Il nome e' lungo di proposito. Accanto vivono `pedaggio_km`, che e' una
+  -- **misura** (quanti chilometri di autostrada fa la strada disegnata), e
+  -- `senza_pedaggio`, che e' uno **spegnimento della stima** deciso a mano.
+  -- Tre nomi corti e simili sarebbero il modo di confonderli.
+  --
+  -- Nessun vincolo qui: il valore si normalizza nella rotta, che e' dove
+  -- arriva da fuori, ed e' li' che gira la prova.
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS pedaggi_dichiarati TEXT;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
   -- La copertina del viaggio la sceglie chi l'ha fatto: senza scelta resta la
   -- prima foto, che e' un ripiego, non una decisione. Se quella foto viene

@@ -104,3 +104,60 @@ export function puntiDaUsare(tappa) {
   if (mezzo !== 'camper') return [];
   return (tappa?.via || []).filter(p => p?.lat != null && p?.lon != null);
 }
+
+// ---------------------------------------------------------------------------
+// L'autostrada dichiarata
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-22-pedaggi-dichiarati-design.md
+//
+// L'altra meta' di quel che sa chi c'era. I luoghi dicono **per dove**, questa
+// dice **se si e' pagato un casello** -- e cambia il disegno insieme ai
+// chilometri a pedaggio, da cui esce la spesa stimata del pedaggio.
+//
+// Tre stati, e il terzo non e' un ripiego: `null` vuol dire «non lo so», ed e'
+// quel che hanno tutte le tappe scritte prima di oggi. Se «non lo so»
+// scivolasse su «no», ogni tappa vecchia dichiarerebbe da sola che l'autostrada
+// non si e' fatta -- e il programma le disegnerebbe tutte di conseguenza.
+
+// Quel che arriva da fuori: dalla pagina, o da una richiesta scritta a mano.
+// Il verso prudente e' il vuoto. Una stringa che non si riconosce **non** puo'
+// diventare «no», perche' «no» e' una dichiarazione e nessuno l'ha fatta.
+export function pedaggiDichiarati(valore) {
+  const v = String(valore ?? '').trim().toLowerCase();
+  return v === 'si' || v === 's\u00ec' ? 'si' : v === 'no' ? 'no' : null;
+}
+
+// La dichiarazione **da applicare** a una tappa, con lo stesso filtro dei
+// luoghi: fuori dal camper si ignora, perche' una rotta e un volo le statali
+// non le seguono. Si ignora, non si cancella: resta salvata per quando il
+// mezzo torna quello di prima.
+//
+// Il mezzo mancante vale «camper», come dappertutto nel programma.
+export function pedaggiDaUsare(tappa) {
+  if (String(tappa?.mezzo || 'camper') !== 'camper') return null;
+  return pedaggiDichiarati(tappa?.pedaggi_dichiarati);
+}
+
+// Il controllo di quel che e' tornato contro quel che era stato dichiarato.
+// Disegnare un'autostrada dopo un «niente autostrada» senza dirlo e' la
+// direzione rassicurante dell'errore, cioe' quella che questo lavoro chiude.
+//
+//   'non_chiedibile'  -> dichiarato «no», ma la strada che evita i pedaggi non
+//                        si puo' nemmeno chiedere (manca la chiave del
+//                        servizio): non e' stata onorata, e si dice.
+//   'ne_fa_comunque'  -> dichiarato «no» e la strada fa chilometri a pedaggio.
+//   'non_ne_fa'       -> dichiarato «si» e di autostrada non ce n'e'.
+//
+// **Pedaggi sconosciuti non contraddicono niente**: `null` vuol dire «non so»,
+// `0` vuol dire «uno zero che conosco». Una strada che non dice niente sui
+// pedaggi non sta dicendo che non ce ne sono -- ed e' quel che torna quando
+// risponde OSRM invece di OpenRouteService.
+export function pedaggiNonTornano(dichiarato, pedaggioKm, { sannoEvitare = true } = {}) {
+  if (dichiarato !== 'si' && dichiarato !== 'no') return null;
+  if (dichiarato === 'no' && !sannoEvitare) return 'non_chiedibile';
+  const km = pedaggioKm == null ? null : Number(pedaggioKm);
+  if (km == null || !Number.isFinite(km)) return null;
+  if (dichiarato === 'no') return km > 0 ? 'ne_fa_comunque' : null;
+  return km > 0 ? null : 'non_ne_fa';
+}
