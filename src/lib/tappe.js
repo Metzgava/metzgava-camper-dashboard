@@ -194,3 +194,47 @@ export function daRidisegnare({ buoni = 0, puliti = 0, prima = null, adesso = nu
   if (puliti === 0) return true;         // il campo svuotato: si tolgono i luoghi
   return (prima ?? null) !== (adesso ?? null);   // la risposta sull'autostrada e' cambiata
 }
+
+// ---------------------------------------------------------------------------
+// L'ordine delle tappe dentro un viaggio
+// ---------------------------------------------------------------------------
+//
+// L'ordine e' un numero a parte (`position`) e **non** si ricalcola quando si
+// corregge una data: per questo una tappa puo' avere la data giusta e stare lo
+// stesso nel posto sbagliato dentro «Rivedi il percorso».
+//
+// La regola c'era gia', ma viveva dentro l'import di CarLock come una
+// `ORDER BY` in mezzo a una rotta: si poteva subire, non chiedere, e nessuna
+// prova la eseguiva. Qui e' una funzione, e si prova per quel che fa.
+//
+// Torna gli id nell'ordine giusto. Due scelte che dicono qualcosa:
+//
+//   - **una data che manca va in fondo**, non in cima: non e' «il primo
+//     gennaio», e' «non so quando»;
+//   - **a parita' di data e ora non si tocca niente**: due tratti nello stesso
+//     momento li ha messi in fila una persona, e rimescolarli butterebbe via
+//     l'unica informazione che c'e'.
+export function ordineDelleTappe(tappe) {
+  const giorno = d => {
+    if (d == null || d === '') return null;
+    // `pg` da' una colonna DATE come Date: letta come stringa diventa «Thu Oct
+    // 01 2026 ...», e l'ordine alfabetico di quei nomi non e' l'ordine dei
+    // giorni.
+    if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    return String(d).slice(0, 10);
+  };
+  const chiave = t => {
+    const g = giorno(t?.date), o = t?.start_time == null || t.start_time === '' ? null : String(t.start_time);
+    return [g == null ? 1 : 0, g ?? '', o == null ? 1 : 0, o ?? '',
+            Number(t?.position ?? 0), Number(t?.id ?? 0)];
+  };
+  return [...(tappe || [])].sort((a, b) => {
+    const ka = chiave(a), kb = chiave(b);
+    for (let i = 0; i < ka.length; i++) {
+      if (ka[i] < kb[i]) return -1;
+      if (ka[i] > kb[i]) return 1;
+    }
+    return 0;
+  }).map(t => t.id);
+}
+

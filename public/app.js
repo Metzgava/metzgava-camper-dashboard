@@ -3512,7 +3512,7 @@ async function viewTrip(id) {
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${legendaViaggio(d)}</div>
     <div class="grid due" style="margin-top:14px">
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn sm" id="damaps" title="Incolla un itinerario di Google Maps">\ud83d\uddfa\ufe0f Da Maps</button><button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn sm" id="riordina" title="Rimette le tappe in fila per data e ora">\u2195\ufe0f In ordine di data</button><button class="btn sm" id="damaps" title="Incolla un itinerario di Google Maps">\ud83d\uddfa\ufe0f Da Maps</button><button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove dormiamo o dove ci fermiamo</h2>${'<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
         ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">
@@ -3677,6 +3677,27 @@ async function viewTrip(id) {
   }));
   $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
   $('#damaps')?.addEventListener('click', () => tappeDaMaps(trip, legs));
+  // L'ordine di una tappa e' un numero a parte e **non** si ricalcola quando
+  // si corregge una data: per questo una tappa puo' avere la data giusta e
+  // comparire lo stesso nel momento sbagliato dentro «Rivedi il percorso».
+  $('#riordina')?.addEventListener('click', () => modal(`<h2>\u2195\ufe0f Rimetti le tappe in ordine di data</h2>
+    <p class="small muted">Le ${legs.length} tappe di questo viaggio vanno in fila per <b>data</b> e <b>orario di partenza</b>.
+      Quelle senza data finiscono in fondo: una data che manca non \u00e8 il primo gennaio, \u00e8 \u00abnon so quando\u00bb.
+      Due tappe nello stesso momento <b>non si toccano</b> fra loro: l\u2019ordine l\u2019hai messo tu, e l\u00ec sei l\u2019unico a sapere com\u2019\u00e8 andata.</p>
+    <p class="small muted">Non cambia nessun dato: n\u00e9 chilometri, n\u00e9 orari, n\u00e9 costi. Solo il posto in cui stanno nella fila.</p>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button type="button" class="btn primary" data-ok>Rimetti in ordine</button></div>`,
+    (el, close) => {
+      $('[data-x]', el).onclick = close;
+      $('[data-ok]', el).onclick = safe(async () => {
+        const r = await api(`/trips/${trip.id}/riordina`, { method: 'POST' });
+        close();
+        // Zero spostate e' una risposta, non un silenzio: vuol dire che erano
+        // gia' in ordine.
+        toast(r.spostate ? `Rimesse in ordine: ${r.spostate === 1 ? 'una tappa si \u00e8 mossa' : r.spostate + ' tappe si sono mosse'} su ${r.tappe}.`
+          : 'Erano gi\u00e0 in ordine di data: non ho mosso niente.');
+        restaQui();
+      });
+    }));
   $('#carlock')?.addEventListener('click', () => carlockImport({ ...trip, legs }));
   $('#sostituisci')?.addEventListener('click', () => carlockImport({ ...trip, legs }, [], true));
   $('#addsosta')?.addEventListener('click', () => sostaForm(trip));

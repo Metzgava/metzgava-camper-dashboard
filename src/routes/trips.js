@@ -5,7 +5,7 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
-import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare } from '../lib/tappe.js';
+import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare, ordineDelleTappe } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
@@ -1042,7 +1042,11 @@ const isHome = (name, home) => !!home && String(name || '').toLowerCase().includ
 export async function splitTripByHome(tripId, home, userId) {
   const orig = (await q('SELECT * FROM trips WHERE id=$1', [tripId])).rows[0];
   if (!orig) throw Object.assign(new Error('Viaggio non trovato'), { status: 404 });
-  const legs = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY date NULLS LAST, start_time NULLS LAST, position, id', [tripId])).rows;
+  // Le tappe in ordine di data: la stessa regola del tasto «in ordine di
+  // data», non una copia scritta in SQL che un giorno dira' un'altra cosa.
+  const righe = (await q('SELECT * FROM legs WHERE trip_id=$1', [tripId])).rows;
+  const perId = new Map(righe.map(l => [l.id, l]));
+  const legs = ordineDelleTappe(righe).map(id => perId.get(id));
   if (legs.length < 2) return { created: [], kept: orig };
   // gruppi: un gruppo si chiude quando una tappa arriva a casa
   const groups = []; let cur = [];
@@ -1270,13 +1274,43 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
     if (leg) { await costiTappa(leg.id); created.push(leg); }
   }
   // riordina le tappe per data/ora e cerca i POI in background, uno alla volta
-  const all = (await q('SELECT id FROM legs WHERE trip_id=$1 ORDER BY date NULLS LAST, start_time NULLS LAST, position, id', [trip.id])).rows;
-  for (let i = 0; i < all.length; i++) await q('UPDATE legs SET position=$2 WHERE id=$1', [all[i].id, i + 1]);
+  await rimettiInOrdine(trip.id);
   (async () => { for (const leg of created) { try { await cercaSosteArrivo(leg.id, leg.to_name, leg.to_lat, leg.to_lon); } catch { } await new Promise(r => setTimeout(r, 3000)); } })();
   if (errors.size) console.warn('CarLock: errori geocoder', Object.fromEntries(errors));
   let split = null;
   if (req.body.split_home && created.length) split = await splitTripByHome(trip.id, String(req.body.split_home).trim(), req.user.id);
   res.json({ ...summary, imported: created.length, sostituite, geocode_failed: [...new Set(failed)], geocode_errors: [...errors.keys()], split, totals: split?.kept === null ? null : await tripTotals(trip.id) });
+}));
+
+// Rimette le tappe di un viaggio in fila per data e ora. La regola sta in
+// `ordineDelleTappe`, dove girano le prove: qui si applica e basta.
+//
+// Torna quante tappe si sono davvero mosse. Zero e' una risposta -- vuol dire
+// che erano gia' in ordine -- e merita di essere detta, invece di lasciar
+// credere che non sia successo niente.
+async function rimettiInOrdine(tripId) {
+  const tappe = (await q('SELECT id, date, start_time, position FROM legs WHERE trip_id=$1', [tripId])).rows;
+  const ordine = ordineDelleTappe(tappe);
+  const dovEra = new Map(tappe.map(x => [x.id, Number(x.position)]));
+  let spostate = 0;
+  for (let i = 0; i < ordine.length; i++) {
+    if (dovEra.get(ordine[i]) === i + 1) continue;
+    await q('UPDATE legs SET position=$2 WHERE id=$1', [ordine[i], i + 1]);
+    spostate++;
+  }
+  return { spostate, tappe: ordine.length };
+}
+
+// Il tasto che lo chiede. L'ordine di una tappa e' un numero a parte e non si
+// ricalcola quando si corregge una data: per questo una tappa puo' avere la
+// data giusta e comparire lo stesso nel momento sbagliato dentro «Rivedi il
+// percorso».
+router.post('/trips/:id/riordina', wrap(async (req, res) => {
+  const t = (await q('SELECT id FROM trips WHERE id=$1', [req.params.id])).rows[0];
+  if (!t) return res.status(404).json({ error: 'Viaggio non trovato' });
+  const r = await rimettiInOrdine(t.id);
+  console.log(`viaggio ${t.id}: rimesse in ordine di data, ${r.spostate} tappe su ${r.tappe} si sono mosse`);
+  res.json({ ok: true, ...r });
 }));
 
 // ---- spese ----
