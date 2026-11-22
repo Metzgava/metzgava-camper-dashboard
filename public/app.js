@@ -26,6 +26,51 @@ const lungaQuantoRiga = g => {
 // Il numero di park4night da quel che si e' scritto: nudo, col cancelletto, o
 // dentro un indirizzo incollato. Stessa regola del server (`geo.js`), che qui
 // serve solo a costruire il collegamento mentre si scrive.
+// **Quando la pagina aperta non e' piu' quella del server.**
+//
+// Un'app aggiunta alla schermata Home non si ricarica da sola: il sistema la
+// tiene sospesa, e riaprendola riprende il programma che aveva. Dal di fuori
+// non c'e' modo di svegliarla -- il server puo' servire il file nuovo quanto
+// vuole, chi ha la pagina in mano continua con quello vecchio.
+//
+// E' successo due volte: il 18/11/2026 nell'app dei servizi, e il 22/11 qui,
+// col tasto «Ridisegna» nuovo sul server e quello di prima in mano. Nessuna
+// delle due volte la pagina aveva qualcosa da dire.
+//
+// L'unico che puo' accorgersene e' il programma stesso: conosce l'impronta
+// con cui e' stato caricato (sta nel suo indirizzo) e puo' chiedere al server
+// quale sta servendo. Quando le due non coincidono lo dice, e si ricarica solo
+// se glielo si chiede: ricaricare da soli mentre qualcuno sta scrivendo una
+// tappa gli butterebbe via quel che ha scritto.
+const MIA_VERSIONE = (() => {
+  try {
+    const mio = [...document.scripts].map(x => x.src).find(x => /\/app\.js\?/.test(x));
+    return mio ? new URL(mio).searchParams.get('v') : null;
+  } catch { return null; }
+})();
+
+let avvisatoDellaVersione = false;
+async function guardaSeSonoVecchio() {
+  if (!MIA_VERSIONE || avvisatoDellaVersione) return;
+  try {
+    const r = await fetch('/api/health', { cache: 'no-store' });
+    const d = await r.json();
+    if (!d?.versione || d.versione === MIA_VERSIONE) return;
+    avvisatoDellaVersione = true;
+    const barra = document.createElement('div');
+    barra.className = 'barra-versione';
+    barra.innerHTML = '\u2728 C\u2019\u00e8 una <b>versione nuova</b> del programma. '
+      + '<button class="btn sm primary" type="button">Ricarica</button>';
+    barra.querySelector('button').onclick = () => location.reload(true);
+    document.body.appendChild(barra);
+  } catch { /* senza rete non si sa, e non si dice niente */ }
+}
+// Si guarda all'apertura e ogni tanto: un'app sospesa per giorni si risveglia
+// senza ricaricare, ed e' proprio quel caso che va preso.
+setTimeout(guardaSeSonoVecchio, 4000);
+setInterval(guardaSeSonoVecchio, 10 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) guardaSeSonoVecchio(); });
+
 const numeroP4n = v => (String(v ?? '').match(/(?:place|lieu)\/(\d{2,9})/i)
   || String(v ?? '').match(/^#?\s*(\d{2,9})$/) || [])[1] || null;
 

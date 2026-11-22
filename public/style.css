@@ -889,3 +889,14 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .fermata-giorno { display: flex; align-items: center; gap: 4px; background: #fffbeb; border-radius: 8px; padding: 4px 6px 4px 10px; flex-wrap: wrap; }
 .fermata-giorno.scartato { opacity: .6; text-decoration: line-through; }
 .fermata-giorno a { white-space: nowrap; }
+
+/* La riga che compare quando il programma aperto non e' piu' quello del
+   server. Sta in basso e non copre niente di importante: e' un invito, non un
+   allarme -- chi sta scrivendo una tappa deve poterla ignorare e finire. */
+.barra-versione {
+  position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 9999; display: flex; gap: 10px; align-items: center; justify-content: center;
+  padding: 10px 14px; border-radius: 12px;
+  background: #1f2937; color: #f9fafb; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  font-size: 14px;
+}

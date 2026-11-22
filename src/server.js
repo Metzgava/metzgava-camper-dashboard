@@ -1,6 +1,8 @@
 import express from 'express';
 import cookieSession from 'cookie-session';
 import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { migrate, sistemaDurateCarlock, q } from './lib/db.js';
 import { SECRET, wrap } from './lib/util.js';
@@ -13,6 +15,7 @@ import { router as proposte } from './routes/proposte.js';
 import { router as pianifica } from './routes/pianifica.js';
 import { router as share, linkValido, viaggiVisibili, segnaVisita } from './routes/share.js';
 import { sannoEvitareIPedaggi } from './lib/geo.js';
+import { conImpronta } from './lib/pagina.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -40,7 +43,32 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
+// L'impronta del programma della pagina, calcolata all'avvio.
+//
+// Serve a una cosa sola, ma importante: un'app aggiunta alla schermata Home
+// **non si ricarica da sola**. Il sistema la tiene sospesa e riaprendola
+// riprende la pagina di prima. Senza un modo di accorgersene, chi guarda usa
+// una versione vecchia senza saperlo -- ed e' successo due volte: il 18/11
+// nell'app dei servizi, il 22/11 qui, col tasto «Ridisegna» nuovo sul server e
+// quello vecchio in mano.
+//
+// Tutti i file della pagina, non un elenco scritto a mano: un elenco va
+// aggiornato quando nasce un file, e dimenticarlo non da' nessun segnale. In
+// ordine alfabetico, o l'impronta cambierebbe a seconda di come il sistema
+// elenca la cartella.
+const PUBBLICA = path.join(__dirname, '..', 'public');
+const SUOI = /\.(?:js|css|html|webmanifest)$/;
+const IMPRONTA = (() => {
+  try {
+    const h = crypto.createHash('sha1');
+    for (const f of fs.readdirSync(PUBBLICA).filter(x => SUOI.test(x)).sort()) {
+      h.update(fs.readFileSync(path.join(PUBBLICA, f)));
+    }
+    return h.digest('hex').slice(0, 10);
+  } catch { return String(Date.now()); }
+})();
+
+app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date(), versione: IMPRONTA }));
 app.use('/api/auth', auth);
 app.use('/api/ingest', ingest);
 // I link di sola lettura stanno davanti agli altri: le rotte dei viaggi
@@ -87,13 +115,29 @@ app.get('/v/:token', wrap(async (req, res) => {
 // porta via l'icona di quel momento e se la tiene per sempre: se il browser
 // gliene passa una vecchia tenuta in cache, se la tiene vecchia.
 const indice = path.join(__dirname, '..', 'public', 'index.html');
+// La pagina si serve **a mano**, per sostituire il `?v=` dei suoi file con
+// l'impronta. Deve stare prima di `express.static`, che altrimenti
+// risponderebbe lei col file cosi' com'e' sul disco.
+//
+// Letta una volta sola all'avvio: pesa poco, e a ogni pubblicazione il server
+// riparte comunque.
+const PAGINA = (() => {
+  try { return conImpronta(fs.readFileSync(indice, 'utf8'), IMPRONTA); }
+  catch { return null; }
+})();
+const servePagina = (req, res, next) => {
+  if (!PAGINA) return next();
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  res.type('html').send(PAGINA);
+};
+app.get(['/', '/index.html'], servePagina);
 const daRiconvalidare = f => !f.includes(`${path.sep}vendor${path.sep}`)
   && (/\.(html|js|css|json)$/.test(f) || /^icon[-.]/.test(path.basename(f)));
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: '1h',
   setHeaders: (res, f) => { if (daRiconvalidare(f)) res.setHeader('Cache-Control', 'no-cache'); },
 }));
-app.get(/^\/(?!api|uploads).*/, (req, res) => res.set('Cache-Control', 'no-cache').sendFile(indice));
+app.get(/^\/(?!api|uploads).*/, servePagina);
 
 app.use((err, req, res, next) => {
   if (err?.type === 'entity.too.large' || err?.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'File troppo grande' });
