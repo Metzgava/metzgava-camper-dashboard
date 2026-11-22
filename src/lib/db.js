@@ -350,9 +350,11 @@ export async function migrate() {
   -- le tappe di prima, e se collassasse su 'no' ognuna dichiarerebbe da sola
   -- una cosa che nessuno ha detto.
   --
-  -- Il nome e' lungo di proposito. Accanto vivono `pedaggio_km`, che e' una
-  -- **misura** (quanti chilometri di autostrada fa la strada disegnata), e
-  -- `senza_pedaggio`, che e' uno **spegnimento della stima** deciso a mano.
+  -- Il nome e' lungo di proposito. Accanto vivono pedaggio_km, che e' una
+  -- misura (quanti chilometri di autostrada fa la strada disegnata), e
+  -- senza_pedaggio, che e' uno spegnimento della stima deciso a mano.
+  -- Niente apici inversi in questi commenti: stanno dentro una stringa a
+  -- template, e uno di loro la chiude in silenzio.
   -- Tre nomi corti e simili sarebbero il modo di confonderli.
   --
   -- Nessun vincolo qui: il valore si normalizza nella rotta, che e' dove
