@@ -378,12 +378,19 @@ function vistaAdesso() {
   const vere = (dati.istantanee || []).filter(r => r.dati?.celle_mv || /^NWJ/i.test(r.apparecchio || ''));
   const quadrante = (r, i) => {
     const d = r?.dati || {};
+    // Il nome viene dal **numero di serie**, non dal posto in elenco: «Ective
+    // 1» era la posizione, e se un giorno l'ordine cambia la 1 diventa la 2
+    // senza che nessuno se ne accorga. Le ultime tre cifre -- 310, 323 --
+    // stanno scritte sulle batterie e non si spostano. Senza numero resta il
+    // ripiego, perche' due quadranti senza nome non si distinguono.
+    const sigla = String(r?.apparecchio || '').slice(-3);
+    const nome = `Ective ${sigla || i + 1}`;
     const residuoAh = d.capacita_ah != null && d.carica != null ? d.capacita_ah * d.carica / 100 : null;
     // Colonna alta uguale e riquadro spinto in fondo: cosi' i due «carica
     // residua» stanno sulla stessa riga anche quando il testo del ritmo e' piu'
     // lungo da una parte. Due riquadri sfalsati sembrano un errore.
     return `<div style="display:flex;flex-direction:column;height:100%">
-      ${manometro({ pct: d.carica ?? null, nome: `Ective ${i + 1}`,
+      ${manometro({ pct: d.carica ?? null, nome,
         tendenza: r?.tendenza, atteso: !r, perche: 'con la scatoletta',
         // Un filo di corrente positiva e' rumore attorno allo zero, non una
         // carica: sotto i 50 mA non si annuncia niente.
@@ -773,6 +780,28 @@ function vistaFlusso() {
             fill="${u.attivo ? 'var(--verde)' : 'var(--fioco)'}">${esce}</text>
         </g>
       </svg>
+      ${(() => {
+        // Di cosa e' fatto il buco fra «escono 447 W dalla 220» e «ne entrano
+        // 199». Sono due cose diverse: una parte si **disperde** in calore nel
+        // caricatore e non torna piu', il resto lo stanno **consumando** il
+        // frigo e le luci -- e quelli stanno lavorando, non sprecando.
+        //
+        // Sta sotto il disegno e non dentro: l'SVG ha tre righe gia' fitte.
+        const s = (f.rami || []).find(r => r.id === 'rete')?.scomposizione;
+        if (!s) return '';
+        const w = v => `<b>${num(v, 0)} W</b>`;
+        // I dispersi vengono dal rendimento **di targa** del caricatore:
+        // nessuno li ha misurati, e la pagina non deve far credere il
+        // contrario.
+        if (!s.torna) return `<div class="perche" style="text-align:center">\u2668\ufe0f Nelle batterie
+          entra pi\u00f9 di quanto possa arrivare dalla presa: il <b>rendimento dichiarato del caricatore
+          non torna</b>, oppure sta caricando anche qualcos\u2019altro. Non scompongo, che sarebbe inventare.</div>`;
+        return `<div class="perche" style="text-align:center">Dei ${w(s.dispersi + s.consumi + s.nelle_ective)}
+          che escono dalla 220: \u2668\ufe0f ${w(s.dispersi)} <b>dispersi</b> in calore nel caricatore
+          (<i>stima</i>, dal rendimento di targa) \u00b7 \u{1F3E0} ${w(s.consumi)} <b>consumi e altro</b>
+          (<i>per differenza</i>) \u00b7 \u{1F50B} ${w(s.nelle_ective)} <b>nelle Ective</b> (<i>misurato</i>).
+          \u00abConsumi e altro\u00bb tiene dentro anche quel che fosse attaccato alla 220 adesso.</div>`;
+      })()}
       ${f.ferma ? `<div class="perche" style="text-align:center;color:var(--ambra)">La figura &egrave; <b>ferma</b>: le ultime letture delle batterie sono di un pezzo fa, e far scorrere i puntini su numeri vecchi direbbe che sta entrando corrente adesso.</div>` : ''}
       ${qualcosaCarica ? '' : (() => {
         // Tre frasi per tre stati, e non una per esclusione. Fino al

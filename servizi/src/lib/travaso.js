@@ -43,6 +43,40 @@ export const RENDIMENTO_CARICATORE = 0.875;
 
 const NUM = v => (v == null || Number.isNaN(Number(v)) ? null : Number(v));
 
+// Il travaso scomposto in tre, per la figura.
+//
+// Disegno: docs/superpowers/specs/2026-11-23-travaso-scomposto-design.md
+//
+// Il buco fra «escono 447 W» e «ne entrano 199» non e' fatto di una cosa sola:
+// una parte si **disperde** in calore nel caricatore e non torna piu', il
+// resto si **consuma** -- il frigo, lo Starlink, le luci -- e sta facendo il
+// suo lavoro. Chiamarle insieme «perdite» farebbe sembrare spreco anche il
+// secondo.
+//
+// `uscitaW` sono i watt **alla presa**, gia' dopo l'inverter (e' la stessa
+// convenzione di `travasoInCorso`, che per risalire alla batteria interna
+// divide per `RENDIMENTO_INVERTER`). Quindi qui si applica **solo** quello del
+// caricatore, e i tre numeri sommano esattamente il misurato: chi guarda puo'
+// controllare il conto a occhio.
+//
+// **Mai un negativo.** Se nelle batterie entra piu' di quanto possa arrivare
+// -- rendimento vero migliore di quello di targa, o una terza fonte che carica
+// insieme -- la sottrazione va sotto zero. «Consumi: -20 W» e' un'assurdita'
+// che farebbe dubitare di tutto il resto della pagina: si torna
+// `torna: false` e `consumi: null`, che vuol dire «non so», non «zero».
+export function scomposizione(uscitaW, nelleEctiveW, { caricatore = RENDIMENTO_CARICATORE } = {}) {
+  const uscita = NUM(uscitaW), entra = NUM(nelleEctiveW);
+  if (uscita == null || entra == null || !(uscita > 0)) return null;
+  const arriva = uscita * caricatore;
+  const consumi = arriva - entra;
+  return {
+    dispersi: uscita - arriva,
+    nelle_ective: entra,
+    consumi: consumi < 0 ? null : consumi,
+    torna: consumi >= 0,
+  };
+}
+
 // Dal formato lungo del database (una riga per grandezza) alle letture: le
 // righe di una stessa lettura sono scritte nello stesso istante, ma non al
 // millesimo uguale, perche' sono INSERT diversi.

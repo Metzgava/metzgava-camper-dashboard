@@ -19,7 +19,7 @@
 // 19/11/2026 i pannelli davano sei watt sotto la pioggia, e su una scala
 // assoluta sarebbero stati un filo immobile. Erano sei watt su sette: quasi
 // tutto quel che entrava, e si devono vedere.
-import { SOGLIA_W as SOGLIA_TRAVASO_W, SOGLIA_RETE_W } from './travaso.js';
+import { SOGLIA_W as SOGLIA_TRAVASO_W, SOGLIA_RETE_W, scomposizione } from './travaso.js';
 
 export const SPESSORE = { min: 2, max: 8 };
 export const SECONDI = { lento: 3, veloce: 0.8 };
@@ -253,6 +253,20 @@ export function ramiDellaCarica(fonti, { letture = false, bluetti = null,
       secondi: attivo
         ? arrotonda(SECONDI.lento - (SECONDI.lento - SECONDI.veloce) * quota, 2)
         : null,
+      // Di cosa e' fatto il buco fra «escono 447 W» e «ne entrano 199»: una
+      // parte si disperde in calore nel caricatore, il resto lo stanno
+      // consumando il frigo e le luci -- e quelli stanno lavorando, non
+      // sprecando.
+      //
+      // **Solo durante un travaso riconosciuto.** Senza, la 220 potrebbe
+      // alimentare un bollitore: quei watt non passano dal caricatore, e dire
+      // «56 dispersi» sarebbe inventare una catena che non esiste.
+      ...(f.id === 'rete' && bluetti?.travaso && attivo
+        ? (() => {
+            const s = scomposizione(bluetti.uscita_ac_w, watt);
+            return s ? { scomposizione: s } : {};
+          })()
+        : {}),
     };
   });
 
