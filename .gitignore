@@ -18,3 +18,11 @@ __pycache__/
 # I registri del server sul Mac: li scrive launchd, crescono da soli e non
 # dicono niente a chi clona. Il programma li mette in log/server.log.
 log/
+
+# La cifratura della Bluetti: implementazione di terze parti del loro scambio
+# di chiavi (ECDH P-256 + AES). Serve accanto a `fotografia-bluetti.py`, che
+# la importa per nome, ma **non si versiona**: non e' nostra, e copiarla qui
+# dentro porterebbe la sua licenza dentro questo progetto. Si riprende dalla
+# scatoletta quando serve:
+#     scp metz@SCATOLETTA:~/sonda/encryption.py scatoletta/sonda/
+scatoletta/sonda/encryption.py
