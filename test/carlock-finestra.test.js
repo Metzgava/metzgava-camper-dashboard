@@ -150,3 +150,22 @@ test('la mezzanotte della notte del cambio d’ora e’ quella giusta', () => {
     { adesso: ora('2026-10-27T12:00:00+01:00'), mesiStorico: 12, fuso: 'Europe/Rome' });
   assert.equal(f.da, ora('2026-10-25T00:00:00+02:00'));
 });
+
+test('rubinetto spento vuol dire zero mesi: non «non lo so», ma «non posso chiedere»', () => {
+  // Su Railway le credenziali vanno nelle variabili del servizio, e finche'
+  // non ci sono il rubinetto e' spento. Tornare 3 come per un piano
+  // sconosciuto farebbe comparire il cartello, e il tocco risponderebbe «non
+  // configurato»: un invito che non porta da nessuna parte e' peggio di
+  // nessun invito. Zero e' la verita': niente da chiedere.
+  assert.equal(mesiDiStorico('STANDARD_PLUS', { configurato: false }), 0);
+  assert.equal(mesiDiStorico(null, { configurato: false }), 0);
+  assert.equal(mesiDiStorico('STANDARD_PLUS', { configurato: true }), 12);
+  assert.equal(mesiDiStorico('STANDARD_PLUS'), 12, 'di suo si assume acceso, come prima');
+});
+
+test('con zero mesi non si chiede niente e non e’ «troppo vecchio»', () => {
+  const v = viaggio('2026-11-22', '2026-12-01');
+  assert.equal(finestraDaChiedere(v, [], q(ADESSO, 0)), null);
+  assert.equal(oltreLoStorico(v, [], q(ADESSO, 0)), false,
+    'un rubinetto spento non e’ un viaggio vecchio: sono due ragioni diverse');
+});

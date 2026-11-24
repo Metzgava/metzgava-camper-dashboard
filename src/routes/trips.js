@@ -1329,7 +1329,11 @@ const MIN_KM_RUBINETTO = 3, UNISCI_MIN = 30;
 // piu' prudente del necessario, e la pagina del viaggio non si accorge di
 // niente.
 async function mesiStoricoDelConto() {
-  if (!rubinetto().configurato) return 3;
+  // **Zero quando il rubinetto e' spento**, cosi' il cartello in pagina non
+  // compare: la pagina non puo' saperlo da se'. Tre -- il piano piu' piccolo
+  // -- quando il rubinetto c'e' ma CarLock non ha risposto: li' il cartello
+  // sara' piu' prudente del necessario, e si puo' chiedere davvero.
+  if (!rubinetto().configurato) return mesiDiStorico(null, { configurato: false });
   try { return mesiDiStorico((await rubinetto().veicolo()).subscription_tier); }
   catch { return 3; }
 }

@@ -66,7 +66,13 @@ const giornoDi = d => {
  * viaggi per cui CarLock non ha più niente, e un cartello che non porta nulla
  * è rumore.
  */
-export function mesiDiStorico(tier) {
+export function mesiDiStorico(tier, { configurato = true } = {}) {
+  // **Rubinetto spento: zero.** Non «non lo so», ma «non posso chiedere».
+  // Tornare 3 come per un piano sconosciuto farebbe comparire il cartello, e
+  // il tocco risponderebbe «non configurato»: un invito che non porta da
+  // nessuna parte e' peggio di nessun invito. E' il caso di Railway finche'
+  // le credenziali non sono nelle variabili del servizio.
+  if (!configurato) return 0;
   return String(tier || '').toUpperCase() === 'STANDARD_PLUS' ? 12 : 3;
 }
 

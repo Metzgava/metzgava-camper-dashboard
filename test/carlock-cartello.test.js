@@ -126,3 +126,14 @@ test('i tragitti corti si dicono, invece di sparire', () => {
   const r = riquadro;
   assert.match(r, /corti/, 'non si dice quanti tragitti sono stati scartati perche’ troppo corti');
 });
+
+test('senza il rubinetto configurato il cartello non compare', () => {
+  // Su Railway le credenziali vanno messe nelle variabili del servizio, e
+  // finche' non ci sono il rubinetto e' spento. Un cartello che invita a
+  // guardare e poi risponde «non configurato» e' peggio di nessun cartello:
+  // la pagina non puo' saperlo da se', quindi glielo dice il server.
+  const vale = guardia('cartelloCarlock');
+  const v = viaggio('2026-11-22', '2026-12-01');
+  assert.equal(!!vale(v, [], ora('2026-11-24T12:00:00+01:00'), 0), false,
+    'zero mesi di storico vuol dire rubinetto spento: il cartello compare comunque');
+});
