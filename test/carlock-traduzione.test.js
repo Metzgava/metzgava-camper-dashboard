@@ -26,8 +26,12 @@ const ROMA = 'Europe/Rome';
 
 // Un tragitto grezzo come lo manda la loro interfaccia, con gli istanti che
 // servono alla prova. Le coordinate sono inventate.
+// Gli uuid veri sono esadecimali con dei trattini: niente `+`, che e' il
+// separatore con cui si uniscono quelli delle tappe unite. Un uuid finto che
+// ne contenesse uno proverebbe un'altra cosa.
+let contatore = 0;
 const tragitto = (inizio, fine, extra = {}) => ({
-  uuid: 'T-' + inizio,
+  uuid: `0000000${(++contatore).toString(16)}-1111-4111-8111-111111111111`,
   start_time: Date.parse(inizio),
   end_time: Date.parse(fine),
   distance: 183979,
@@ -174,4 +178,66 @@ test('il file continua a non avere coordinate, e non se ne accorge', () => {
   assert.equal(unita.merged, 2);
   assert.equal(unita.to, 'C');
   assert.equal(unita.a_lat, undefined, 'si e’ inventata una coordinata che non c’era');
+});
+
+// ---------------------------------------------------------------------------
+// Trovati provando sulla pagina vera, il 24/11/2026
+// ---------------------------------------------------------------------------
+//
+// Accettando il tragitto del 21 novembre -- 192,1 km, due tragitti uniti da
+// cinque minuti di sosta -- e' nata una tappa con **48 punti** e il bollino
+// «strada vera». Quarantotto punti sono gli 8 km del primo spezzone: il
+// 96% del percorso non c'era, e la riga diceva di essere quella percorsa.
+//
+// Causa: `mergeTrips` unisce `external_id` ma non gli `uuid`, e gli uuid sono
+// quelli con cui si chiedono i punti. Ne chiedevo uno solo.
+test('unendo due tragitti, gli uuid si uniscono come gli identificativi', () => {
+  const uno = comeIlFile([tragitto('2026-11-21T11:02:00+01:00', '2026-11-21T11:13:00+01:00')], ROMA)[0];
+  const due = comeIlFile([tragitto('2026-11-21T11:18:00+01:00', '2026-11-21T14:02:00+01:00')], ROMA)[0];
+  const [unita] = mergeTrips([uno, due], 30);
+  assert.equal(unita.merged, 2, 'i due non si sono uniti: la prova non guarda niente');
+  assert.deepEqual(String(unita.uuid).split('+'), [uno.uuid, due.uuid],
+    'si chiederebbero i punti di un solo spezzone, e la riga coprirebbe un pezzo della tappa');
+});
+
+test('il file non ha uuid, e unire non ne inventa', () => {
+  const senza = [
+    { date: '2026-11-21', start: '11:02', end: '11:13', from: 'A', to: 'B', km: 8, duration_min: 11, external_id: 'carlock:2026-11-21:11:02:11:13' },
+    { date: '2026-11-21', start: '11:18', end: '14:02', from: 'B', to: 'C', km: 184, duration_min: 164, external_id: 'carlock:2026-11-21:11:18:14:02' },
+  ];
+  const [unita] = mergeTrips(senza, 30);
+  assert.equal(unita.merged, 2);
+  assert.equal(unita.uuid, undefined, 'si e’ inventato un identificativo che non c’era');
+});
+
+// L'altro difetto della stessa prova: la tappa si chiamava «Italy → Italy».
+//
+// L'interfaccia scrive l'indirizzo in tre pezzi col **paese** in coda --
+// «via, CAP citta provincia, Italy» -- mentre il file lo scrive in due e
+// senza paese. `nomeTappa` prende l'ultimo pezzo per il nome del posto, e
+// l'ultimo pezzo era il paese.
+test('il paese in coda si toglie: la forma e’ quella del file', () => {
+  const [a] = comeIlFile([tragitto('2026-11-21T11:00:00+01:00', '2026-11-21T12:00:00+01:00', {
+    start_location: { latitude: 45.8, longitude: 12.2, address: 'Via Cavour 9, 31058 Susegana Treviso, Italy' },
+    end_location: { latitude: 46.0, longitude: 13.2, address: 'Piazza Primo Maggio, 33100 Udine, Italy' },
+  })], ROMA);
+  assert.equal(a.from, 'Via Cavour 9, 31058 Susegana Treviso');
+  assert.equal(a.to, 'Piazza Primo Maggio, 33100 Udine');
+});
+
+test('un indirizzo straniero in due pezzi perde il paese e tiene il posto', () => {
+  // Come lo scrive il file: «Tolmin Tolmin Municipality». CarLock ci aggiunge
+  // il paese, e senza toglierlo la tappa si chiamerebbe «Slovenia».
+  const [a] = comeIlFile([tragitto('2026-11-21T11:00:00+01:00', '2026-11-21T12:00:00+01:00', {
+    start_location: { latitude: 46.1, longitude: 13.7, address: 'Tolmin Tolmin Municipality, Slovenia' },
+  })], ROMA);
+  assert.equal(a.from, 'Tolmin Tolmin Municipality');
+});
+
+test('un indirizzo di un pezzo solo resta com’e’', () => {
+  // Non si butta l'unica cosa che c'e'.
+  const [a] = comeIlFile([tragitto('2026-11-21T11:00:00+01:00', '2026-11-21T12:00:00+01:00', {
+    start_location: { latitude: 46.1, longitude: 13.7, address: 'Italy' },
+  })], ROMA);
+  assert.equal(a.from, 'Italy');
 });

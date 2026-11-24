@@ -171,3 +171,27 @@ test('si toglie solo quel che e’ stato spuntato, non tutte le previste', () =>
   assert.match(r, /ANY\(\$\d::int\[\]\)/,
     'si cancellano le previste in blocco invece di quelle indicate');
 });
+
+test('una traccia che copre un pezzo della tappa non si prende il bollino «vera»', () => {
+  // Trovato sulla pagina vera il 24/11/2026: una tappa di 192 km nata con 8
+  // km di riga e sopra «strada vera». La regola si prova sui valori in
+  // `tracciati-periodo.test.js`; qui si pretende che la rotta la chiami.
+  const r = rotta('/trips/:id/carlock/tappe');
+  assert.match(r, /copreLaTappa\(riga, t\.km\)/,
+    'si accetta una traccia che copre una frazione del percorso');
+});
+
+test('non si offre di togliere un traghetto o un aereo', () => {
+  // Trovato guardando il riquadro, il 24/11/2026: fra le «previste da
+  // sostituire» compariva **Livorno -> Olbia in traghetto**, con la spunta
+  // gia' messa. Un tocco distratto l'avrebbe cancellata -- e CarLock non
+  // sostituira' mai una rotta in traghetto, perche' il tracker viaggia
+  // sopra la nave e quel tragitto non e' una strada.
+  //
+  // E' la stessa regola che vale in tutto il resto del programma: solo in
+  // camper.
+  const i = sorgente.indexOf('const previsteDi');
+  assert.ok(i > 0, 'l’elenco delle previste non si trova piu’');
+  assert.match(sorgente.slice(i, i + 500), /mezzo/,
+    'si offre di cancellare tappe che il tracker non puo’ sostituire');
+});

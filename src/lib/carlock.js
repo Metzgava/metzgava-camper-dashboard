@@ -164,6 +164,12 @@ export function mergeTrips(trips, gapMin = 30) {
       // posto sbagliato, e muto -- mentre il nome, due righe sopra, era quello
       // giusto.
       if (t.a_lat != null) { last.a_lat = t.a_lat; last.a_lon = t.a_lon; }
+      // **E gli uuid**, che sono quelli con cui si chiedono i punti al
+      // rubinetto. Senza questa riga si chiedevano i punti del solo primo
+      // spezzone: trovato provando sulla pagina vera il 24/11/2026, una tappa
+      // di 192 km nata con 48 punti -- gli 8 km del primo tragitto -- e sopra
+      // il bollino «strada vera». Dal file non arrivano e resta `undefined`.
+      if (t.uuid != null) last.uuid = `${last.uuid}+${t.uuid}`;
       last.external_id += '+' + t.external_id.split(':').pop();
     } else out.push({ ...t });
   }

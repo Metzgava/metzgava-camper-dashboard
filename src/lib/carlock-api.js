@@ -131,6 +131,23 @@ export function mezzanotteNelFuso(giorno, fuso = 'Europe/Rome') {
   return secondo;
 }
 
+// **Il paese in coda si toglie.**
+//
+// L'interfaccia scrive l'indirizzo in tre pezzi col paese per ultimo -- «via,
+// CAP citta provincia, Italy» -- mentre il file lo scrive in due e senza
+// paese. `nomeTappa` prende l'ultimo pezzo per il nome del posto, e con il
+// paese in coda la tappa si chiamava «Italy -> Italy»: visto sulla pagina
+// vera il 24/11/2026.
+//
+// Si toglie l'ultimo pezzo quando non contiene cifre e non e' l'unico: il
+// pezzo col posto porta sempre il codice postale, il paese mai. Un indirizzo
+// di un pezzo solo resta com'e': non si butta l'unica cosa che c'e'.
+const senzaPaese = indirizzo => {
+  const pezzi = String(indirizzo ?? '').split(',').map(x => x.trim()).filter(Boolean);
+  if (pezzi.length >= 2 && !/\d/.test(pezzi[pezzi.length - 1])) pezzi.pop();
+  return pezzi.join(', ');
+};
+
 const numero = v => {
   if (v == null || v === '') return null;
   const n = Number(v);
@@ -158,8 +175,8 @@ export function comeIlFile(tragitti, fuso = 'Europe/Rome') {
       date: p.giorno,
       start: p.ora,
       end: a.ora,
-      from: String(t.start_location?.address ?? ''),
-      to: String(t.end_location?.address ?? ''),
+      from: senzaPaese(t.start_location?.address),
+      to: senzaPaese(t.end_location?.address),
       km: +((numero(t.distance) ?? 0) / 1000).toFixed(1),
       // **Dagli istanti, non dagli orari scritti.** A cavallo della mezzanotte
       // la differenza fra gli orari da parete e' negativa; a cavallo dell'ora

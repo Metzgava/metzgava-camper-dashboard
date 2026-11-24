@@ -1,3 +1,19 @@
+// **Le variabili d'ambiente da `.env`, se c'e'.**
+//
+// Il programma non le leggeva da nessuna parte: arrivavano solo dalla riga di
+// comando (in locale) o dalle variabili del servizio (su Railway). Il
+// 24/11/2026, aggiungendo le credenziali di CarLock, si e' scoperto che
+// scriverle in `.env` non serviva a niente -- il file c'era, i segreti dentro,
+// e il server non li vedeva.
+//
+// Su Railway non cambia nulla: `.env` e' fuori dal versionamento, quindi
+// nell'immagine non c'e' e questa riga non fa niente. In locale invece basta
+// scrivere una variabile nel file, come si e' sempre creduto di poter fare.
+//
+// Avvolto, perche' senza il file `loadEnvFile` lancia -- e un file di segreti
+// che manca non deve impedire al server di partire.
+try { process.loadEnvFile(); } catch { }
+
 import express from 'express';
 import cookieSession from 'cookie-session';
 import path from 'node:path';

@@ -3569,6 +3569,12 @@ async function viewTrip(id) {
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${legendaViaggio(d)}</div>
     <div class="grid due" style="margin-top:14px">
+      ${cartelloCarlock(trip, legs, Date.now(), d.carlock_mesi_storico ?? 3) ? `<div class="card" id="cartello-carlock" style="border-left:3px solid var(--ok)">
+        <div class="row between">
+          <div class="small"><b>\ud83d\udce1 CarLock ha registrato i vostri spostamenti in questi giorni.</b>
+            <span class="muted">Guardo cosa c\u2019\u00e8? Non cambio niente finch\u00e9 non scegli tu.</span></div>
+          <button class="btn sm primary" id="carlock-rubinetto">Guarda</button>
+        </div></div>` : ''}
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn sm" id="riordina" title="Rimette le tappe in fila per data e ora">\u2195\ufe0f In ordine di data</button><button class="btn sm" id="tracciati" title="Il percorso davvero registrato dal tracker, per i giorni di questo viaggio">\ud83d\udccd Tracciati veri</button><button class="btn sm" id="damaps" title="Incolla un itinerario di Google Maps">\ud83d\uddfa\ufe0f Da Maps</button><button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove dormiamo o dove ci fermiamo</h2>${'<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
@@ -3738,6 +3744,76 @@ async function viewTrip(id) {
   // posizioni registrate. Si guardano **solo i giorni di questo viaggio**: il
   // file ne copre mesi, e un tragitto di agosto non deve finire su una tappa
   // di novembre.
+  // Il rubinetto: i tragitti chiesti a CarLock, senza passare da un file.
+  //
+  // Il cartello ha gia' deciso che vale la pena, guardando solo le date e il
+  // segno; qui si chiede davvero. L'elenco e' leggero -- i punti non ci sono
+  // dentro -- quindi il tocco costa una chiamata da pochi kB.
+  $('#carlock-rubinetto')?.addEventListener('click', safe(async () => {
+    toast('Chiedo a CarLock\u2026');
+    let r;
+    try {
+      r = await api(`/trips/${trip.id}/carlock/tragitti`);
+    } catch (e) {
+      // Un guasto di CarLock non e' un guasto dell'app, e la strada che
+      // funziona ancora si indica invece di lasciarlo fermo.
+      return toast(`CarLock non risponde (${String(e.message).slice(0, 80)}). I tasti col file funzionano comunque: \u00ab\ud83d\udce1 Importa CarLock\u00bb e \u00ab\ud83d\udccd Tracciati veri\u00bb.`, true);
+    }
+    if (r.oltre_lo_storico)
+      return toast(`CarLock tiene ${r.mesi_storico} mesi di storico: i giorni di questo viaggio sono pi\u00f9 vecchi, e i loro tragitti non ci sono pi\u00f9. Se hai il file, \u00ab\ud83d\udccd Tracciati veri\u00bb funziona ancora.`, true);
+    const nuovi = (r.tragitti || []).filter(t => !t.gia_presente);
+    if (!nuovi.length)
+      return toast(r.tragitti?.length
+        ? 'Nessun tragitto nuovo: quelli di questi giorni sono gi\u00e0 tappe di questo viaggio.'
+        : `In questi giorni CarLock non ha tragitti sopra i 3 km${r.corti ? ` (${r.corti} pi\u00f9 corti li ho lasciati fuori)` : ''}.`);
+
+    const previste = r.previste || [];
+    modal(`<h2>\ud83d\udce1 Tragitti da CarLock</h2>
+      <p class="small muted">${r.totale} tragitti nei giorni guardati${r.corti ? `, ${r.corti} sotto i 3 km lasciati fuori` : ''}${r.doppioni ? `, ${r.doppioni} gi\u00e0 tappe` : ''}.
+        Chilometri e orari sono <b>misurati dal tracker</b>; la strada arriva dalla traccia registrata.</p>
+      <form id="f" class="stack">
+        <div class="stack" style="gap:4px">
+          ${(r.tragitti || []).map(t => `<label class="row" style="gap:8px;align-items:flex-start">
+            <input type="checkbox" name="uuid" value="${esc(t.uuid)}" ${t.gia_presente ? 'disabled' : 'checked'}>
+            <span class="small">${fdate(t.date)} ${esc(t.start)}\u2013${esc(t.end)} \u00b7 <b>${num(t.km)} km</b>
+              \u00b7 ${esc(t.from)} \u2192 ${esc(t.to)}${t.merged > 1 ? ` <span class="muted">(${t.merged} tratte unite)</span>` : ''}
+              ${t.gia_presente ? '<span class="badge">gi\u00e0 una tappa</span>' : ''}</span></label>`).join('')}
+        </div>
+        ${previste.length ? `<div class="small" style="margin-top:4px"><b>Al loro posto togliresti ${previste.length === 1 ? 'una tappa prevista' : previste.length + ' tappe previste'}</b>,
+          con la loro stima di gasolio. Togli la spunta per tenerle: i chilometri verrebbero contati due volte.</div>
+        <div class="stack" style="gap:4px">
+          ${previste.map(p => `<label class="row" style="gap:8px"><input type="checkbox" name="togli" value="${p.id}" checked>
+            <span class="small">${esc(p.nome)}${p.km != null ? ` \u00b7 <span class="muted">${num(p.km)} km previsti</span>` : ''}</span></label>`).join('')}
+        </div>` : ''}
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Crea le tappe e prendi le strade</button></div>
+      </form>`, (el, close) => {
+      $('[data-x]', el).onclick = close;
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        const scelti = [...$$('input[name="uuid"]:checked', el)].map(x => x.value);
+        if (!scelti.length) return toast('Non hai scelto nessun tragitto.', true);
+        toast('Creo le tappe e prendo le strade\u2026');
+        // **Al server vanno solo delle scelte, non dei numeri.** Chilometri e
+        // orari diventano gasolio, pedaggi e totali del viaggio: se li
+        // mandasse la pagina, li potrebbe cambiare chi vuole.
+        const esito = await api(`/trips/${trip.id}/carlock/tappe`, { method: 'POST', body: {
+          uuid: scelti,
+          togli: [...$$('input[name="togli"]:checked', el)].map(x => +x.value),
+        } });
+        close();
+        toast(esito.create
+          ? `${esito.create === 1 ? 'Una tappa' : esito.create + ' tappe'} dal tracker, con la strada vera${esito.togliute ? `, al posto di ${esito.togliute === 1 ? 'una prevista' : esito.togliute + ' previste'}` : ''}.`
+          : 'Nessuna tappa nuova.');
+        if (esito.gia_presenti) toast(`${esito.gia_presenti} ${esito.gia_presenti === 1 ? 'tragitto era gi\u00e0 una tappa' : 'tragitti erano gi\u00e0 tappe'} di questo viaggio: non ho fatto doppioni.`, true);
+        // Una strada ricostruita al posto della traccia va detta: la riga
+        // sulla mappa e' una supposizione, e si vede dal puntinato.
+        if (esito.senza_traccia) toast(`${esito.senza_traccia === 1 ? 'Una tappa ha' : esito.senza_traccia + ' tappe hanno'} la strada ricostruita: i punti di quei tragitti non sono arrivati. Si riprova con \u00ab\ud83d\udccd Tracciati veri\u00bb.`, true);
+        if (esito.capi_lontani?.length) toast(`La traccia comincia o finisce lontano dal punto salvato su: ${
+          esito.capi_lontani.map(x => `${x.nome} (${x.metri} m)`).join(', ')}. I capi non li ho spostati.`, true);
+        restaQui();
+      });
+    });
+  }));
   $('#tracciati')?.addEventListener('click', () => modal(`<h2>\ud83d\udccd Tracciati veri da CarLock</h2>
     <p class="small muted">La strada disegnata sulle tappe del tracker \u00e8 una <b>ricostruzione</b>: CarLock
       registra quanto si \u00e8 percorso, non per dove. Il file dei tracciati contiene le posizioni vere,
@@ -4941,6 +5017,54 @@ const daCarlock = l => l?.source === 'carlock' && inCamper(l);
 // puntinato vorrebbe dire «questa e' una supposizione», e lasciarlo direbbe
 // il falso -- nella direzione prudente, ma pur sempre il falso.
 const stradaDedotta = l => daCarlock(l) && !l?.tracciato_vero;
+// ---------------------------------------------------------------------------
+// Quando il cartello del rubinetto ha senso
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-24-rubinetto-carlock-design.md
+//
+// **Le date di un viaggio si fissano prima di partire**, quindi la regola non
+// puo' essere «c'e' una tappa che non viene dal tracker»: un viaggio futuro
+// non ha nessuna tappa, e uno in corso ne acquista un giorno per volta.
+//
+// Il viaggio porta un segno di fin dove si e' guardato. La finestra va dal
+// segno -- o dall'inizio -- al piu' piccolo fra la fine del viaggio e
+// **adesso**, e dentro lo storico del piano. Se non e' vuota, il cartello
+// compare. E' la stessa regola di `finestraDaChiedere` sul server, dove si
+// prova sui valori: qui serve perche' la pagina deve decidere **senza
+// chiamare nessuno**, e le tre cose che le servono -- le date, il segno e i
+// mesi -- le ha gia' addosso.
+//
+// Il cartello dice che *puo'* guardare, non cosa ha trovato: saperlo prima
+// vorrebbe dire chiamare CarLock a ogni apertura di un viaggio, cioe' la
+// strada che il proprietario ha scartato.
+//
+// **Al massimo una volta al giorno.** La prima versione guardava solo se
+// c'era del tempo non chiesto, e durante un viaggio il cartello tornava
+// **ogni ora**: toccato a mezzogiorno, alle 13 era di nuovo li' per un'ora in
+// cui magari non ci si era mossi. La sua richiesta era «ogni volta che si
+// arriva a quella data», cioe' per giorno -- quindi il cartello torna quando
+// il segno e' **prima della mezzanotte di oggi**.
+//
+// Questa regola e' solo del cartello, non della rotta: se tocca due volte
+// nello stesso giorno perche' ha appena guidato, il server gli risponde. Una
+// cosa e' «c'e' qualcosa da chiedere», un'altra e' «vale la pena disturbarlo».
+const cartelloCarlock = (trip, legs, adesso = Date.now(), mesiStorico = 3) => {
+  const giorno = d => (d == null || d === '' ? null : String(d).slice(0, 10));
+  const mezzanotte = g => (g ? new Date(`${g}T00:00:00`).getTime() : null);
+  const datate = (legs || []).map(l => giorno(l?.date)).filter(Boolean).sort();
+  const da0 = mezzanotte(giorno(trip?.start_date) || datate[0]);
+  const a0 = mezzanotte(giorno(trip?.end_date) || datate[datate.length - 1]);
+  if (da0 == null || a0 == null) return false;
+  const limite = (() => { const d = new Date(adesso); d.setMonth(d.getMonth() - mesiStorico); return d.getTime(); })();
+  const segno = trip?.carlock_chiesto_fino_a ? Date.parse(trip.carlock_chiesto_fino_a) : null;
+  // Toccato oggi: basta per oggi.
+  const oggi = new Date(adesso); oggi.setHours(0, 0, 0, 0);
+  if (Number.isFinite(segno) && segno >= oggi.getTime()) return false;
+  const da = Math.max(da0, Number.isFinite(segno) ? segno : 0, limite);
+  const a = Math.min(a0 + 86400000 - 1, adesso);
+  return a > da;
+};
 const COLORI_SPORT = {
   'Bicicletta': '#2563eb',
   'Escursione': '#16a34a',

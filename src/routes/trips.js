@@ -7,7 +7,7 @@ import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute,
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
 import { creaRubinetto, comeIlFile, comePunti } from '../lib/carlock-api.js';
 import { finestraDaChiedere, oltreLoStorico, mesiDiStorico, segnoDopo } from '../lib/carlock-finestra.js';
-import { leggiTracciati, assegna, cuci, quantoSbagliava,
+import { leggiTracciati, assegna, cuci, quantoSbagliava, copreLaTappa, lunghezzaKm,
          periodoDelViaggio, dentroIlPeriodo, resoconto } from '../lib/tracciati.js';
 import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare, ordineDelleTappe } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
@@ -461,6 +461,11 @@ export async function datiViaggio(id) {
   // pensano gli altri: senza quello e' un elenco di posti, non una discussione.
   const proposte = await proposteDi(trip.id);
   return { trip, legs, expenses, photos, workouts, soste, giornate, proposte,
+    // Quanti mesi di storico da' il piano di CarLock: serve al cartello del
+    // rubinetto per decidere **senza chiamare nessuno** se comparire. Senza
+    // rubinetto configurato, o se il veicolo non si e' potuto leggere, vale 3:
+    // nel dubbio si chiede meno, non si inventa.
+    carlock_mesi_storico: await mesiStoricoDelConto(),
     materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) };
 }
 
@@ -1294,12 +1299,40 @@ router.post('/trips/:id/tracciati', upload.single('file'), wrap(async (req, res)
 //
 // **Un servizio non acceso non e' un guasto**: senza credenziali si risponde
 // 501, che vuol dire «questo non e' configurato», e non 500.
-const RUBINETTO = creaRubinetto({
+//
+// **Si crea alla prima richiesta, non al caricamento del modulo.** Gli
+// `import` di un modulo ESM si valutano **prima** delle sue istruzioni: questo
+// file viene importato da `server.js`, quindi un rubinetto costruito qui in
+// cima leggerebbe `process.env` prima che `server.js` abbia letto `.env`. Il
+// 24/11/2026 e' successo esattamente questo -- credenziali al loro posto e la
+// rotta che rispondeva «non configurato» -- e l'ha trovato la prova sulla
+// pagina vera, non le prove scritte. Pigro, l'ordine non conta piu'.
+let _rubinetto = null;
+const rubinetto = () => (_rubinetto ||= creaRubinetto({
   email: process.env.CARLOCK_EMAIL,
   password: process.env.CARLOCK_PASSWORD,
   uuid: process.env.CARLOCK_VEHICLE_UUID || null,
-});
+}));
 const MIN_KM_RUBINETTO = 3, UNISCI_MIN = 30;
+
+// Quanti mesi di storico da' il piano del conto.
+//
+// Lo chiede **una volta per processo** e poi se lo tiene (ci pensa il
+// rubinetto, che il veicolo lo legge una volta sola). Non e' il «chiedere a
+// orologio» che il disegno vieta: quel paletto riguarda i dati dei tragitti,
+// chiesti in continuazione, non una riga di impostazioni del conto. E
+// l'alternativa -- mettere 3 fisso -- farebbe tacere il cartello su viaggi che
+// si possono ancora chiedere, che e' lo sbaglio che la prima versione del
+// disegno faceva.
+//
+// Se CarLock non risponde si torna 3 e non si alza la voce: il cartello sara'
+// piu' prudente del necessario, e la pagina del viaggio non si accorge di
+// niente.
+async function mesiStoricoDelConto() {
+  if (!rubinetto().configurato) return 3;
+  try { return mesiDiStorico((await rubinetto().veicolo()).subscription_tier); }
+  catch { return 3; }
+}
 
 const nonConfigurato = res =>
   res.status(501).json({ error: 'Il rubinetto di CarLock non e’ configurato: '
@@ -1308,7 +1341,7 @@ const nonConfigurato = res =>
 // Il veicolo serve due volte -- il fuso al traduttore, il piano alla finestra
 // -- e si legge una volta sola per processo (ci pensa il rubinetto).
 async function periodoDelRubinetto(trip, tappe) {
-  const v = await RUBINETTO.veicolo();
+  const v = await rubinetto().veicolo();
   const fuso = v.time_zone_id || 'Europe/Rome';
   const mesiStorico = mesiDiStorico(v.subscription_tier);
   const opz = { adesso: Date.now(), mesiStorico, fuso };
@@ -1320,7 +1353,7 @@ async function periodoDelRubinetto(trip, tappe) {
 // I tragitti del periodo, gia' tradotti, uniti e setacciati. Lo usano tutte
 // e due le rotte: la seconda **rilegge** invece di fidarsi del browser.
 async function tragittiDelViaggio(trip, tappe, finestra, fuso) {
-  const grezzi = await RUBINETTO.tragittiDelPeriodo(null, finestra.da, finestra.a);
+  const grezzi = await rubinetto().tragittiDelPeriodo(null, finestra.da, finestra.a);
   const tradotti = comeIlFile(grezzi, fuso);
   const uniti = mergeTrips(tradotti, UNISCI_MIN);
   const corti = uniti.filter(t => t.km < MIN_KM_RUBINETTO).length;
@@ -1333,16 +1366,25 @@ async function tragittiDelViaggio(trip, tappe, finestra, fuso) {
   };
 }
 
-// Le tappe previste: quelle senza identificativo del tracker. Sono quelle che
-// il tocco sostituirebbe, e si fanno vedere **prima**.
-const previsteDi = tappe => tappe.filter(l => !l.external_id).map(l => ({
+// Le tappe previste che il tocco sostituirebbe, e si fanno vedere **prima**.
+//
+// Quelle senza identificativo del tracker, e **solo in camper**. Trovato
+// guardando il riquadro il 24/11/2026: fra le previste compariva «Livorno ->
+// Olbia in traghetto», con la spunta gia' messa. CarLock non sostituira' mai
+// una rotta in traghetto -- il tracker viaggia sopra la nave, e quel tragitto
+// non e' una strada -- quindi offrirla voleva dire mettere a un tocco di
+// distanza la cancellazione di un pezzo vero del viaggio. E' la stessa regola
+// che vale in tutto il resto del programma.
+const previsteDi = tappe => tappe
+  .filter(l => !l.external_id && mezzoValido(l.mezzo) === 'camper')
+  .map(l => ({
   id: l.id,
   nome: `${String(l.from_name || '?').split(',')[0]} → ${String(l.to_name || '?').split(',')[0]}`,
   km: l.distance_km == null ? null : +l.distance_km,
 }));
 
 router.get('/trips/:id/carlock/tragitti', wrap(async (req, res) => {
-  if (!RUBINETTO.configurato) return nonConfigurato(res);
+  if (!rubinetto().configurato) return nonConfigurato(res);
   const trip = (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
   const tappe = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
@@ -1378,7 +1420,7 @@ router.get('/trips/:id/carlock/tragitti', wrap(async (req, res) => {
 }));
 
 router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
-  if (!RUBINETTO.configurato) return nonConfigurato(res);
+  if (!rubinetto().configurato) return nonConfigurato(res);
   const trip = (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
   const tappe = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
@@ -1450,7 +1492,7 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
     const suoiUuid = String(t.uuid || '').split('+').filter(Boolean);
     try {
       const pezzi = [];
-      for (const u of suoiUuid) pezzi.push(comePunti(await RUBINETTO.puntiDelTragitto(u), p.fuso));
+      for (const u of suoiUuid) pezzi.push(comePunti(await rubinetto().puntiDelTragitto(u), p.fuso));
       riga = cuci(pezzi.filter(x => x.punti.length));
     } catch (e) {
       // Un tragitto che inciampa non porta giu' il tocco: quella tappa nasce
@@ -1459,6 +1501,15 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
       riga = null;
     }
 
+    // **E la traccia deve coprire la tappa.** Una riga che misura una frazione
+    // dei chilometri del tracker non e' la strada della tappa: e' un pezzo, e
+    // chiamarla «vera» e' l'errore nel verso rassicurante -- si disegna
+    // pulita e nessuno la mette in dubbio. Trovato sulla pagina vera il
+    // 24/11/2026, su una tappa di 192 km nata con 8 km di riga.
+    if (riga?.length && !copreLaTappa(riga, t.km)) {
+      console.warn(`viaggio ${trip.id}: traccia di ${Math.round(lunghezzaKm(riga))} km su una tappa di ${t.km}: non la chiamo vera`);
+      riga = null;
+    }
     let geometry = riga?.length ? riga : [[da.lat, da.lon], [a.lat, a.lon]];
     let pedaggioKm = null;
     if (!riga?.length) {

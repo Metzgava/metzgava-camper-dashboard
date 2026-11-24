@@ -278,6 +278,49 @@ export function resoconto(tappe, perTappa) {
 }
 
 // ---------------------------------------------------------------------------
+// La traccia copre la tappa, o solo un pezzo?
+// ---------------------------------------------------------------------------
+//
+// Trovato provando sulla pagina vera il 24/11/2026: una tappa di 192 km e'
+// nata con 48 punti -- gli 8 chilometri del primo dei due spezzoni uniti -- e
+// sopra il bollino «strada vera». La causa stava altrove ed e' corretta, ma
+// mancava la **rete**: niente si accorgeva che la riga coprisse il 4% del
+// percorso.
+//
+// In pagina c'e' `tracciaPiuLunga`, che guarda il caso opposto: una riga molto
+// piu' lunga dei chilometri veri. Questo e' il verso **rassicurante**, ed e'
+// per questo il piu' pericoloso: una riga corta non insospettisce nessuno, si
+// disegna pulita, e dice di essere la strada percorsa.
+//
+// La soglia e' larga in un verso solo: il campionamento taglia le curve,
+// quindi la riga disegnata misura sempre un filo meno del contachilometri.
+// Meta' del percorso no: quella non e' imprecisione, e' un pezzo che manca.
+
+/** Quanto e' lunga una riga di punti `[lat, lon]`, in chilometri. */
+export function lunghezzaKm(riga) {
+  const p = (riga || []).filter(x => Array.isArray(x) && x.length >= 2);
+  let t = 0;
+  for (let i = 1; i < p.length; i++) t += haversineKm(p[i - 1], p[i]);
+  return t;
+}
+
+/**
+ * Se una traccia puo' dirsi la strada di una tappa di `km` chilometri.
+ *
+ * Senza chilometri da confrontare torna `true`: non vuol dire «la traccia e'
+ * buona», vuol dire «non ho motivo di scartarla», e buttare l'unico dato
+ * misurato che c'e' per un confronto che non si puo' fare sarebbe peggio.
+ * Una riga vuota invece non e' una strada.
+ */
+export function copreLaTappa(riga, km, { minimo = 0.6 } = {}) {
+  const l = lunghezzaKm(riga);
+  if (!l) return false;
+  const veri = Number(km);
+  if (!Number.isFinite(veri) || veri <= 0) return true;
+  return l >= veri * minimo;
+}
+
+// ---------------------------------------------------------------------------
 // Quanto sbagliava la ricostruzione
 // ---------------------------------------------------------------------------
 //

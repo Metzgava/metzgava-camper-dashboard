@@ -135,3 +135,46 @@ test('i secchi tornano col numero delle tappe, sempre', () => {
   assert.equal(r.attaccati + r.gia_veri + r.vere_intatte + r.senza_traccia + r.senza_finestra, 5,
     'una tappa in nessun secchio e’ una tappa di cui non si dice niente');
 });
+
+// ---------------------------------------------------------------------------
+// Una traccia che copre un pezzo della tappa non e' la strada della tappa
+// ---------------------------------------------------------------------------
+//
+// Trovato provando sulla pagina vera il 24/11/2026: una tappa di 192 km e'
+// nata con 48 punti -- gli 8 km del primo dei due spezzoni uniti -- e sopra il
+// bollino «strada vera». La causa (gli uuid che non si unisero) e' corretta,
+// ma mancava la **rete**: niente si accorgeva che la riga coprisse il 4% del
+// percorso.
+//
+// `tracciaPiuLunga`, in pagina, guarda il caso opposto -- una riga molto piu'
+// lunga dei chilometri veri. Questo e' il verso rassicurante, ed e' il
+// pericoloso: una riga corta non insospettisce nessuno.
+import { copreLaTappa } from '../src/lib/tracciati.js';
+
+test('una traccia che misura quanto la tappa va bene', () => {
+  // Una riga di punti a un grado di latitudine l'uno: ~111 km per passo.
+  const riga = [[45, 11], [45.9, 11], [46.8, 11]];  // ~200 km
+  assert.equal(copreLaTappa(riga, 192.1), true);
+});
+
+test('una traccia che copre un pezzo della tappa non si prende il bollino', () => {
+  const corta = [[45, 11], [45.07, 11]];  // ~8 km
+  assert.equal(copreLaTappa(corta, 192.1), false,
+    'una riga che copre il 4% del percorso si chiamava «strada vera»');
+});
+
+test('il campionamento accorcia un po’, e quel po’ non e’ un difetto', () => {
+  // `samplePoints` taglia le curve, quindi la riga disegnata misura sempre un
+  // filo meno del contachilometri. La soglia e' larga di conseguenza.
+  const riga = [[45, 11], [45.8, 11]];  // ~89 km
+  assert.equal(copreLaTappa(riga, 100), true, 'si scarta una traccia buona per l’11% di scarto');
+});
+
+test('senza una riga o senza chilometri non si giudica', () => {
+  // `true` e non `false`: qui non si sta dicendo «la traccia e' buona», si sta
+  // dicendo «non ho motivo di scartarla». Scartarla sarebbe buttare l'unico
+  // dato misurato che c'e'.
+  assert.equal(copreLaTappa([], 100), false, 'una riga vuota non e’ una strada');
+  assert.equal(copreLaTappa([[45, 11], [45.8, 11]], null), true);
+  assert.equal(copreLaTappa([[45, 11], [45.8, 11]], 0), true);
+});

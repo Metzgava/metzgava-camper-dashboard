@@ -17,7 +17,7 @@
 // un secondo e copre tutti i file che nessuna prova importa.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const radice = new URL('../', import.meta.url).pathname;
@@ -40,4 +40,24 @@ test('tutti i sorgenti di src e public compilano', () => {
     catch (e) { rotti.push(`${f}: ${String(e.stderr || e.message).split('\n').find(r => /Error/.test(r)) || 'non compila'}`); }
   }
   assert.deepEqual(rotti, [], 'file che non compilano:\n' + rotti.join('\n'));
+});
+
+// ---------------------------------------------------------------------------
+// Le variabili d'ambiente da `.env`
+// ---------------------------------------------------------------------------
+//
+// Scoperto il 24/11/2026 provando il rubinetto di CarLock sulla pagina vera:
+// il programma non leggeva `.env` da nessuna parte. Le credenziali erano nel
+// file, il file era al suo posto, e il server non le vedeva -- quindi la
+// funzione «non configurata» rispondeva 501 con tutto configurato.
+test('il programma legge .env, e un .env che manca non lo ferma', () => {
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  // Si cerca la chiamata, non la parola: la parola compare anche nel commento
+  // che la spiega, e ancorarsi la' guarderebbe il commento invece del codice.
+  const i = server.indexOf('process.loadEnvFile(');
+  assert.ok(i > 0, 'le variabili scritte in .env non arrivano al programma');
+  // Avvolto: senza il file `loadEnvFile` lancia, e un file di segreti che
+  // manca non deve impedire al server di partire. Su Railway non c'e'.
+  assert.match(server.slice(Math.max(0, i - 80), i + 60), /try\s*\{/,
+    'un .env che manca impedisce al server di partire');
 });
