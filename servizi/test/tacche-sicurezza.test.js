@@ -111,10 +111,32 @@ test('le regole di base, quelle del telefono, le usano ancora', () => {
 // La cura e' togliere la percentuale: lo sfumato si misura **dal basso**, dove
 // c'e' il padding, e allora e' giusto a qualunque tacca per costruzione.
 
-test('lo sfumato dell’intestazione si misura dal basso, non in percentuale', () => {
+// **24/11/2026: lo sfumato e' stato tolto del tutto.** Misurarlo dal basso
+// aveva tolto il titolo dalla zona che svanisce, ma restava una fascia sotto
+// il titolo dove il contenuto si vedeva **attraverso** il bordo, sfocato dal
+// velo: ne' sfondo pulito ne' testo leggibile. Il proprietario, guardandola
+// una seconda volta: «fai in modo che su iphone e ipad si veda bene e non con
+// la parte alta opaca».
+//
+// Adesso la testata e' **piena**, con una riga netta sotto: il contenuto
+// sparisce a un bordo invece di sfumare dentro il titolo. La lezione di
+// allora resta pero' appesa qui: se un giorno torna una sfumatura, non deve
+// poterla misurare in percentuale di un'altezza che cresce con la tacca.
+
+test('la testata e’ piena, e il contenuto le sparisce sotto a un bordo netto', () => {
+  const blocco = css.slice(css.indexOf('.testata {'), css.indexOf('}', css.indexOf('.testata {')));
+  assert.doesNotMatch(blocco, /linear-gradient/,
+    'e’ tornato uno sfumato: il contenuto si rivede attraverso il bordo');
+  assert.match(blocco, /border-bottom/,
+    'senza una riga sotto, la testata e il contenuto si confondono');
+  assert.doesNotMatch(blocco, /backdrop-filter/,
+    'il velo sfoca quel che scorre sotto, ed e’ proprio la fascia lattiginosa');
+});
+
+test('se un giorno torna uno sfumato, si misura dal basso e non in percentuale', () => {
   const blocco = css.slice(css.indexOf('.testata {'), css.indexOf('}', css.indexOf('.testata {')));
   const sfumato = blocco.match(/linear-gradient\([^)]*?(?:\([^)]*\)[^)]*?)*\)/);
-  assert.ok(sfumato, 'l’intestazione non ha piu’ un fondo sfumato');
+  if (!sfumato) return;   // oggi non c'e', ed e' giusto cosi'
   // Una percentuale **dentro un `calc()`** va benissimo -- `calc(100% - 10px)`
   // e' proprio la cura -- mentre una percentuale nuda come stop e' il difetto.
   // Si tolgono i `calc()` e poi si guarda se ne resta una.

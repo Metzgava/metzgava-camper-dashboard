@@ -87,11 +87,17 @@ main {
      **sempre** sul pieno, a qualunque tacca, per costruzione e non per
      fortuna. E' lo stesso errore dell'iPad - una misura fissa su una scatola
      che cresce - con un'altra faccia. */
-  background: linear-gradient(180deg, var(--notte) calc(100% - 10px), transparent);
-  /* Senza il prefisso il velo su iOS di qualche anno fa non si applica
-     affatto, e resta il fondo nudo. Safari recenti lo reggono da soli. */
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  /* 24/11/2026: lo sfumato e' stato tolto del tutto. Misurarlo dal basso
+     aveva salvato il titolo, ma sotto restava una fascia dove il contenuto si
+     vedeva **attraverso** il bordo, sfocato dal velo: ne' sfondo pulito ne'
+     testo leggibile. Guardandola una seconda volta: «si veda bene e non con la
+     parte alta opaca».
+
+     Fondo pieno e una riga sotto: il contenuto sparisce a un bordo netto. Il
+     velo se ne va con lo sfumato -- serviva a rendere gradevole quella fascia,
+     e senza fascia non ha piu' niente da ammorbidire. */
+  background: var(--notte);
+  border-bottom: 1px solid var(--bordo);
 }
 .testata img { width: 34px; height: 34px; border-radius: 9px; display: block; }
 .testata h1 { font-size: 19px; margin: 0; font-weight: 650; letter-spacing: -.2px; }
