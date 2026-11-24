@@ -51,13 +51,39 @@ test('tutti i sorgenti di src e public compilano', () => {
 // file, il file era al suo posto, e il server non le vedeva -- quindi la
 // funzione «non configurata» rispondeva 501 con tutto configurato.
 test('il programma legge .env, e un .env che manca non lo ferma', () => {
-  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
-  // Si cerca la chiamata, non la parola: la parola compare anche nel commento
-  // che la spiega, e ancorarsi la' guarderebbe il commento invece del codice.
-  const i = server.indexOf('process.loadEnvFile(');
+  // Il caricamento sta in `ambiente.js`, importato per primo da `server.js`:
+  // vedi la prova qui sotto sull'ordine, che e' la parte che conta.
+  const amb = readFileSync(new URL('../src/lib/ambiente.js', import.meta.url), 'utf8');
+  // L'ultima occorrenza, non la prima: il commento che la spiega la nomina due
+  // volte, e ancorarsi la' guarderebbe un commento invece del codice -- lo
+  // stesso inciampo di stamattina, ripetuto.
+  const i = amb.lastIndexOf('process.loadEnvFile(');
   assert.ok(i > 0, 'le variabili scritte in .env non arrivano al programma');
+  assert.match(amb.slice(i - 20, i), /try \{ /, 'la chiamata non e’ quella avvolta');
   // Avvolto: senza il file `loadEnvFile` lancia, e un file di segreti che
   // manca non deve impedire al server di partire. Su Railway non c'e'.
-  assert.match(server.slice(Math.max(0, i - 80), i + 60), /try\s*\{/,
+  assert.match(amb.slice(Math.max(0, i - 80), i + 60), /try\s*\{/,
     'un .env che manca impedisce al server di partire');
+});
+
+test('le variabili di .env si leggono prima di ogni altro modulo', () => {
+  // La revisione finale, e l'ha provato con un caso minimo: gli `import` di un
+  // modulo ESM si valutano **prima** delle sue istruzioni, quindi
+  // `process.loadEnvFile()` scritto in `server.js` gira DOPO che `db.js`,
+  // `util.js`, `geo.js` e `carlock-api.js` hanno gia' letto `process.env`.
+  // Il commento diceva «in locale basta scrivere una variabile nel file», e
+  // per le variabili lette a livello di modulo era falso: chi mettesse
+  // `CARLOCK_API_URL` in `.env` per non toccare il conto vero chiamerebbe
+  // comunque api.carlock.co.
+  //
+  // La cura e' un modulo suo, importato per primo: gli import si valutano in
+  // ordine, quindi il suo corpo gira prima di tutti gli altri.
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const righe = server.split('\n');
+  const primo = righe.findIndex(r => /^import /.test(r));
+  assert.ok(primo >= 0, 'server.js non importa niente');
+  assert.match(righe[primo], /ambiente/,
+    'il primo import non e’ quello che carica .env: le variabili lette a livello di modulo non lo vedono');
+  assert.doesNotMatch(server, /^try \{ process\.loadEnvFile/m,
+    'il caricamento sta ancora fra le istruzioni, dove gira troppo tardi');
 });

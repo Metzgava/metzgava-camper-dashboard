@@ -1,19 +1,7 @@
-// **Le variabili d'ambiente da `.env`, se c'e'.**
-//
-// Il programma non le leggeva da nessuna parte: arrivavano solo dalla riga di
-// comando (in locale) o dalle variabili del servizio (su Railway). Il
-// 24/11/2026, aggiungendo le credenziali di CarLock, si e' scoperto che
-// scriverle in `.env` non serviva a niente -- il file c'era, i segreti dentro,
-// e il server non li vedeva.
-//
-// Su Railway non cambia nulla: `.env` e' fuori dal versionamento, quindi
-// nell'immagine non c'e' e questa riga non fa niente. In locale invece basta
-// scrivere una variabile nel file, come si e' sempre creduto di poter fare.
-//
-// Avvolto, perche' senza il file `loadEnvFile` lancia -- e un file di segreti
-// che manca non deve impedire al server di partire.
-try { process.loadEnvFile(); } catch { }
-
+// `.env` si carica in un modulo suo, importato **per primo**: gli import si
+// valutano prima delle istruzioni, quindi scriverlo qui sotto sarebbe troppo
+// tardi per tutti gli altri moduli. La ragione sta scritta in `ambiente.js`.
+import './lib/ambiente.js';
 import express from 'express';
 import cookieSession from 'cookie-session';
 import path from 'node:path';
@@ -23,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate, sistemaDurateCarlock, q } from './lib/db.js';
 import { SECRET, wrap } from './lib/util.js';
 import { router as auth, requireAuth } from './routes/auth.js';
-import { router as trips, agganciaAllenamenti, completaCoordinateSoste } from './routes/trips.js';
+import { router as trips, agganciaAllenamenti, completaCoordinateSoste, scaldaCarlock } from './routes/trips.js';
 import { router as workouts, ingest, syncAllKomoot, syncAllStrava, rimuoviDoppioniAutomatici, normalizzaNomiEsistenti, completaLuoghiMancanti, sistemaDislivelliAssurdi } from './routes/workouts.js';
 import { router as photos, UPLOAD_DIR, completaExifMancanti, completaLuoghiFoto } from './routes/photos.js';
 import { router as materiali } from './routes/materiali.js';
@@ -171,6 +159,12 @@ const port = process.env.PORT || 3000;
 async function manutenzioni() {
   // Recupera gli allenamenti gia' in archivio rimasti senza viaggio, per esempio
   // perche' il viaggio e' stato creato dopo averli importati
+  // Il piano di CarLock: una riga di impostazioni del conto, letta una volta
+  // per processo. Sta qui e non nella pagina di un viaggio perche' quella la
+  // apre anche un ospite con un link condiviso, senza autenticarsi -- e un
+  // accesso fallito non si ricorda, quindi sarebbe stato un accesso per ogni
+  // apertura.
+  await scaldaCarlock();
   await agganciaAllenamenti().catch(e => console.warn('aggancio allenamenti fallito:', e.message));
   await completaCoordinateSoste().catch(e => console.warn('soste senza posizione:', e.message));
   await normalizzaNomiEsistenti().catch(e => console.warn('uniformazione nomi fallita:', e.message));

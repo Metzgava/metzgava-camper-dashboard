@@ -241,3 +241,26 @@ test('un indirizzo di un pezzo solo resta com’e’', () => {
   })], ROMA);
   assert.equal(a.from, 'Italy');
 });
+
+test('un tragitto senza la misura non diventa zero chilometri', () => {
+  // La revisione finale: `?? 0` sui metri e' lo stesso difetto che il
+  // 24/11 era stato togliato dalle coordinate -- `Number(null)` e' zero, che
+  // e' finito -- rimesso sulla misura che diventa gasolio e totali. E un
+  // tragitto da «0 km» finiva fra quelli «sotto i 3 km», che e' la ragione
+  // sbagliata per «non ho la misura».
+  const [a] = comeIlFile([tragitto('2026-11-21T11:00:00+01:00', '2026-11-21T12:00:00+01:00',
+    { distance: null })], ROMA);
+  assert.equal(a.km, null, 'un tragitto senza distanza dichiara zero chilometri');
+});
+
+test('un tragitto con l’orologio illeggibile si salta, e gli altri si salvano', () => {
+  // `oraDaParete(undefined)` lancia: **un** tragitto malformato faceva
+  // perdere gli altri sei, e la rotta rispondeva 502 «Invalid time value».
+  // L'interfaccia non e' documentata: non ci si fida della sua forma.
+  const buoni = comeIlFile([
+    tragitto('2026-11-21T11:00:00+01:00', '2026-11-21T12:00:00+01:00'),
+    { uuid: 'rotto', start_time: null, end_time: null, distance: 1000, locations: [] },
+    tragitto('2026-11-21T15:00:00+01:00', '2026-11-21T16:00:00+01:00'),
+  ], ROMA);
+  assert.equal(buoni.length, 2, 'un tragitto rotto porta giu’ tutti gli altri');
+});

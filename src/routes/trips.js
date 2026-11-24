@@ -1328,26 +1328,50 @@ const MIN_KM_RUBINETTO = 3, UNISCI_MIN = 30;
 // Se CarLock non risponde si torna 3 e non si alza la voce: il cartello sara'
 // piu' prudente del necessario, e la pagina del viaggio non si accorge di
 // niente.
-// **Non aspetta nessuno.** Questo numero finisce nella pagina di ogni viaggio
-// e decide soltanto se un cartello compare: non vale un'attesa su un servizio
-// non documentato. Trovato il 24/11/2026, appena le credenziali sono andate in
-// produzione -- `datiViaggio` lo aspettava, e a processo freddo quell'attesa
-// era un accesso a CarLock.
+// **Non chiama nessuno, nemmeno in sottofondo.** Questo numero finisce nella
+// pagina di ogni viaggio e decide soltanto se un cartello compare.
 //
-// Quindi: si guarda solo quel che si sa gia'. Se non si sa, si risponde col
-// piano piu' piccolo e si scalda la cache **in sottofondo**, senza che nessuno
-// stia a guardare: la prima apertura e' prudente, la seconda giusta.
+// La prima versione lo chiedeva con un `await`, e la pagina restava appesa a
+// un servizio non documentato. La seconda scaldava la cache in sottofondo, e
+// la revisione finale ha smontato anche quella, per due ragioni che non
+// avevo visto:
 //
-// Zero quando il rubinetto e' spento, cosi' il cartello non compare: la pagina
-// non puo' saperlo da se'.
+//   - **`veicolo()` ricorda solo il successo.** Con le credenziali scadute
+//     era un accesso **per ogni apertura di pagina**: la grandinata che il
+//     commento in cima a `carlock-api.js` racconta di aver gia' visto con la
+//     Bluetti, 805 rinnovi di fila;
+//   - **`datiViaggio` lo chiama anche il percorso dei link condivisi**, che
+//     non e' autenticato. Un ospite che apriva un link innescava un accesso
+//     al conto CarLock del proprietario.
+//
+// Adesso si legge **solo quel che si sa gia'**. Chi lo sa e' l'avvio del
+// server, che lo chiede una volta (vedi `scaldaCarlock` in `server.js`): una
+// riga di impostazioni del conto, una volta per processo, mai su richiesta di
+// nessuno.
+//
+// Zero quando il rubinetto e' spento, cosi' il cartello non compare: la
+// pagina non puo' saperlo da se'. Tre -- il piano piu' piccolo -- quando il
+// rubinetto c'e' ma il veicolo non si e' ancora letto: li' il cartello e'
+// piu' prudente del necessario, e si puo' chiedere davvero.
 function mesiStoricoDelConto() {
   const r = rubinetto();
   if (!r.configurato) return mesiDiStorico(null, { configurato: false });
   const noto = r.veicoloNoto();
-  if (noto) return mesiDiStorico(noto.subscription_tier);
-  // In sottofondo, e un guasto qui non deve diventare un rifiuto non gestito.
-  r.veicolo().catch(e => console.warn('CarLock: veicolo non letto:', String(e.message).slice(0, 120)));
-  return 3;
+  return noto ? mesiDiStorico(noto.subscription_tier) : 3;
+}
+
+/**
+ * Legge il veicolo una volta, all'avvio. Un guasto qui non e' un guasto: il
+ * cartello resta prudente e si riprova al prossimo riavvio.
+ */
+export async function scaldaCarlock() {
+  if (!rubinetto().configurato) return console.log('CarLock: rubinetto spento (manca CARLOCK_EMAIL)');
+  try {
+    const v = await rubinetto().veicolo();
+    console.log(`CarLock: veicolo letto, piano ${v.subscription_tier}, fuso ${v.time_zone_id}`);
+  } catch (e) {
+    console.warn('CarLock: veicolo non letto, il cartello restera\u2019 prudente:', String(e.message).slice(0, 140));
+  }
 }
 
 const nonConfigurato = res =>
@@ -1391,6 +1415,11 @@ async function tragittiDelViaggio(trip, tappe, finestra, fuso) {
 // non e' una strada -- quindi offrirla voleva dire mettere a un tocco di
 // distanza la cancellazione di un pezzo vero del viaggio. E' la stessa regola
 // che vale in tutto il resto del programma.
+// Il segno: fin dove si e' guardato. Lo scrive **chi guarda**, cosi' avanza
+// anche a mani vuote e un giorno di sosta non si ripropone per sempre.
+const segnaGuardato = (id, finestra) =>
+  q('UPDATE trips SET carlock_chiesto_fino_a=$2 WHERE id=$1', [id, segnoDopo(finestra)]);
+
 const previsteDi = tappe => tappe
   .filter(l => !l.external_id && mezzoValido(l.mezzo) === 'camper')
   .map(l => ({
@@ -1414,9 +1443,17 @@ router.get('/trips/:id/carlock/tragitti', wrap(async (req, res) => {
   if (!p.finestra) return res.json({ ok: true, tragitti: [], totale: 0, corti: 0, doppioni: 0,
     previste: previsteDi(tappe), oltre_lo_storico: p.oltre, mesi_storico: p.mesiStorico });
 
+
   let d;
   try { d = await tragittiDelViaggio(trip, tappe, p.finestra, p.fuso); }
   catch (e) { return res.status(502).json({ error: String(e.message).slice(0, 200) }); }
+
+  // **Il segno lo scrive chi guarda, non chi crea.** Prima lo scriveva solo la
+  // rotta che crea le tappe, e quella si rifiuta se non hai scelto niente:
+  // un giorno di sosta riproponeva lo stesso cartello per sempre, e un viaggio
+  // importato dal file -- che non passa mai da quella rotta -- pure. Avanza
+  // anche a mani vuote, ed e' il punto.
+  await segnaGuardato(trip.id, p.finestra);
 
   res.json({
     ok: true,
@@ -1457,23 +1494,6 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
   const volute = d.lunghi.filter(t => scelti.has(String(t.uuid)));
   if (!volute.length) return res.status(409).json({ error: 'I tragitti scelti non sono piu’ fra quelli di questi giorni' });
 
-  // Le previste spuntate se ne vanno **prima**, col loro gasolio stimato: al
-  // contrario la spesa resta orfana e il totale conta due volte lo stesso
-  // viaggio. E si toglie **solo quel che e' stato spuntato**: togliendo la
-  // spunta, la tappa prevista resta, e allora e' una sua scelta.
-  let togliute = 0;
-  if (daTogliere.length) {
-    const previste = (await q(
-      'SELECT id FROM legs WHERE trip_id=$1 AND external_id IS NULL AND id = ANY($2::int[])',
-      [trip.id, daTogliere])).rows.map(r => r.id);
-    if (previste.length) {
-      await q(`DELETE FROM expenses WHERE trip_id=$1 AND leg_id = ANY($2::int[])
-        AND category='gasolio' AND auto=true AND NOT edited`, [trip.id, previste]);
-      await q('DELETE FROM legs WHERE id = ANY($1::int[])', [previste]);
-      togliute = previste.length;
-    }
-  }
-
   const cache = new Map(); const failed = []; const errors = new Map();
   async function geo(addr, capo = null) {
     if (capo?.lat != null && capo?.lon != null)
@@ -1491,12 +1511,14 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
   }
 
   let pos = (await q('SELECT coalesce(max(position),0) AS p FROM legs WHERE trip_id=$1', [trip.id])).rows[0].p;
-  let create = 0, gia_presenti = 0, senza_traccia = 0;
+  let create = 0, gia_presenti = 0, senza_punti = 0, traccia_parziale = 0, non_create = 0;
   const capi_lontani = [];
   for (const t of volute) {
     const da = await geo(t.from, { lat: t.da_lat, lon: t.da_lon });
     const a = await geo(t.to, { lat: t.a_lat, lon: t.a_lon });
-    if (!da || !a) { senza_traccia++; continue; }
+    // Il capo non si e' geocodificato: qui la tappa non nasce affatto, ed e'
+    // una ragione diversa da «la traccia manca».
+    if (!da || !a) { non_create++; continue; }
 
     // **La traccia vera, e la ricostruzione solo se quella manca.** Calcolare
     // la strada ricostruita quando sta arrivando quella percorsa sarebbe
@@ -1522,14 +1544,17 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
     // chiamarla «vera» e' l'errore nel verso rassicurante -- si disegna
     // pulita e nessuno la mette in dubbio. Trovato sulla pagina vera il
     // 24/11/2026, su una tappa di 192 km nata con 8 km di riga.
+    let parziale = false;
     if (riga?.length && !copreLaTappa(riga, t.km)) {
       console.warn(`viaggio ${trip.id}: traccia di ${Math.round(lunghezzaKm(riga))} km su una tappa di ${t.km}: non la chiamo vera`);
-      riga = null;
+      riga = null; parziale = true;
     }
     let geometry = riga?.length ? riga : [[da.lat, da.lon], [a.lat, a.lon]];
     let pedaggioKm = null;
     if (!riga?.length) {
-      senza_traccia++;
+      // Due ragioni diverse, e la pagina ne diceva una sola: i punti non
+      // arrivati, o arrivati e troppo pochi per essere la strada.
+      if (parziale) traccia_parziale++; else senza_punti++;
       // Si passa da `stradaDellaTappa` come tutte le altre rotte, anche se qui
       // la tappa non esiste ancora e non ha niente da rispettare: una prova
       // conta le chiamate dirette ai percorsi, e tenerle tre invece di quattro
@@ -1554,7 +1579,29 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
         t.external_id, t.start, t.end, pedaggioKm, !!riga?.length])).rows[0];
     // `DO NOTHING` non torna niente quando il tragitto era gia' una tappa:
     // «c'era gia'» e «creata» sono due cose diverse, e si contano separate.
-    if (!leg) { gia_presenti++; if (riga?.length) senza_traccia = Math.max(0, senza_traccia); continue; }
+    if (!leg) {
+      gia_presenti++;
+      // **I punti appena letti non si buttano.** Prima si usciva e via: una
+      // tappa importata dal file restava «ricostruita» per sempre, e il
+      // rubinetto non poteva piu' sistemarla pur avendo la traccia in mano.
+      // Si scrive solo il disegno, e solo se non ne aveva gia' uno vero.
+      if (riga?.length) {
+        // Lo scarto qui si **misura**: e' il caso in cui una ricostruzione
+        // viene sostituita dalla traccia, cioe' l'unico in cui quel numero
+        // vuol dire qualcosa. `quantoSbagliava` torna `null` da se' quando la
+        // riga vecchia era una linea d'aria di due punti, che non e' una
+        // ricostruzione.
+        const vecchia = (await q(
+          'SELECT geometry FROM legs WHERE trip_id=$1 AND external_id=$2 AND NOT tracciato_vero',
+          [trip.id, t.external_id])).rows[0];
+        if (vecchia) await q(`UPDATE legs SET geometry=$3, tracciato_vero=true,
+            scarto_ricostruzione_km=$4
+          WHERE trip_id=$1 AND external_id=$2 AND NOT tracciato_vero`,
+          [trip.id, t.external_id, JSON.stringify(riga),
+           quantoSbagliava(Array.isArray(vecchia.geometry) ? vecchia.geometry : null, riga)]);
+      }
+      continue;
+    }
     create++;
     await costiTappa(leg.id);
 
@@ -1568,13 +1615,41 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
     }
   }
 
+  // **Le previste se ne vanno DOPO**, col loro gasolio stimato. Prima stavano
+  // sopra il giro che crea, e niente era in una transazione: un errore
+  // sull'inserimento -- 500, toast generico -- e le tappe previste erano
+  // andate senza che nascesse niente al loro posto. Cancellare per ultimo
+  // non e' una transazione, ma e' il verso in cui un guasto non distrugge
+  // niente.
+  //
+  // E si toglie **solo quel che e' stato spuntato**: togliendo la spunta, la
+  // prevista resta, e allora e' una sua scelta. Prima la spesa, poi la tappa,
+  // o la spesa resta orfana e il totale conta due volte lo stesso viaggio.
+  let togliute = 0;
+  if (daTogliere.length && create) {
+    const previste = (await q(
+      'SELECT id FROM legs WHERE trip_id=$1 AND external_id IS NULL AND id = ANY($2::int[])',
+      [trip.id, daTogliere])).rows.map(r => r.id);
+    if (previste.length) {
+      await q(`DELETE FROM expenses WHERE trip_id=$1 AND leg_id = ANY($2::int[])
+        AND category='gasolio' AND auto=true AND NOT edited`, [trip.id, previste]);
+      await q('DELETE FROM legs WHERE id = ANY($1::int[])', [previste]);
+      togliute = previste.length;
+    }
+  }
+
+  // Le tappe nuove si accodano a `max(position)`: toccando al terzo giorno di
+  // un viaggio di dieci finirebbero **dopo** le previste dei giorni
+  // successivi. L'import da file lo rimette in ordine, questo no.
+  await rimettiInOrdine(trip.id).catch(e => console.warn('ordine non rimesso:', e.message));
+
   // **Il segno avanza, anche se non si e' trovato niente.** Un giorno di sosta
   // altrimenti riproporrebbe lo stesso cartello per sempre.
   await q('UPDATE trips SET carlock_chiesto_fino_a=$2 WHERE id=$1', [trip.id, segnoDopo(p.finestra)]);
 
   console.log(`viaggio ${trip.id}: dal rubinetto ${create} tappe nuove, ${gia_presenti} c’erano gia’, ${togliute} previste togliute`);
-  res.json({ ok: true, create, gia_presenti, senza_traccia, togliute, capi_lontani,
-             non_geocodificati: failed.length });
+  res.json({ ok: true, create, gia_presenti, senza_punti, traccia_parziale, non_create,
+             togliute, capi_lontani });
 }));
 
 router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req, res) => {

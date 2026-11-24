@@ -169,15 +169,31 @@ const numero = v => {
  * tutto va come prima.
  */
 export function comeIlFile(tragitti, fuso = 'Europe/Rome') {
-  return (tragitti || []).map(t => {
+  return (tragitti || []).flatMap(t => {
+    // **Un tragitto con l'orologio illeggibile si salta, e gli altri si
+    // salvano.** `oraDaParete(undefined)` lancia: prima, UN tragitto
+    // malformato faceva perdere gli altri sei e la rotta rispondeva 502
+    // «Invalid time value». Quest'interfaccia non e' documentata, quindi
+    // della sua forma non ci si fida -- e' lo stesso argomento con cui il
+    // disegno giustifica di non costruirci sopra senza rete.
+    // Con `numero()`, non con `Number.isFinite(Number(...))`: `Number(null)`
+    // fa **zero**, che e' finito, e un tragitto senza orologio diventava il
+    // primo gennaio 1970. E' la terza volta oggi che questo zero prova a
+    // passare per un dato.
+    if (numero(t?.start_time) == null || numero(t?.end_time) == null) return [];
     const p = oraDaParete(t.start_time, fuso), a = oraDaParete(t.end_time, fuso);
-    return {
+    return [{
       date: p.giorno,
       start: p.ora,
       end: a.ora,
       from: senzaPaese(t.start_location?.address),
       to: senzaPaese(t.end_location?.address),
-      km: +((numero(t.distance) ?? 0) / 1000).toFixed(1),
+      // **`null` e non zero quando la misura non c'e'.** `?? 0` era lo stesso
+      // difetto togliato dalle coordinate il 24/11 -- `Number(null)` e' zero,
+      // che e' un numero finito -- rimesso sulla misura che diventa gasolio e
+      // totali del viaggio. E un tragitto «da zero chilometri» finiva fra
+      // quelli sotto i 3 km, che e' la ragione sbagliata per «non lo so».
+      km: numero(t.distance) == null ? null : +(numero(t.distance) / 1000).toFixed(1),
       // **Dagli istanti, non dagli orari scritti.** A cavallo della mezzanotte
       // la differenza fra gli orari da parete e' negativa; a cavallo dell'ora
       // legale e' sbagliata di sessanta minuti.
@@ -189,7 +205,7 @@ export function comeIlFile(tragitti, fuso = 'Europe/Rome') {
       da_lon: numero(t.start_location?.longitude),
       a_lat: numero(t.end_location?.latitude),
       a_lon: numero(t.end_location?.longitude),
-    };
+    }];
   });
 }
 
@@ -238,10 +254,18 @@ const ATTESA_MS = Number(process.env.CARLOCK_TIMEOUT_MS) || 12000;
  * conto oggi c'e' un veicolo solo, ma domani, con un secondo tracker, «il
  * primo» porterebbe dentro i tragitti dell'auto senza che niente lo dica.
  */
-export function creaRubinetto({ email, password, uuid = null, fetch: f = fetch } = {}) {
+export function creaRubinetto({ email: email0, password: password0, uuid = null, fetch: f = fetch } = {}) {
+  // **Si ripuliscono i bordi.** Incollando un valore nelle variabili di
+  // Railway ci finisce facilmente dentro uno spazio o un ritorno a capo, e
+  // sulla password cambia **la cifratura**: l'accesso viene rifiutato con un
+  // 401 che non spiega niente, e nessuno pensa a un carattere invisibile. Una
+  // variabile d'ambiente non e' un campo di testo: gli spazi ai bordi non ne
+  // fanno parte.
+  const email = String(email0 ?? '').trim();
+  const password = String(password0 ?? '').trim();
   let gettone = null;
   let suo = null;        // il veicolo, letto una volta
-  const configurato = !!(String(email || '').trim() && String(password || '').trim());
+  const configurato = !!(email && password);
 
   const intestazioni = conGettone => ({
     Accept: 'application/json',

@@ -103,14 +103,42 @@ const segnoDi = trip => {
 export function finestraDaChiedere(trip, tappe, { adesso = Date.now(), mesiStorico = 3, fuso = 'Europe/Rome' } = {}) {
   const p = periodoNelFuso(trip, tappe, fuso);
   if (!p) return null;
-  const limite = limiteDelloStorico(adesso, mesiStorico);
-  // Il più tardi fra: l'inizio del viaggio, il segno, e il limite dello
-  // storico. Il segno dice dove si era arrivati; il limite, da dove CarLock
-  // ha ancora qualcosa.
-  const da = Math.max(p.da, segnoDi(trip) ?? 0, limite);
+  // Il più tardi fra l'inizio del viaggio e il limite dello storico: oltre
+  // quello CarLock non ha più niente da dare.
+  //
+  // **Il segno non taglia la domanda.** La prima versione partiva da lì, e la
+  // revisione ha trovato cosa costava: toccato alle 12:00, un tragitto che
+  // CarLock pubblica alle 12:05 per le 11:20 non si offriva più. Mai, e senza
+  // che niente lo dicesse. Chiedere tutto il periodo costa cinque kB, e i
+  // doppioni li impedisce il vincolo sull'identificativo, che è il suo
+  // lavoro.
+  const da = Math.max(p.da, limiteDelloStorico(adesso, mesiStorico));
   // Il più presto fra la fine del viaggio e adesso: **mai domani**.
   const a = Math.min(p.a, adesso);
   return a > da ? { da, a } : null;
+}
+
+/**
+ * Se vale la pena mostrare il cartello.
+ *
+ * Due domande diverse, e confonderle costava due difetti: «c'è qualcosa da
+ * chiedere» (`finestraDaChiedere`) e «vale la pena disturbarlo» (questa). Se
+ * tocca lui il tasto, gli si risponde comunque.
+ *
+ * **Al massimo una volta al giorno**, e non più dopo che si è guardato fino
+ * alla fine del viaggio. Il segno avanza anche a mani vuote -- lo scrive la
+ * rotta che guarda, non quella che crea le tappe -- così un giorno di sosta
+ * non ripropone lo stesso cartello per sempre, e un viaggio finito smette.
+ */
+export function valeIlCartello(trip, tappe, { adesso = Date.now(), mesiStorico = 3, fuso = 'Europe/Rome' } = {}) {
+  const f = finestraDaChiedere(trip, tappe, { adesso, mesiStorico, fuso });
+  if (!f) return false;
+  const segno = segnoDi(trip);
+  if (segno == null) return true;
+  if (segno >= f.a) return false;              // già guardato fino in fondo
+  const oggi = mezzanotteNelFuso(new Intl.DateTimeFormat('en-CA',
+    { timeZone: fuso, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(adesso)), fuso);
+  return segno < oggi;                          // guardato oggi: basta per oggi
 }
 
 /**

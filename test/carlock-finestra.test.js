@@ -14,7 +14,7 @@
 // cartello per sempre.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { finestraDaChiedere, oltreLoStorico, mesiDiStorico } from '../src/lib/carlock-finestra.js';
+import { finestraDaChiedere, oltreLoStorico, mesiDiStorico, valeIlCartello } from '../src/lib/carlock-finestra.js';
 
 const viaggio = (da, a, segno = null) => ({ start_date: da, end_date: a, carlock_chiesto_fino_a: segno });
 const ora = s => Date.parse(s);
@@ -31,25 +31,29 @@ test('al terzo giorno di dieci si chiede fino a ADESSO, non fino alla fine del v
   assert.equal(f.a, ADESSO, 'si e’ chiesto per giorni che non sono ancora passati');
 });
 
-test('col segno si riparte da dove si era arrivati, non da capo', () => {
-  const f = finestraDaChiedere(viaggio('2026-11-22', '2026-12-01', '2026-11-23T18:00:00+01:00'), [], q());
-  assert.equal(f.da, ora('2026-11-23T18:00:00+01:00'));
+// Queste quattro provavano il **vecchio** significato del segno: tagliava la
+// domanda. La revisione finale ha trovato cosa costava -- un tragitto
+// pubblicato da CarLock dopo il tocco non si offriva piu', mai, e in silenzio
+// -- e adesso il segno decide solo se mostrare il cartello. Riscritte dove
+// quel comportamento vive ora.
+test('appena guardato il cartello non si ripropone', () => {
+  assert.equal(valeIlCartello(viaggio('2026-11-22', '2026-12-01', '2026-11-24T08:00:00+01:00'),
+    [], q()), false);
 });
 
-test('appena guardato non si ripropone: la finestra e’ vuota', () => {
-  assert.equal(finestraDaChiedere(viaggio('2026-11-22', '2026-12-01', '2026-11-24T12:00:00+01:00'),
-    [], q()), null);
+test('il giorno dopo c’e’ roba nuova, e il cartello torna', () => {
+  assert.equal(valeIlCartello(viaggio('2026-11-22', '2026-12-01', '2026-11-24T08:00:00+01:00'),
+    [], q(ora('2026-11-25T09:00:00+01:00'))), true);
 });
 
-test('il giorno dopo c’e’ roba nuova, e la finestra torna', () => {
-  const f = finestraDaChiedere(viaggio('2026-11-22', '2026-12-01', '2026-11-24T12:00:00+01:00'),
-    [], q(ora('2026-11-25T09:00:00+01:00')));
-  assert.equal(f.da, ora('2026-11-24T12:00:00+01:00'));
-  assert.equal(f.a, ora('2026-11-25T09:00:00+01:00'));
+test('guardato fino alla fine del viaggio, il cartello smette', () => {
+  assert.equal(valeIlCartello(viaggio('2026-11-01', '2026-11-05', '2026-11-06T00:00:00+01:00'),
+    [], q()), false);
 });
 
-test('quando il segno e’ arrivato alla fine, non c’e’ piu’ niente da chiedere', () => {
-  assert.equal(finestraDaChiedere(viaggio('2026-11-01', '2026-11-05', '2026-11-06T00:00:00+01:00'),
+test('ma il tasto, se lo tocca lui, risponde comunque', () => {
+  // Il segno non e' un divieto: e' un «non ti disturbo».
+  assert.notEqual(finestraDaChiedere(viaggio('2026-11-01', '2026-11-05', '2026-11-06T00:00:00+01:00'),
     [], q()), null);
 });
 
@@ -107,12 +111,13 @@ test('il piano dice quanto storico c’e’', () => {
     'un piano che non conosciamo non diventa dodici mesi per ottimismo');
 });
 
-test('un segno piu’ avanti di adesso non apre una finestra al rovescio', () => {
+test('un segno piu’ avanti di adesso non fa comparire il cartello', () => {
   // Non dovrebbe succedere -- il segno lo scrive il server -- ma un orologio
-  // storto o un fuso sbagliato lo renderebbe possibile, e una finestra
-  // rovesciata chiederebbe a CarLock un periodo che non esiste.
-  assert.equal(finestraDaChiedere(viaggio('2026-11-22', '2026-12-01', '2026-11-30T00:00:00+01:00'),
-    [], q()), null);
+  // storto lo renderebbe possibile. La finestra adesso non la tocca (il segno
+  // non taglia la domanda), quindi il posto dove puo' fare danno e' il
+  // cartello: con un segno nel futuro deve tacere, non lampeggiare.
+  assert.equal(valeIlCartello(viaggio('2026-11-22', '2026-12-01', '2026-11-30T00:00:00+01:00'),
+    [], q()), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -168,4 +173,57 @@ test('con zero mesi non si chiede niente e non e’ «troppo vecchio»', () => {
   assert.equal(finestraDaChiedere(v, [], q(ADESSO, 0)), null);
   assert.equal(oltreLoStorico(v, [], q(ADESSO, 0)), false,
     'un rubinetto spento non e’ un viaggio vecchio: sono due ragioni diverse');
+});
+
+// ---------------------------------------------------------------------------
+// Il segno decide se disturbare, non cosa chiedere
+// ---------------------------------------------------------------------------
+//
+// La revisione finale ha trovato due difetti, e sono la stessa domanda: cosa
+// vuol dire il segno.
+//
+//   - **un giorno di sosta riproponeva il cartello per sempre.** Il segno lo
+//     scriveva solo la rotta che crea le tappe, e quella si rifiuta se non
+//     hai scelto niente: guardavi, non c'era nulla, e domani il cartello era
+//     di nuovo li'. Lo stesso per un viaggio finito e importato dal file, che
+//     non passa mai da quella rotta;
+//   - **un tragitto caricato in ritardo da CarLock era perduto.** Tocco alle
+//     12:00, CarLock pubblica alle 12:05 il tragitto delle 11:20: la finestra
+//     dopo parte dalle 12:00, e quel tragitto non si offre piu'. Mai. Nel
+//     verso rassicurante, perche' nessuno lo dice.
+//
+// La cura e' smettere di usare il segno per **tagliare la domanda**: si chiede
+// tutto il periodo del viaggio (cinque kB) e i doppioni li impedisce il
+// vincolo sull'identificativo, che e' il suo lavoro. Il segno serve solo a
+// decidere **se mostrare il cartello**.
+test('la finestra da chiedere e’ tutto il periodo del viaggio, fino a oggi', () => {
+  const senza = finestraDaChiedere(viaggio('2026-11-22', '2026-12-01'), [], q());
+  const con = finestraDaChiedere(viaggio('2026-11-22', '2026-12-01', '2026-11-23T18:00:00+01:00'), [], q());
+  assert.deepEqual(con, senza,
+    'il segno taglia la domanda: un tragitto caricato in ritardo non si offre piu’');
+  assert.equal(senza.da, ora('2026-11-22T00:00:00+01:00'));
+});
+
+test('col segno alla fine si chiede ancora, ma il cartello tace', () => {
+  // Due domande diverse: «c'e' qualcosa da chiedere» e «vale la pena
+  // disturbarlo». Se tocca lui, gli si risponde.
+  const v = viaggio('2026-11-01', '2026-11-05', '2026-11-06T00:00:00+01:00');
+  assert.notEqual(finestraDaChiedere(v, [], q()), null,
+    'toccando il tasto non si potrebbe piu’ chiedere niente');
+  assert.equal(valeIlCartello(v, [], q()), false, 'il cartello si ripropone dopo aver guardato');
+});
+
+test('senza segno il cartello vale, col segno di oggi no, domani si’', () => {
+  const v = viaggio('2026-11-22', '2026-12-01');
+  assert.equal(valeIlCartello(v, [], q()), true);
+  assert.equal(valeIlCartello({ ...v, carlock_chiesto_fino_a: '2026-11-24T08:00:00+01:00' }, [], q()), false,
+    'guardato stamattina: non si ripropone nel pomeriggio');
+  assert.equal(valeIlCartello({ ...v, carlock_chiesto_fino_a: '2026-11-24T08:00:00+01:00' }, [],
+    q(ora('2026-11-25T09:00:00+01:00'))), true, 'il giorno dopo c’e’ roba nuova');
+});
+
+test('un viaggio oltre lo storico: niente cartello, ma si sa dirlo', () => {
+  const v = viaggio('2024-06-01', '2024-06-10');
+  assert.equal(valeIlCartello(v, [], q()), false);
+  assert.equal(oltreLoStorico(v, [], q()), true);
 });

@@ -244,3 +244,24 @@ test('ogni chiamata ha un tempo massimo: un servizio appeso non appende noi', as
   for (const o of viste)
     assert.ok(o.signal, 'una chiamata senza tempo massimo puo’ restare appesa per sempre');
 });
+
+test('le credenziali si ripuliscono: un ritorno a capo incollato non e’ la password', async () => {
+  // Incollando un valore nelle variabili di Railway ci finisce facilmente
+  // dentro uno spazio o un ritorno a capo. Sulla password cambia **la
+  // cifratura**, quindi l'accesso viene rifiutato con un 401 che non spiega
+  // niente -- e nessuno pensa a un carattere invisibile. Succeso davvero, il
+  // 24/11/2026: le stesse credenziali funzionavano in locale e Railway
+  // rispondeva «User provided invalid credentials».
+  //
+  // Una variabile d'ambiente non e' un campo di testo: gli spazi ai bordi non
+  // ne fanno parte.
+  const viste = [];
+  const finto = async (url, opz) => { viste.push(opz); return risposta(
+    String(url).includes('/user/login') ? FORME.login : FORME.user_vehicles,
+    String(url).includes('/user/login') ? 201 : 200); };
+  await creaRubinetto({ email: ' a@b.c\n', password: '  segreta\n', fetch: finto }).veicolo();
+  const corpo = JSON.parse(viste[0].body);
+  assert.equal(corpo.email, 'a@b.c');
+  assert.equal(corpo.password_hash, hashPassword('segreta'),
+    'la password cifrata porta dentro gli spazi incollati');
+});

@@ -70,8 +70,11 @@ test('un tragitto senza punti diventa comunque una tappa, dichiarata ricostruita
   // Review Focus 5. Meglio una tappa con una strada dedotta, detta tale, che
   // nessuna tappa.
   const r = rotta('/trips/:id/carlock/tappe');
-  assert.match(r, /senza_traccia/, 'il resoconto non dice quali tappe non hanno la traccia');
+  assert.match(r, /senza_punti/, 'il resoconto non dice quali tappe non hanno la traccia');
   assert.match(r, /catch/, 'un tragitto che inciampa porta giu’ tutto il tocco');
+  // E la tappa nasce lo stesso: il bollino segue i punti, non il tentativo.
+  assert.match(r, /tracciato_vero[\s\S]{0,400}!!riga\?\.length|!!riga\?\.length/,
+    'il bollino della traccia vera non segue i punti che sono arrivati');
 });
 
 test('i doppioni li impedisce il database, e il resoconto li distingue dalle nuove', () => {
@@ -222,4 +225,72 @@ test('la pagina di un viaggio non aspetta CarLock', () => {
   // Solo quella riga: quelle accanto hanno degli `await` che ci stanno bene.
   const riga = sorgente.slice(d, sorgente.indexOf('\n', d));
   assert.doesNotMatch(riga, /await/, 'il campo si aspetta dentro `datiViaggio`');
+});
+
+test('la pagina di un viaggio non chiama CarLock, nemmeno in sottofondo', () => {
+  // La revisione finale: `datiViaggio` lo chiama anche il percorso dei link
+  // condivisi (share.js), che **non e' autenticato**. Un ospite che apre un
+  // link innescava un accesso al conto CarLock del proprietario. E il
+  // fallimento non si ricorda -- `veicolo()` tiene in memoria solo il
+  // successo -- quindi con le credenziali scadute era **un accesso per ogni
+  // apertura di pagina**: la grandinata che il commento in cima a
+  // `carlock-api.js` racconta di aver gia' vista con la Bluetti.
+  const i = sorgente.indexOf('function mesiStoricoDelConto');
+  const corpo = sorgente.slice(i, sorgente.indexOf('\n}', i));
+  assert.doesNotMatch(corpo, /\.veicolo\(\)/,
+    'la pagina di un viaggio puo’ innescare un accesso a CarLock');
+  assert.match(corpo, /veicoloNoto\(\)/, 'il numero non viene da quel che si sa gia’');
+});
+
+test('il veicolo si legge una volta all’avvio, non su richiesta di qualcuno', () => {
+  const server = leggi('src/server.js');
+  assert.match(server, /scaldaCarlock|veicoloCarlock/,
+    'nessuno legge il veicolo all’avvio: il cartello resterebbe prudente per sempre');
+});
+
+test('le previste si togliono DOPO aver creato, o si cancella per niente', () => {
+  // La revisione finale: il blocco che cancella stava prima del giro che
+  // crea, e niente era in una transazione. Un errore sull'inserimento --
+  // 500, toast generico -- e le tappe previste erano andate col loro gasolio,
+  // senza che nascesse niente al loro posto.
+  const r = rotta('/trips/:id/carlock/tappe');
+  const cancella = r.indexOf('DELETE FROM legs');
+  const crea = r.indexOf('INSERT INTO legs');
+  assert.ok(cancella > 0 && crea > 0, 'la rotta non crea o non cancella piu’');
+  assert.ok(crea < cancella,
+    'si cancellano le previste prima di creare: un errore e le perde per niente');
+});
+
+test('le tappe nuove si rimettono in ordine di data', () => {
+  // L'import da file lo fa; questa rotta no. Toccando al terzo giorno di un
+  // viaggio di dieci, le tappe vere finivano **dopo** quelle ancora previste
+  // dei giorni successivi, perche' si accodano a `max(position)`.
+  assert.match(rotta('/trips/:id/carlock/tappe'), /rimettiInOrdine\(/,
+    'le tappe nuove restano in fondo all’elenco');
+});
+
+test('il resoconto distingue le tre ragioni di una tappa senza traccia', () => {
+  // Erano tutte `senza_traccia`: il capo non geocodificato (dove la tappa non
+  // nasce nemmeno), i punti non arrivati, e la traccia troppo corta. La
+  // pagina ne diceva una sola -- «i punti non sono arrivati» -- falsa per le
+  // altre due, e in un caso diceva che esiste una tappa che non esiste.
+  const r = rotta('/trips/:id/carlock/tappe');
+  for (const campo of ['senza_punti', 'traccia_parziale', 'non_create'])
+    assert.match(r, new RegExp(campo), `il resoconto non distingue ${campo}`);
+  assert.doesNotMatch(r, /senza_traccia = Math\.max/, 'resta la riga morta che non decrementa niente');
+});
+
+test('una tappa che c’era gia’ e non ha la traccia non butta via i punti letti', () => {
+  // La revisione: `continue` dopo `gia_presenti` scartava dei punti appena
+  // scaricati, e una tappa importata dal file restava «ricostruita» per
+  // sempre -- il rubinetto non poteva piu' sistemarla.
+  const r = rotta('/trips/:id/carlock/tappe');
+  const i = r.indexOf('gia_presenti++');
+  assert.ok(i > 0, 'il conto delle tappe gia’ presenti non si trova');
+  assert.match(r.slice(i, i + 1400), /UPDATE legs SET/,
+    'i punti scaricati per una tappa che c’era si buttano');
+  // E lo scarto si misura: e' l'unico caso in cui quel numero vuol dire
+  // qualcosa, perche' una ricostruzione viene sostituita da una traccia.
+  assert.match(r.slice(i, i + 1400), /quantoSbagliava\(/,
+    'si butta la misura di quanto sbagliava la ricostruzione, che qui si puo’ fare');
 });

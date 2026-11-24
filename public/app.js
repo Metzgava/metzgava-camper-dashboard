@@ -5057,14 +5057,17 @@ const cartelloCarlock = (trip, legs, adesso = Date.now(), mesiStorico = 3) => {
   const a0 = mezzanotte(giorno(trip?.end_date) || datate[datate.length - 1]);
   if (da0 == null || a0 == null) return false;
   const limite = (() => { const d = new Date(adesso); d.setMonth(d.getMonth() - mesiStorico); return d.getTime(); })();
-  const segno = trip?.carlock_chiesto_fino_a ? Date.parse(trip.carlock_chiesto_fino_a) : null;
-  // Toccato oggi: basta per oggi.
-  const oggi = new Date(adesso); oggi.setHours(0, 0, 0, 0);
-  if (Number.isFinite(segno) && segno >= oggi.getTime()) return false;
-  const da = Math.max(da0, Number.isFinite(segno) ? segno : 0, limite);
+  const da = Math.max(da0, limite);
   const a = Math.min(a0 + 86400000 - 1, adesso);
-  return a > da;
+  if (!(a > da)) return false;
+  const segno = trip?.carlock_chiesto_fino_a ? Date.parse(trip.carlock_chiesto_fino_a) : null;
+  if (!Number.isFinite(segno)) return true;
+  // Guardato fino in fondo al viaggio: smette. Guardato oggi: basta per oggi.
+  if (segno >= a) return false;
+  const oggi = new Date(adesso); oggi.setHours(0, 0, 0, 0);
+  return segno < oggi.getTime();
 };
+
 const COLORI_SPORT = {
   'Bicicletta': '#2563eb',
   'Escursione': '#16a34a',
