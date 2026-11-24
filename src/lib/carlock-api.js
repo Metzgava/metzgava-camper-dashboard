@@ -148,6 +148,36 @@ const senzaPaese = indirizzo => {
   return pezzi.join(', ');
 };
 
+/**
+ * Un istante nella **stessa scala che produce `leggiTracciati`**.
+ *
+ * Quel lettore prende dal CSV «2026-07-31 17:20:26» e lo interpreta nel fuso
+ * del **processo**; `finestraDellaTappa` costruisce la mezzanotte nello stesso
+ * fuso, e i due errori si annullano. Dare ad `assegna` dei millisecondi
+ * assoluti romperebbe l'annullamento: su Railway, con tre minuti di
+ * tolleranza, non si aggancerebbe niente, mai, senza un errore.
+ *
+ * Quindi si prende l'orario da parete nel fuso del veicolo -- **coi secondi**,
+ * che qui servono -- e si rilegge come fa il lettore del file.
+ */
+export function comeIlLettore(ms, fuso = 'Europe/Rome') {
+  const p = {};
+  for (const x of esatto(fuso).formatToParts(new Date(ms))) p[x.type] = x.value;
+  return new Date(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`).getTime();
+}
+
+const esatti = new Map();
+const esatto = fuso => {
+  if (!esatti.has(fuso)) {
+    esatti.set(fuso, new Intl.DateTimeFormat('en-CA', {
+      timeZone: fuso, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }));
+  }
+  return esatti.get(fuso);
+};
+
 const numero = v => {
   if (v == null || v === '') return null;
   const n = Number(v);
@@ -213,22 +243,25 @@ export function comeIlFile(tragitti, fuso = 'Europe/Rome') {
  * Un tragitto coi suoi punti nella forma di `leggiTracciati`:
  * `{ id, da, a, punti: [{ t, lat, lon }] }`.
  *
- * `t` sono i millisecondi cosi' come arrivano: la stessa scala che
- * `leggiTracciati` produce leggendo le sue date, quindi `assegna` e `cuci`
- * lavorano come col file.
+ * `t` e' nella **stessa scala di `leggiTracciati`** (vedi `comeIlLettore`):
+ * non i millisecondi assoluti dell'interfaccia, ma l'orario da parete del
+ * veicolo riletto come fa il lettore del file. Cosi' `assegna`, `cuci` e
+ * `finestraDellaTappa` lavorano come col file -- che e' quel che il disegno
+ * promette, e che con gli istanti assoluti era falso.
  *
  * Un punto senza coordinate si salta e il tragitto resta: la stessa regola del
  * file, dove buttare settecento punti buoni per un refuso vorrebbe dire
  * perdere la strada per niente.
  */
 export function comePunti(tragitto, fuso = 'Europe/Rome') {
+  const scala = ms => (numero(ms) == null ? null : comeIlLettore(numero(ms), fuso));
   const punti = (tragitto?.locations || [])
-    .map(p => ({ t: numero(p?.timestamp), lat: numero(p?.latitude), lon: numero(p?.longitude) }))
+    .map(p => ({ t: scala(p?.timestamp), lat: numero(p?.latitude), lon: numero(p?.longitude) }))
     .filter(p => p.t != null && p.lat != null && p.lon != null
       && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180)
     .sort((x, y) => x.t - y.t);
-  return { id: tragitto?.uuid ?? null, da: numero(tragitto?.start_time),
-           a: numero(tragitto?.end_time), punti, fuso };
+  return { id: tragitto?.uuid ?? null, da: scala(tragitto?.start_time),
+           a: scala(tragitto?.end_time), punti, fuso };
 }
 
 // Quante pagine si chiedono al massimo, qualunque cosa dica `total_count`.

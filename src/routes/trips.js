@@ -1402,6 +1402,14 @@ async function tragittiDelViaggio(trip, tappe, finestra, fuso) {
     totale: grezzi.length,
     corti,
     lunghi: uniti.filter(t => t.km >= MIN_KM_RUBINETTO),
+    // **I corti si elencano**, con la spunta spenta. Il disegno li disegnava
+    // cosi' («sotto i 3 km»), e il piano aveva deciso di scartarli
+    // contandoli: ma allora un giro breve che fa parte del viaggio -- il
+    // traghetto raggiunto in cinque chilometri -- non si poteva importare in
+    // nessun modo. Spenti, non nascosti: la scelta resta sua.
+    corti_elenco: uniti.filter(t => t.km != null && t.km < MIN_KM_RUBINETTO),
+    senza_misura: uniti.filter(t => t.km == null).length,
+    uniti: uniti.length,
     gia,
   };
 }
@@ -1457,13 +1465,20 @@ router.get('/trips/:id/carlock/tragitti', wrap(async (req, res) => {
 
   res.json({
     ok: true,
+    // Due conti su due basi diverse messi vicini invitavano una sottrazione
+    // che non torna: `totale` erano i tragitti grezzi, `corti` quelli dopo le
+    // unioni. Adesso si dice anche quanti sono dopo le unioni.
     totale: d.totale,
+    uniti: d.uniti,
     corti: d.corti,
+    senza_misura: d.senza_misura,
     doppioni: d.lunghi.filter(t => d.gia.has(t.external_id)).length,
     oltre_lo_storico: false,
     mesi_storico: p.mesiStorico,
     previste: previsteDi(tappe),
-    tragitti: d.lunghi.map(t => ({
+    tragitti: [...d.lunghi, ...d.corti_elenco].sort((x, y) =>
+      (x.date + x.start).localeCompare(y.date + y.start)).map(t => ({
+      corto: t.km != null && t.km < MIN_KM_RUBINETTO,
       uuid: t.uuid, date: t.date, start: t.start, end: t.end,
       from: shortName(t.from), to: shortName(t.to), km: t.km,
       duration_min: t.duration_min, merged: t.merged || 1,
@@ -1549,24 +1564,38 @@ router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
       console.warn(`viaggio ${trip.id}: traccia di ${Math.round(lunghezzaKm(riga))} km su una tappa di ${t.km}: non la chiamo vera`);
       riga = null; parziale = true;
     }
-    let geometry = riga?.length ? riga : [[da.lat, da.lon], [a.lat, a.lon]];
-    let pedaggioKm = null;
+    // **La strada si calcola sempre, e serve a due cose diverse.**
+    //
+    // I **chilometri a pedaggio** servono comunque: `syncTollExpense` ne ha
+    // bisogno, e senza, una tappa di 184 km di autostrada dal rubinetto
+    // costava ~15 euro meno della stessa tappa importata dal file -- in
+    // silenzio, nei totali del viaggio. Il non-obiettivo del disegno e'
+    // «**rifare** i pedaggi quando si attacca una traccia»; qui non erano mai
+    // stati fatti, che e' un'altra cosa, e sono soldi.
+    //
+    // Il **disegno** invece serve solo se la traccia manca: quello buono e'
+    // la traccia, e questo si butta.
+    //
+    // Si passa da `stradaDellaTappa` come tutte le altre rotte, anche se qui
+    // la tappa non esiste ancora e non ha niente da rispettare: una prova
+    // conta le chiamate dirette ai percorsi, e tenerle tre invece di quattro
+    // vuol dire che il giorno in cui questa rotta nascera' con dei luoghi
+    // dichiarati li rispettera' da se'. La guardia del 21/11/2026 regge
+    // perche' nessuno la allarga.
+    let strada = null;
+    try {
+      strada = await stradaDellaTappa({ mezzo: 'camper', via: null, pedaggi_dichiarati: null },
+        da, a, t.km, t.duration_min);
+    } catch { }
+    const pedaggioKm = strada?.pedaggio_km ?? null;
+
     if (!riga?.length) {
       // Due ragioni diverse, e la pagina ne diceva una sola: i punti non
       // arrivati, o arrivati e troppo pochi per essere la strada.
       if (parziale) traccia_parziale++; else senza_punti++;
-      // Si passa da `stradaDellaTappa` come tutte le altre rotte, anche se qui
-      // la tappa non esiste ancora e non ha niente da rispettare: una prova
-      // conta le chiamate dirette ai percorsi, e tenerle tre invece di quattro
-      // vuol dire che il giorno in cui questa rotta nascera' con dei luoghi
-      // dichiarati li rispettera' da se'. La guardia del 21/11/2026 regge
-      // perche' nessuno la allarga.
-      try {
-        const str = await stradaDellaTappa({ mezzo: 'camper', via: null, pedaggi_dichiarati: null },
-          da, a, t.km, t.duration_min);
-        geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null;
-      } catch { }
     }
+    const geometry = riga?.length ? riga
+      : (strada?.geometry || [[da.lat, da.lon], [a.lat, a.lon]]);
 
     const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,
         distance_km,duration_min,geometry,notes,source,external_id,start_time,end_time,pedaggio_km,

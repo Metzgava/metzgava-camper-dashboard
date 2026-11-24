@@ -18,8 +18,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { comeIlFile, comePunti, oraDaParete } from '../src/lib/carlock-api.js';
-import { mergeTrips } from '../src/lib/carlock.js';
+import { comeIlFile, comePunti, oraDaParete, comeIlLettore } from '../src/lib/carlock-api.js';
+import { mergeTrips, parseCarlockCsv } from '../src/lib/carlock.js';
 
 const FORME = JSON.parse(readFileSync(new URL('./fixtures/carlock-api-forme.json', import.meta.url), 'utf8'));
 const ROMA = 'Europe/Rome';
@@ -81,7 +81,11 @@ test('i punti escono nella forma dei tracciati, in ordine di tempo', () => {
   assert.ok(p.punti[0].t <= p.punti[p.punti.length - 1].t);
   assert.equal(typeof p.punti[0].lat, 'number');
   assert.equal(p.id, FORME.trip_singolo.uuid);
-  assert.equal(p.da, FORME.trip_singolo.start_time);
+  // `da` non e' piu' il millisecondo grezzo dell'interfaccia: e' lo stesso
+  // istante nella scala del lettore del file (vedi la prova sulla scala qui
+  // sotto). Questa asserzione pinzava il contratto di prima, e passava solo
+  // nel fuso in cui le due scale coincidono.
+  assert.equal(p.da, comeIlLettore(FORME.trip_singolo.start_time, ROMA));
 });
 
 test('un punto senza coordinate si salta, il tragitto resta', () => {
@@ -263,4 +267,52 @@ test('un tragitto con l’orologio illeggibile si salta, e gli altri si salvano'
     tragitto('2026-11-21T15:00:00+01:00', '2026-11-21T16:00:00+01:00'),
   ], ROMA);
   assert.equal(buoni.length, 2, 'un tragitto rotto porta giu’ tutti gli altri');
+});
+
+// ---------------------------------------------------------------------------
+// L'identificativo: la stessa cosa dal file e dal rubinetto
+// ---------------------------------------------------------------------------
+//
+// Su questo poggia tutto il disegno dei doppioni, e la revisione finale ha
+// trovato che **non era provato contro il file**: la prova pinzava il valore
+// dell'interfaccia contro una stringa scritta a mano, e `parseCarlockCsv` non
+// girava in nessuna prova. Se l'export scrivesse gli orari coi secondi,
+// **ogni** identificativo sarebbe diverso e ogni viaggio gia' importato dal
+// file diventerebbe una seconda tappa coi chilometri raddoppiati.
+test('lo stesso tragitto dal file e dal rubinetto ha lo stesso identificativo', () => {
+  const csv = [
+    '"Data","Orario di inizio","Orario di fine","Posizione di inizio","Posizione di fine","Distanza ( km )","Durata","Punteggio di guida","Tipo"',
+    '"21/11/2026","11:18","14:02","Via Lungo Monti 10, 38027 Novaledo Trentino","Via Floriano Candonio, 33100 Udine","184,0km","2h 44min","100","Personale"',
+  ].join('\n');
+  const [dalFile] = parseCarlockCsv(csv);
+  const [dalRubinetto] = comeIlFile([tragitto('2026-11-21T11:18:29+01:00', '2026-11-21T14:02:04+01:00')], ROMA);
+  assert.equal(dalRubinetto.external_id, dalFile.external_id,
+    `il file dice ${dalFile.external_id}, il rubinetto ${dalRubinetto.external_id}: ogni viaggio diventerebbe due tappe`);
+  assert.equal(dalRubinetto.date, dalFile.date);
+  assert.equal(dalRubinetto.start, dalFile.start);
+  assert.equal(dalRubinetto.end, dalFile.end);
+});
+
+// ---------------------------------------------------------------------------
+// I punti nella scala che `leggiTracciati` produce
+// ---------------------------------------------------------------------------
+//
+// La revisione finale, come difetto **latente**: `comePunti` tornava
+// millisecondi assoluti, mentre `leggiTracciati` legge una data senza fuso nel
+// fuso del processo. `cuci` ordina soltanto, quindi oggi non si vede -- ma
+// `assegna` e `finestraDellaTappa` costruiscono le loro finestre dalla
+// mezzanotte locale, con tre minuti di tolleranza: dandogli questi punti su
+// Railway non si aggancerebbe **niente, mai, senza un errore**. E il piano
+// dichiara che questa funzione produce «la forma di `leggiTracciati` così
+// `assegna` e `cuci` funzionano come col file»: il prossimo lo fara'.
+test('i punti sono sulla stessa scala che produce il lettore del file', () => {
+  const p = comePunti({ uuid: 'x', start_time: Date.parse('2026-11-21T11:18:29+01:00'),
+    end_time: Date.parse('2026-11-21T11:18:44+01:00'),
+    locations: [{ timestamp: Date.parse('2026-11-21T11:18:29+01:00'), latitude: 45, longitude: 11 }] }, ROMA);
+  // Quel che `leggiTracciati` produrrebbe per lo stesso istante, cioe'
+  // «2026-11-21 11:18:29» letto nel fuso del processo.
+  const comeIlLettore = new Date('2026-11-21T11:18:29').getTime();
+  assert.equal(p.punti[0].t, comeIlLettore,
+    'i punti sono su una scala che `assegna` non sa confrontare');
+  assert.equal(p.da, comeIlLettore);
 });

@@ -3569,6 +3569,9 @@ async function viewTrip(id) {
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${legendaViaggio(d)}</div>
     <div class="grid due" style="margin-top:14px">
+      ${carlockTroppoVecchio(trip, legs, Date.now(), d.carlock_mesi_storico ?? 3) ? `<div class="small muted" id="carlock-vecchio" style="margin-bottom:10px">
+        \ud83d\udce1 CarLock tiene ${d.carlock_mesi_storico} mesi di storico: i tragitti di questi giorni non ci sono pi\u00f9.
+        Se hai il file dei tracciati, \u00ab\ud83d\udccd Tracciati veri\u00bb funziona ancora.</div>` : ''}
       ${cartelloCarlock(trip, legs, Date.now(), d.carlock_mesi_storico ?? 3) ? `<div class="card" id="cartello-carlock" style="border-left:3px solid var(--ok)">
         <div class="row between">
           <div class="small"><b>\ud83d\udce1 CarLock ha registrato i vostri spostamenti in questi giorni.</b>
@@ -3769,15 +3772,15 @@ async function viewTrip(id) {
 
     const previste = r.previste || [];
     modal(`<h2>\ud83d\udce1 Tragitti da CarLock</h2>
-      <p class="small muted">${r.totale} tragitti nei giorni guardati${r.corti ? `, ${r.corti} sotto i 3 km lasciati fuori` : ''}${r.doppioni ? `, ${r.doppioni} gi\u00e0 tappe` : ''}.
+      <p class="small muted">${r.totale} tragitti nei giorni guardati, uniti in ${r.uniti}${r.corti ? `, di cui ${r.corti} sotto i 3 km` : ''}${r.doppioni ? `, ${r.doppioni} gi\u00e0 tappe` : ''}${r.senza_misura ? `, ${r.senza_misura} senza la misura dei chilometri` : ''}.
         Chilometri e orari sono <b>misurati dal tracker</b>; la strada arriva dalla traccia registrata.</p>
       <form id="f" class="stack">
         <div class="stack" style="gap:4px">
           ${(r.tragitti || []).map(t => `<label class="row" style="gap:8px;align-items:flex-start">
-            <input type="checkbox" name="uuid" value="${esc(t.uuid)}" ${t.gia_presente ? 'disabled' : 'checked'}>
+            <input type="checkbox" name="uuid" value="${esc(t.uuid)}" ${t.gia_presente ? 'disabled' : t.corto ? '' : 'checked'}>
             <span class="small">${fdate(t.date)} ${esc(t.start)}\u2013${esc(t.end)} \u00b7 <b>${num(t.km)} km</b>
               \u00b7 ${esc(t.from)} \u2192 ${esc(t.to)}${t.merged > 1 ? ` <span class="muted">(${t.merged} tratte unite)</span>` : ''}
-              ${t.gia_presente ? '<span class="badge">gi\u00e0 una tappa</span>' : ''}</span></label>`).join('')}
+              ${t.gia_presente ? '<span class="badge">gi\u00e0 una tappa</span>' : ''}${t.corto ? '<span class="badge">sotto i 3 km</span>' : ''}</span></label>`).join('')}
         </div>
         ${previste.length ? `<div class="small" style="margin-top:4px"><b>Al loro posto togliresti ${previste.length === 1 ? 'una tappa prevista' : previste.length + ' tappe previste'}</b>,
           con la loro stima di gasolio. Togli la spunta per tenerle: i chilometri verrebbero contati due volte.</div>
@@ -3807,7 +3810,12 @@ async function viewTrip(id) {
         if (esito.gia_presenti) toast(`${esito.gia_presenti} ${esito.gia_presenti === 1 ? 'tragitto era gi\u00e0 una tappa' : 'tragitti erano gi\u00e0 tappe'} di questo viaggio: non ho fatto doppioni.`, true);
         // Una strada ricostruita al posto della traccia va detta: la riga
         // sulla mappa e' una supposizione, e si vede dal puntinato.
-        if (esito.senza_traccia) toast(`${esito.senza_traccia === 1 ? 'Una tappa ha' : esito.senza_traccia + ' tappe hanno'} la strada ricostruita: i punti di quei tragitti non sono arrivati. Si riprova con \u00ab\ud83d\udccd Tracciati veri\u00bb.`, true);
+        // **Tre ragioni, tre frasi.** Prima erano un conto solo e la pagina ne
+        // diceva una -- «i punti non sono arrivati» -- falsa per le altre due,
+        // e in un caso parlava di una tappa che non era nata.
+        if (esito.senza_punti) toast(`${esito.senza_punti === 1 ? 'Una tappa ha' : esito.senza_punti + ' tappe hanno'} la strada ricostruita: i punti di quei tragitti non sono arrivati.`, true);
+        if (esito.traccia_parziale) toast(`${esito.traccia_parziale === 1 ? 'Una traccia copriva' : esito.traccia_parziale + ' tracce coprivano'} solo un pezzo del percorso: ${esito.traccia_parziale === 1 ? 'quella tappa ha' : 'quelle tappe hanno'} la strada ricostruita, non la registrata.`, true);
+        if (esito.non_create) toast(`${esito.non_create === 1 ? 'Un tragitto non e\u2019 diventato una tappa' : esito.non_create + ' tragitti non sono diventati tappe'}: non ho riconosciuto l\u2019indirizzo di partenza o di arrivo.`, true);
         if (esito.capi_lontani?.length) toast(`La traccia comincia o finisce lontano dal punto salvato su: ${
           esito.capi_lontani.map(x => `${x.nome} (${x.metri} m)`).join(', ')}. I capi non li ho spostati.`, true);
         restaQui();
@@ -5049,6 +5057,26 @@ const stradaDedotta = l => daCarlock(l) && !l?.tracciato_vero;
 // Questa regola e' solo del cartello, non della rotta: se tocca due volte
 // nello stesso giorno perche' ha appena guidato, il server gli risponde. Una
 // cosa e' «c'e' qualcosa da chiedere», un'altra e' «vale la pena disturbarlo».
+// Un viaggio **troppo vecchio** per CarLock: il cartello che invita a
+// guardare non compare -- non ci sarebbe niente da trovare -- ma «non c'e'
+// piu'» e' un'informazione, e tacere la nasconde. Lo dice una riga smorzata.
+//
+// Non vale col rubinetto spento (zero mesi): quella e' un'altra ragione, e
+// dare la colpa all'eta' del viaggio sarebbe mandarlo a cercare un file per
+// niente. E non vale su un viaggio futuro: quello non e' vecchio, e' solo non
+// ancora accaduto.
+const carlockTroppoVecchio = (trip, legs, adesso = Date.now(), mesiStorico = 3) => {
+  if (!mesiStorico) return false;
+  const giorno = d => (d == null || d === '' ? null : String(d).slice(0, 10));
+  const mezzanotte = g => (g ? new Date(`${g}T00:00:00`).getTime() : null);
+  const datate = (legs || []).map(l => giorno(l?.date)).filter(Boolean).sort();
+  const da0 = mezzanotte(giorno(trip?.start_date) || datate[0]);
+  const a0 = mezzanotte(giorno(trip?.end_date) || datate[datate.length - 1]);
+  if (da0 == null || a0 == null) return false;
+  if (da0 > adesso) return false;
+  const limite = (() => { const d = new Date(adesso); d.setMonth(d.getMonth() - mesiStorico); return d.getTime(); })();
+  return (a0 + 86400000 - 1) < limite;
+};
 const cartelloCarlock = (trip, legs, adesso = Date.now(), mesiStorico = 3) => {
   const giorno = d => (d == null || d === '' ? null : String(d).slice(0, 10));
   const mezzanotte = g => (g ? new Date(`${g}T00:00:00`).getTime() : null);

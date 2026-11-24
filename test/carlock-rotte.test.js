@@ -46,26 +46,28 @@ test('la rotta non tocca niente di quel che il tracker ha misurato sulle tappe v
       assert.doesNotMatch(s, new RegExp(colonna), `la rotta riscrive ${colonna} su una tappa che c’era`);
 });
 
-test('la strada ricostruita non si calcola quando sta arrivando quella vera', () => {
-  // Un tocco porta tappe e strade: calcolare la ricostruzione sarebbe lavoro
-  // buttato, sostituito due secondi dopo. E `scarto_ricostruzione_km` resta
-  // null, che e' la verita' piena -- non c'e' stata nessuna ricostruzione da
-  // confrontare.
+test('la strada ricostruita non si DISEGNA quando c’e’ quella vera', () => {
+  // La prima versione di questa prova diceva «non si calcola», e per un
+  // giorno e' stato vero. Poi la revisione finale ha trovato che una tappa
+  // nata con la traccia non prendeva **nessuna stima di pedaggio** --
+  // `syncTollExpense` ha bisogno di `pedaggio_km` -- e che quindi 184 km di
+  // autostrada costavano ~15 euro meno nei totali del viaggio, in silenzio.
+  //
+  // Quindi la strada ora si calcola sempre, ma serve a due cose diverse: i
+  // chilometri a pedaggio **sempre**, il disegno **solo se la traccia
+  // manca**. Quel che conta per la grammatica dell'onesta' e' il disegno: la
+  // riga sulla mappa non deve essere una supposizione quando la traccia c'e'.
   const r = rotta('/trips/:id/carlock/tappe');
-  const i = r.indexOf('stradaDellaTappa(');
-  assert.ok(i > 0, 'la ricostruzione di scorta non c’e’ piu’: una tappa senza punti resta senza riga');
-  const prima = r.slice(Math.max(0, i - 700), i);
-  assert.match(prima, /!riga\?\.length|!riga\.length/,
-    'si ricostruisce la strada anche quando i punti ci sono');
-  // E si passa da `stradaDellaTappa`, non dai percorsi diretti: una prova in
-  // `pedaggi-tappa.test.js` conta le chiamate dirette, e tenerle tre vuol
-  // dire che una tappa con dei luoghi dichiarati li rispettera' da se'.
+  assert.match(r, /const geometry = riga\?\.length \? riga/,
+    'il disegno non parte dalla traccia quando la traccia c’e’');
+  // E lo scarto nasce NULL: non c'e' stata nessuna ricostruzione da
+  // confrontare con la traccia, e un numero li' sarebbe una misura inventata.
+  assert.match(r, /scarto_ricostruzione_km[\s\S]{0,160}NULL/,
+    'si scrive uno scarto misurato contro una ricostruzione che nessuno ha visto');
+  // E non si scavalca `stradaDellaTappa` con una chiamata diretta ai percorsi.
   assert.doesNotMatch(r, /percorsoVicinoAiKm\(|percorsoPerIPunti\(/,
     'questa rotta calcola una strada scavalcando `stradaDellaTappa`');
-  assert.match(r, /scarto_ricostruzione_km[\s\S]{0,120}NULL/,
-    'si scrive uno scarto misurato contro una ricostruzione che nessuno ha visto');
 });
-
 test('un tragitto senza punti diventa comunque una tappa, dichiarata ricostruita', () => {
   // Review Focus 5. Meglio una tappa con una strada dedotta, detta tale, che
   // nessuna tappa.
@@ -293,4 +295,31 @@ test('una tappa che c’era gia’ e non ha la traccia non butta via i punti let
   // qualcosa, perche' una ricostruzione viene sostituita da una traccia.
   assert.match(r.slice(i, i + 1400), /quantoSbagliava\(/,
     'si butta la misura di quanto sbagliava la ricostruzione, che qui si puo’ fare');
+});
+
+test('una tappa nata con la traccia vera ha comunque la stima del pedaggio', () => {
+  // La revisione finale: `pedaggio_km` restava nullo quando la traccia
+  // c'era, e `syncTollExpense` ne ha bisogno. Una tappa di 184 km di
+  // autostrada dal rubinetto costava ~15 euro meno della stessa tappa
+  // importata dal file, **in silenzio**, nei totali del viaggio.
+  //
+  // Il non-obiettivo del disegno e' «**rifare** i pedaggi quando si attacca
+  // una traccia»: qui non erano mai stati fatti, che e' un'altra cosa. La
+  // strada si calcola per i soli chilometri a pedaggio e il disegno si butta:
+  // quello buono e' la traccia.
+  // **La prima versione di questa prova passava col difetto ancora dentro**:
+  // cercava `pedaggioKm` e poi `stradaDellaTappa` entro quattrocento
+  // caratteri, e li trovava tutti e due anche quando la chiamata stava dentro
+  // il ramo «senza traccia». Una prova vacua e' peggio di nessuna prova.
+  //
+  // Adesso guarda l'**ordine**: la strada si calcola PRIMA del ramo che
+  // guarda se la traccia c'e', cioe' sempre.
+  const r = rotta('/trips/:id/carlock/tappe');
+  const strada = r.indexOf('stradaDellaTappa(');
+  const ramo = r.indexOf('if (!riga?.length)');
+  assert.ok(strada > 0 && ramo > 0, 'la rotta non calcola piu’ la strada, o non guarda la traccia');
+  assert.ok(strada < ramo,
+    'la strada si calcola solo quando la traccia manca: cosi’ una tappa con la traccia vera non ha stima di pedaggio, e il viaggio costa meno del vero');
+  assert.match(r, /pedaggioKm = strada\?\.pedaggio_km/,
+    'i chilometri a pedaggio non vengono dalla strada calcolata');
 });

@@ -106,7 +106,8 @@ test('al server vanno solo gli uuid e le previste da togliere', () => {
 
 test('il resoconto arriva intero, ogni conto col suo perche’', () => {
   const r = riquadro;
-  for (const campo of ['create', 'gia_presenti', 'senza_traccia', 'togliute'])
+  for (const campo of ['create', 'gia_presenti', 'senza_punti', 'traccia_parziale',
+                       'non_create', 'togliute'])
     assert.match(r, new RegExp(campo), `il resoconto non legge ${campo}`);
 });
 
@@ -136,4 +137,26 @@ test('senza il rubinetto configurato il cartello non compare', () => {
   const v = viaggio('2026-11-22', '2026-12-01');
   assert.equal(!!vale(v, [], ora('2026-11-24T12:00:00+01:00'), 0), false,
     'zero mesi di storico vuol dire rubinetto spento: il cartello compare comunque');
+});
+
+test('su un viaggio oltre lo storico si dice perche’, invece di tacere', () => {
+  // La revisione finale: il riquadro aveva un ramo per «oltre lo storico» che
+  // **non poteva mai aprirsi**, perche' il cartello non compare proprio in
+  // quel caso -- quindi nessuno tocca il tasto che porterebbe quel messaggio.
+  // Il disegno e' esplicito: «il cartello lo DICE invece di non comparire,
+  // perche' "non c'e' piu'" e' un'informazione».
+  const vale = guardia('cartelloCarlock');
+  const vecchio = viaggio('2024-06-01', '2024-06-10');
+  assert.equal(!!vale(vecchio, [], ora('2026-11-24T12:00:00+01:00'), 12), false,
+    'il cartello che invita a guardare compare su un viaggio che non si puo’ chiedere');
+  // Ma una riga che lo spiega si', e la decide la sua guardia.
+  const dice = guardia('carlockTroppoVecchio');
+  assert.equal(!!dice(vecchio, [], ora('2026-11-24T12:00:00+01:00'), 12), true,
+    'un viaggio troppo vecchio sparisce in silenzio');
+  assert.equal(!!dice(viaggio('2026-11-22', '2026-12-01'), [], ora('2026-11-24T12:00:00+01:00'), 12), false,
+    'si dice «troppo vecchio» su un viaggio in corso');
+  assert.equal(!!dice(viaggio('2027-07-04', '2027-07-15'), [], ora('2026-11-24T12:00:00+01:00'), 12), false,
+    'un viaggio futuro non e’ vecchio: e’ solo non ancora accaduto');
+  assert.equal(!!dice(vecchio, [], ora('2026-11-24T12:00:00+01:00'), 0), false,
+    'col rubinetto spento si da’ la colpa all’eta’ del viaggio');
 });
