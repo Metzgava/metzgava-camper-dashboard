@@ -5,6 +5,8 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
+import { creaRubinetto, comeIlFile, comePunti } from '../lib/carlock-api.js';
+import { finestraDaChiedere, oltreLoStorico, mesiDiStorico, segnoDopo } from '../lib/carlock-finestra.js';
 import { leggiTracciati, assegna, cuci, quantoSbagliava,
          periodoDelViaggio, dentroIlPeriodo, resoconto } from '../lib/tracciati.js';
 import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare, ordineDelleTappe } from '../lib/tappe.js';
@@ -1280,6 +1282,234 @@ router.post('/trips/:id/tracciati', upload.single('file'), wrap(async (req, res)
   res.json({ ok: true, ...conti, fuori_periodo, non_agganciati: fuori.length, capi_lontani });
 }));
 
+// ---------------------------------------------------------------------------
+// Il rubinetto: i tragitti chiesti a CarLock, invece che letti da un file
+// ---------------------------------------------------------------------------
+//
+// Disegno: docs/superpowers/specs/2026-11-24-rubinetto-carlock-design.md
+//
+// Due rotte, non tre: le strade vere arrivano col tocco che crea le tappe,
+// quindi non serve una rotta a parte. Il tasto dei tracciati col file resta
+// dov'e': serve ancora per i viaggi vecchi, importati prima del rubinetto.
+//
+// **Un servizio non acceso non e' un guasto**: senza credenziali si risponde
+// 501, che vuol dire «questo non e' configurato», e non 500.
+const RUBINETTO = creaRubinetto({
+  email: process.env.CARLOCK_EMAIL,
+  password: process.env.CARLOCK_PASSWORD,
+  uuid: process.env.CARLOCK_VEHICLE_UUID || null,
+});
+const MIN_KM_RUBINETTO = 3, UNISCI_MIN = 30;
+
+const nonConfigurato = res =>
+  res.status(501).json({ error: 'Il rubinetto di CarLock non e’ configurato: '
+    + 'mancano CARLOCK_EMAIL e CARLOCK_PASSWORD. I tasti col file funzionano comunque.' });
+
+// Il veicolo serve due volte -- il fuso al traduttore, il piano alla finestra
+// -- e si legge una volta sola per processo (ci pensa il rubinetto).
+async function periodoDelRubinetto(trip, tappe) {
+  const v = await RUBINETTO.veicolo();
+  const fuso = v.time_zone_id || 'Europe/Rome';
+  const mesiStorico = mesiDiStorico(v.subscription_tier);
+  const opz = { adesso: Date.now(), mesiStorico, fuso };
+  return { v, fuso, mesiStorico,
+           finestra: finestraDaChiedere(trip, tappe, opz),
+           oltre: oltreLoStorico(trip, tappe, opz) };
+}
+
+// I tragitti del periodo, gia' tradotti, uniti e setacciati. Lo usano tutte
+// e due le rotte: la seconda **rilegge** invece di fidarsi del browser.
+async function tragittiDelViaggio(trip, tappe, finestra, fuso) {
+  const grezzi = await RUBINETTO.tragittiDelPeriodo(null, finestra.da, finestra.a);
+  const tradotti = comeIlFile(grezzi, fuso);
+  const uniti = mergeTrips(tradotti, UNISCI_MIN);
+  const corti = uniti.filter(t => t.km < MIN_KM_RUBINETTO).length;
+  const gia = new Set(tappe.map(l => l.external_id).filter(Boolean));
+  return {
+    totale: grezzi.length,
+    corti,
+    lunghi: uniti.filter(t => t.km >= MIN_KM_RUBINETTO),
+    gia,
+  };
+}
+
+// Le tappe previste: quelle senza identificativo del tracker. Sono quelle che
+// il tocco sostituirebbe, e si fanno vedere **prima**.
+const previsteDi = tappe => tappe.filter(l => !l.external_id).map(l => ({
+  id: l.id,
+  nome: `${String(l.from_name || '?').split(',')[0]} → ${String(l.to_name || '?').split(',')[0]}`,
+  km: l.distance_km == null ? null : +l.distance_km,
+}));
+
+router.get('/trips/:id/carlock/tragitti', wrap(async (req, res) => {
+  if (!RUBINETTO.configurato) return nonConfigurato(res);
+  const trip = (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
+  if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
+  const tappe = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
+
+  let p;
+  try { p = await periodoDelRubinetto(trip, tappe); }
+  catch (e) { return res.status(502).json({ error: String(e.message).slice(0, 200) }); }
+
+  // Niente da chiedere: e **perche'** non c'e' niente. «Oltre lo storico» non
+  // e' «non ancora accaduto», e dirlo e' diverso dal non comparire.
+  if (!p.finestra) return res.json({ ok: true, tragitti: [], totale: 0, corti: 0, doppioni: 0,
+    previste: previsteDi(tappe), oltre_lo_storico: p.oltre, mesi_storico: p.mesiStorico });
+
+  let d;
+  try { d = await tragittiDelViaggio(trip, tappe, p.finestra, p.fuso); }
+  catch (e) { return res.status(502).json({ error: String(e.message).slice(0, 200) }); }
+
+  res.json({
+    ok: true,
+    totale: d.totale,
+    corti: d.corti,
+    doppioni: d.lunghi.filter(t => d.gia.has(t.external_id)).length,
+    oltre_lo_storico: false,
+    mesi_storico: p.mesiStorico,
+    previste: previsteDi(tappe),
+    tragitti: d.lunghi.map(t => ({
+      uuid: t.uuid, date: t.date, start: t.start, end: t.end,
+      from: shortName(t.from), to: shortName(t.to), km: t.km,
+      duration_min: t.duration_min, merged: t.merged || 1,
+      gia_presente: d.gia.has(t.external_id),
+    })),
+  });
+}));
+
+router.post('/trips/:id/carlock/tappe', wrap(async (req, res) => {
+  if (!RUBINETTO.configurato) return nonConfigurato(res);
+  const trip = (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
+  if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
+  const tappe = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
+
+  // **Dal browser arrivano solo delle scelte, non dei numeri.** Chilometri e
+  // orari diventano gasolio, pedaggi e totali del viaggio: una pagina che li
+  // rimanda indietro e' una pagina che li puo' cambiare. Qui si rilegge tutto
+  // dal rubinetto, e dal corpo si prendono soltanto gli identificativi.
+  const scelti = new Set((Array.isArray(req.body?.uuid) ? req.body.uuid : [])
+    .map(x => String(x)).filter(Boolean));
+  const daTogliere = (Array.isArray(req.body?.togli) ? req.body.togli : [])
+    .map(x => parseInt(x, 10)).filter(Number.isInteger);
+  if (!scelti.size) return res.status(400).json({ error: 'Nessun tragitto scelto' });
+
+  const p = await periodoDelRubinetto(trip, tappe);
+  if (!p.finestra) return res.status(409).json({ error: 'Per questi giorni non c’e’ piu’ niente da chiedere' });
+  const d = await tragittiDelViaggio(trip, tappe, p.finestra, p.fuso);
+  const volute = d.lunghi.filter(t => scelti.has(String(t.uuid)));
+  if (!volute.length) return res.status(409).json({ error: 'I tragitti scelti non sono piu’ fra quelli di questi giorni' });
+
+  // Le previste spuntate se ne vanno **prima**, col loro gasolio stimato: al
+  // contrario la spesa resta orfana e il totale conta due volte lo stesso
+  // viaggio. E si toglie **solo quel che e' stato spuntato**: togliendo la
+  // spunta, la tappa prevista resta, e allora e' una sua scelta.
+  let togliute = 0;
+  if (daTogliere.length) {
+    const previste = (await q(
+      'SELECT id FROM legs WHERE trip_id=$1 AND external_id IS NULL AND id = ANY($2::int[])',
+      [trip.id, daTogliere])).rows.map(r => r.id);
+    if (previste.length) {
+      await q(`DELETE FROM expenses WHERE trip_id=$1 AND leg_id = ANY($2::int[])
+        AND category='gasolio' AND auto=true AND NOT edited`, [trip.id, previste]);
+      await q('DELETE FROM legs WHERE id = ANY($1::int[])', [previste]);
+      togliute = previste.length;
+    }
+  }
+
+  const cache = new Map(); const failed = []; const errors = new Map();
+  async function geo(addr, capo = null) {
+    if (capo?.lat != null && capo?.lon != null)
+      return { name: nomeTappa(addr), lat: +capo.lat, lon: +capo.lon };
+    if (cache.has(addr)) return cache.get(addr);
+    let hit = null;
+    for (const c of addressCandidates(addr)) {
+      try { const r = await geocode(c); if (r.length) { hit = { name: nomeTappa(addr), lat: r[0].lat, lon: r[0].lon }; break; } }
+      catch (e) { errors.set(String(e.message).slice(0, 160), 1); }
+      await new Promise(r2 => setTimeout(r2, 250));
+    }
+    if (!hit) failed.push(addr);
+    cache.set(addr, hit);
+    return hit;
+  }
+
+  let pos = (await q('SELECT coalesce(max(position),0) AS p FROM legs WHERE trip_id=$1', [trip.id])).rows[0].p;
+  let create = 0, gia_presenti = 0, senza_traccia = 0;
+  const capi_lontani = [];
+  for (const t of volute) {
+    const da = await geo(t.from, { lat: t.da_lat, lon: t.da_lon });
+    const a = await geo(t.to, { lat: t.a_lat, lon: t.a_lon });
+    if (!da || !a) { senza_traccia++; continue; }
+
+    // **La traccia vera, e la ricostruzione solo se quella manca.** Calcolare
+    // la strada ricostruita quando sta arrivando quella percorsa sarebbe
+    // lavoro buttato, sostituito due secondi dopo -- e lascerebbe uno scarto
+    // misurato contro una riga che nessuno ha mai visto.
+    let riga = null;
+    // Un tragitto unito e' piu' tragitti di CarLock: i punti si prendono da
+    // tutti e si cuciono, come fa il caricamento del file dei tracciati.
+    const suoiUuid = String(t.uuid || '').split('+').filter(Boolean);
+    try {
+      const pezzi = [];
+      for (const u of suoiUuid) pezzi.push(comePunti(await RUBINETTO.puntiDelTragitto(u), p.fuso));
+      riga = cuci(pezzi.filter(x => x.punti.length));
+    } catch (e) {
+      // Un tragitto che inciampa non porta giu' il tocco: quella tappa nasce
+      // con la strada ricostruita, dichiarata tale.
+      console.warn(`viaggio ${trip.id}: punti non arrivati per un tragitto:`, String(e.message).slice(0, 120));
+      riga = null;
+    }
+
+    let geometry = riga?.length ? riga : [[da.lat, da.lon], [a.lat, a.lon]];
+    let pedaggioKm = null;
+    if (!riga?.length) {
+      senza_traccia++;
+      // Si passa da `stradaDellaTappa` come tutte le altre rotte, anche se qui
+      // la tappa non esiste ancora e non ha niente da rispettare: una prova
+      // conta le chiamate dirette ai percorsi, e tenerle tre invece di quattro
+      // vuol dire che il giorno in cui questa rotta nascera' con dei luoghi
+      // dichiarati li rispettera' da se'. La guardia del 21/11/2026 regge
+      // perche' nessuno la allarga.
+      try {
+        const str = await stradaDellaTappa({ mezzo: 'camper', via: null, pedaggi_dichiarati: null },
+          da, a, t.km, t.duration_min);
+        geometry = str.geometry; pedaggioKm = str.pedaggio_km ?? null;
+      } catch { }
+    }
+
+    const leg = (await q(`INSERT INTO legs(trip_id,position,date,from_name,from_lat,from_lon,to_name,to_lat,to_lon,
+        distance_km,duration_min,geometry,notes,source,external_id,start_time,end_time,pedaggio_km,
+        tracciato_vero,scarto_ricostruzione_km)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'carlock',$14,$15,$16,$17,$18,NULL)
+      ON CONFLICT (trip_id, external_id) WHERE external_id IS NOT NULL DO NOTHING RETURNING *`,
+      [trip.id, ++pos, t.date, da.name, da.lat, da.lon, a.name, a.lat, a.lon, t.km, t.duration_min,
+        JSON.stringify(geometry),
+        `CarLock ${t.start}–${t.end}` + (t.merged > 1 ? ` (${t.merged} tratte unite)` : ''),
+        t.external_id, t.start, t.end, pedaggioKm, !!riga?.length])).rows[0];
+    // `DO NOTHING` non torna niente quando il tragitto era gia' una tappa:
+    // «c'era gia'» e «creata» sono due cose diverse, e si contano separate.
+    if (!leg) { gia_presenti++; if (riga?.length) senza_traccia = Math.max(0, senza_traccia); continue; }
+    create++;
+    await costiTappa(leg.id);
+
+    // I capi restano dove sono: si dice soltanto quanto dista la traccia.
+    if (riga?.length) {
+      const dista = (pt, lat, lon) => (pt == null || lat == null ? null
+        : Math.round(haversineKm([pt[0], pt[1]], [Number(lat), Number(lon)]) * 1000));
+      const m = Math.max(dista(riga[0], da.lat, da.lon) ?? 0,
+                         dista(riga[riga.length - 1], a.lat, a.lon) ?? 0);
+      if (m > LONTANO_M) capi_lontani.push({ nome: `${shortName(t.from)} → ${shortName(t.to)}`, metri: m });
+    }
+  }
+
+  // **Il segno avanza, anche se non si e' trovato niente.** Un giorno di sosta
+  // altrimenti riproporrebbe lo stesso cartello per sempre.
+  await q('UPDATE trips SET carlock_chiesto_fino_a=$2 WHERE id=$1', [trip.id, segnoDopo(p.finestra)]);
+
+  console.log(`viaggio ${trip.id}: dal rubinetto ${create} tappe nuove, ${gia_presenti} c’erano gia’, ${togliute} previste togliute`);
+  res.json({ ok: true, create, gia_presenti, senza_traccia, togliute, capi_lontani,
+             non_geocodificati: failed.length });
+}));
+
 router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'File CarLock mancante' });
   const isNew = req.params.id === 'new'; // anteprima senza viaggio (import in un viaggio nuovo)
@@ -1330,7 +1560,15 @@ router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req,
   // geocoding con cache per indirizzo
   const cache = new Map();
   const failed = [], errors = new Map();
-  async function geo(addr) {
+  async function geo(addr, capo = null) {
+    // **Le coordinate che arrivano col tragitto comandano.** Dal file non
+    // arrivano e si geocodifica come sempre; dal rubinetto di CarLock si', e
+    // allora questo giro si salta per intero: e' il punto debole noto --
+    // l'indirizzo non riconosciuto, i tentativi con 250 ms di pausa l'uno,
+    // tutti gli accorgimenti per i nomi stranieri che CarLock scrive
+    // incollando insediamento e comune.
+    if (capo?.lat != null && capo?.lon != null)
+      return { name: nomeTappa(addr), lat: +capo.lat, lon: +capo.lon };
     if (cache.has(addr)) return cache.get(addr);
     let hit = null;
     for (const c of addressCandidates(addr)) {
