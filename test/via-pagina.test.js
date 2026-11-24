@@ -18,6 +18,24 @@ const blocco = (dentro, quanti = 3000) => {
   return app.slice(Math.max(0, i - 1500), i + quanti);
 };
 
+// ---------------------------------------------------------------------------
+// La riga della tappa, delimitata dai suoi due capi veri
+// ---------------------------------------------------------------------------
+//
+// Dall'inizio del modello della riga fino a dove ricominciano i costi.
+//
+// **Non si contano i caratteri.** Il 24/11/2026 quattro prove sono cadute
+// tutte insieme per una ragione che non c'entrava niente con quel che
+// provavano: erano state aggiunte dentro il blocco delle righe di commento, e
+// la finestra contata a mano non arrivava piu' fino alla frase. Una prova che
+// cade quando si spiega meglio il codice non sta misurando il codice.
+const rigaDellaTappa = (() => {
+  const i = app.indexOf('const legRow =');
+  const j = app.indexOf('${rigaCosti(l)}', i);
+  assert.ok(i > 0 && j > i, 'il modello della riga della tappa non si trova piu\u2019');
+  return app.slice(i, j);
+})();
+
 test('il campo dei punti c’e’, accanto a quello delle note', () => {
   const modifica = blocco('Soste lungo la strada e note');
   assert.match(modifica, /passat/i, 'manca il campo per dire per dove si e’ passati');
@@ -47,7 +65,7 @@ test('la frase cambia quando i punti ci sono', () => {
   // vere. Qui si registra una strada gia' fatta, ed e' un'altra cosa. La
   // prova cercava la parola e pescava quello: adesso cerca la frase nella
   // riga della tappa, dove deve stare.
-  const riga = blocco('strada da ridisegnare').replace(/title="[^"]*"/g, '');
+  const riga = rigaDellaTappa.replace(/title="[^"]*"/g, '');
   assert.match(riga, /passando per/i,
     'la riga della tappa non dice che la strada passa per i punti dichiarati');
   assert.match(riga, /come hai detto tu/i,

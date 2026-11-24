@@ -33,10 +33,23 @@ const blocco = (testo, dentro, quanti = 3000) => {
   assert.ok(i > 0, `non si trova piu: ${dentro}`);
   return testo.slice(Math.max(0, i - 1200), i + quanti);
 };
-// L'ancora e' qualcosa di **unico** di questa riga: `badge ok` compare anche
-// altrove nel file, a centotrentasettemila caratteri di distanza, e ancorarsi
-// li' significava guardare un pezzo di pagina che non c'entra.
-const rigaDellaTappa = blocco(app, 'strada da ridisegnare');
+// ---------------------------------------------------------------------------
+// La riga della tappa, delimitata dai suoi due capi veri
+// ---------------------------------------------------------------------------
+//
+// Dall'inizio del modello della riga fino a dove ricominciano i costi.
+//
+// **Non si contano i caratteri.** Il 24/11/2026 quattro prove sono cadute
+// tutte insieme per una ragione che non c'entrava niente con quel che
+// provavano: erano state aggiunte dentro il blocco delle righe di commento, e
+// la finestra contata a mano non arrivava piu' fino alla frase. Una prova che
+// cade quando si spiega meglio il codice non sta misurando il codice.
+const rigaDellaTappa = (() => {
+  const i = app.indexOf('const legRow =');
+  const j = app.indexOf('${rigaCosti(l)}', i);
+  assert.ok(i > 0 && j > i, 'il modello della riga della tappa non si trova piu\u2019');
+  return app.slice(i, j);
+})();
 
 test('la frase non vive soltanto in un suggerimento', () => {
   assert.match(senzaSuggerimenti(app), /ricostruit/i,
@@ -104,4 +117,64 @@ test('l’ospite usa la stessa guardia, non una copia scritta a mano', () => {
     'la pagina dell’ospite ripete la condizione invece di usare la guardia');
   assert.doesNotMatch(ospite, /l\.source === 'carlock'/,
     'nell’ospite c’e’ ancora una copia della condizione');
+});
+
+// ---------------------------------------------------------------------------
+// Col tracciato vero, le frasi sui pedaggi parlano di una riga che non c'e'
+// ---------------------------------------------------------------------------
+//
+// Revisione del 24/11/2026. `pedaggio_km` sono i chilometri di autostrada
+// **sulla riga calcolata**. Attaccando il tracciato vero quella riga viene
+// sostituita, ma il numero resta -- e la frase della tappa lo attribuisce
+// alla riga di adesso, che e' la traccia registrata:
+//
+//   - «Avevi detto senza autostrada, ma la riga ne fa 54 km» su una traccia
+//     vera e' un'affermazione precisa su un dato misurato, presa da una
+//     supposizione buttata via;
+//   - peggio: con «niente autostrada» dichiarato e un `pedaggio_km` vecchio
+//     maggiore di zero, la frase dell'autostrada diventava vuota e **la
+//     dichiarazione del proprietario spariva dalla riga**. Il disegno
+//     promette il contrario: «I luoghi dichiarati restano scritti».
+//
+// Il numero **non si cancella dal database**: il pedaggio e la sua stima di
+// costo non si rifanno attaccando una traccia, ed e' un non-obiettivo del
+// disegno. Quel che cambia e' a chi viene attribuito.
+const racconto = rigaDellaTappa;
+
+test('su una traccia vera i chilometri di autostrada non si attribuiscono alla riga', () => {
+  const m = racconto.match(/const pedKm = ([^;]+);/);
+  assert.ok(m, 'il numero dei chilometri di autostrada non si trova piu’');
+  assert.match(m[1], /vero/,
+    'la riga parla di 54 km di autostrada misurati su una strada che e’ stata sostituita');
+});
+
+test('su una traccia vera non si smentisce nessuno con un numero vecchio', () => {
+  const m = racconto.match(/const smentita = ([\s\S]*?);\n/);
+  assert.ok(m, 'la smentita non si trova piu’');
+  assert.match(m[1], /^\s*vero \?/,
+    'si dà torto a chi ha guidato citando una strada che il programma ha buttato');
+});
+
+test('la dichiarazione del proprietario resta scritta anche sulla traccia vera', () => {
+  // Con `pedKm` nullo il ramo del confronto non si apre, e «senza autostrada»
+  // torna a comparire. Qui si esegue la condizione vera, coi valori.
+  const m = racconto.match(/const autostrada = ([\s\S]*?);\n/);
+  assert.ok(m, 'la frase dell’autostrada non si trova piu’');
+  const autostrada = new Function('l', 'pedKm', `return (${m[1]});`);
+  assert.equal(autostrada({ pedaggi_dichiarati: 'no' }, null), 'senza autostrada',
+    'il «niente autostrada» che aveva dichiarato spariva dalla riga');
+  assert.equal(autostrada({ pedaggi_dichiarati: 'si' }, null), 'in autostrada');
+  // E sulla strada ricostruita il confronto resta: li’ la riga e’ del programma.
+  assert.equal(autostrada({ pedaggi_dichiarati: 'no' }, 54), '',
+    'sulla ricostruzione il confronto coi chilometri disegnati deve restare');
+});
+
+test('la targhetta CarLock non dice «ricostruita» sopra una strada misurata', () => {
+  // Due frasi a quaranta pixel di distanza che si contraddicono: la riga dice
+  // «strada veri dal tracker», la targhetta sopra «la strada e' ricostruita».
+  const i = app.indexOf('CarLock</span>');
+  assert.ok(i > 0, 'la targhetta CarLock non si trova piu’');
+  const targhetta = app.slice(Math.max(0, i - 400), i);
+  assert.match(targhetta, /tracciato_vero|stradaDedotta/,
+    'la targhetta continua a dire che la strada e’ una ricostruzione');
 });

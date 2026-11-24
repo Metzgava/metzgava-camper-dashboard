@@ -65,6 +65,68 @@ export function leggiTracciati(testo) {
 }
 
 // ---------------------------------------------------------------------------
+// I giorni del viaggio
+// ---------------------------------------------------------------------------
+//
+// **Si guarda solo il periodo del viaggio**, cosi' un tragitto di agosto non
+// puo' finire su una tappa di novembre, e quando i dati arriveranno
+// dall'interfaccia di CarLock si chiede soltanto il periodo che serve.
+//
+// Stava dentro la rotta, come una riga di codice in mezzo. La revisione del
+// 24/11/2026 ha trovato che la prova guardava il testo della rotta: cancellata
+// la riga che filtra, passava lo stesso. Il vincolo piu' importante del
+// disegno non aveva una prova capace di fallire. Adesso e' qui, e si prova sui
+// valori.
+
+/**
+ * Un giorno di margine ai due capi del periodo.
+ *
+ * La finestra di una tappa non sta dentro il suo giorno: una tappa notturna
+ * arriva nel giorno dopo (`finestraDellaTappa` scavalca la mezzanotte), e la
+ * tolleranza di tre minuti puo' sporgere prima della prima mezzanotte.
+ * Tagliando al minuto, la tappa del 22 che arriva alle 00:20 perdeva il
+ * tragitto delle 00:10: mezza traccia, contata per intera.
+ *
+ * Aprire di un giorno non fa entrare niente di sbagliato: e' `assegna` a
+ * decidere, e rifiuta tutto quel che non cade nella finestra di **una sola**
+ * tappa.
+ */
+export const MARGINE_MS = 24 * 60 * 60 * 1000;
+
+const mezzanotteDi = d => {
+  const g = giorno(d);
+  if (!g) return null;
+  const t = new Date(`${g}T00:00:00`).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+/**
+ * Da quando a quando dura il viaggio: `{ da, a }` in millisecondi, oppure
+ * `null` quando non si puo' dire.
+ *
+ * Le date del viaggio comandano; se non le ha, valgono il primo e l'ultimo
+ * giorno delle sue tappe. Senza nemmeno quelli il periodo non esiste, e
+ * `null` e' la verita': guardare tutto il file sarebbe la risposta comoda,
+ * non quella giusta.
+ *
+ * La mezzanotte e' quella **locale**, come in `finestraDellaTappa`: le due
+ * misure si confrontano, e devono venire dallo stesso orologio.
+ */
+export function periodoDelViaggio(trip, tappe) {
+  const giorni = (tappe || []).map(l => giorno(l?.date)).filter(Boolean).sort();
+  const da = mezzanotteDi(trip?.start_date || giorni[0]);
+  const a = mezzanotteDi(trip?.end_date || giorni[giorni.length - 1]);
+  if (da == null || a == null) return null;
+  return { da, a: a + 24 * 60 * 60 * 1000 - 1 };
+}
+
+/** Se un tragitto riguarda questo viaggio: comincia dentro il periodo, col margine. */
+export function dentroIlPeriodo(tragitto, periodo) {
+  if (!periodo || tragitto?.da == null) return false;
+  return tragitto.da >= periodo.da - MARGINE_MS && tragitto.da <= periodo.a + MARGINE_MS;
+}
+
+// ---------------------------------------------------------------------------
 // Di quale tappa e' un tragitto
 // ---------------------------------------------------------------------------
 //
@@ -151,17 +213,68 @@ export function assegna(tragitti, tappe) {
 /**
  * La riga di una tappa, cucita dai suoi tragitti.
  *
- * I buchi delle soste restano: erano spostamenti separati, e una riga dritta
- * sopra la sosta direbbe che si e' guidato mentre si era fermi.
- *
  * Si campiona con lo stesso metro delle strade calcolate -- `samplePoints`
  * tiene sempre l'ultimo punto, quindi i capi non si perdono.
+ *
+ * **I buchi delle soste non ci sono.** Il disegno li chiede -- erano
+ * spostamenti separati, e una riga dritta sopra la sosta dice che si e'
+ * guidato mentre si era fermi -- e qui i punti diventano una riga sola. Il
+ * commento di prima diceva il contrario, e la prova che si chiamava come il
+ * disegno misurava solo la lunghezza: passava su qualunque concatenazione.
+ *
+ * Per farli servirebbe cambiare il formato della geometria -- una riga per
+ * segmento -- in tutti i posti che la disegnano e la misurano, mappa
+ * dell'ospite compresa. Rinviato il 24/11/2026, con questa ragione: fra due
+ * tragitti uniti in una tappa sola il camper e' fermo nello stesso posto,
+ * quindi il segmento che li unisce e' lungo pochi metri. Il caso in cui si
+ * vedrebbe -- un tragitto estraneo finito nella finestra della tappa -- lo
+ * dice `tracciaPiuLunga` in pagina, invece di disegnarlo e tacere.
  */
 export function cuci(tragitti, { massimo = 600 } = {}) {
   const punti = (tragitti || []).flatMap(t => (t?.punti || []));
   if (!punti.length) return [];
   const riga = punti.map(p => [+p.lat.toFixed(5), +p.lon.toFixed(5)]);
   return samplePoints(riga, massimo);
+}
+
+// ---------------------------------------------------------------------------
+// Il resoconto
+// ---------------------------------------------------------------------------
+//
+// Revisione del 24/11/2026: `senza_traccia` metteva insieme quattro cose
+// diverse e la pagina ne raccontava una sola -- «nel file non c'e' un
+// tragitto che le copra». Per un traghetto e' falso, e lascia credere che un
+// file migliore sistemerebbe qualcosa.
+//
+// Ogni tappa finisce in **un** secchio, e il secchio e' la ragione:
+//
+//   - `attaccati` -- aveva una ricostruzione, adesso ha la traccia;
+//   - `gia_veri` -- l'aveva gia' e si e' riscritta uguale;
+//   - `vere_intatte` -- l'aveva, e stavolta non si e' agganciata (orari
+//     cambiati dopo il primo caricamento, per esempio). Non e' «senza
+//     traccia» e non e' stata toccata: senza questo secchio era una tappa di
+//     cui non si diceva niente;
+//   - `senza_traccia` -- in camper, con i suoi orari, e nel file non c'e'.
+//     **Solo per queste** la frase «nel file non c'e'» e' vera;
+//   - `senza_finestra` -- non si puo' nemmeno cercare: un traghetto o un
+//     aereo (una rotta e un volo non seguono le statali), o una tappa scritta
+//     a mano senza orari.
+//
+// `tappe` viene restituito per poterli ricontare: i secchi devono fare il
+// totale, o qualcuno e' sparito.
+
+/** I conti da mostrare: ogni tappa in un secchio, e il secchio dice il perche'. */
+export function resoconto(tappe, perTappa) {
+  const conti = { tappe: (tappe || []).length, attaccati: 0, gia_veri: 0,
+                  vere_intatte: 0, senza_traccia: 0, senza_finestra: 0 };
+  for (const l of (tappe || [])) {
+    const presi = perTappa?.get?.(l.id)?.length ? true : false;
+    if (presi) { if (l.tracciato_vero) conti.gia_veri++; else conti.attaccati++; continue; }
+    if (l.tracciato_vero) { conti.vere_intatte++; continue; }
+    if (finestraDellaTappa(l)) conti.senza_traccia++;
+    else conti.senza_finestra++;
+  }
+  return conti;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,10 +294,16 @@ export function cuci(tragitti, { massimo = 600 } = {}) {
 //
 // `null` quando manca una delle due righe: uno zero direbbe «la ricostruzione
 // era perfetta», che e' un'altra affermazione.
+//
+// **E `null` anche contro una riga di due punti**, che non e' una
+// ricostruzione: e' la linea d'aria fra i capi, quella che si disegna quando i
+// percorsi non rispondono. Visto dal vivo il 24/11/2026: su una tappa cosi'
+// lo scarto e' venuto 0,00 -- esattamente la lode al ricostruttore che la
+// riga qui sopra vuole impedire, soltanto travestita.
 export function quantoSbagliava(vecchia, vera) {
   const a = (vecchia || []).filter(p => Array.isArray(p) && p.length >= 2);
   const b = (vera || []).filter(p => Array.isArray(p) && p.length >= 2);
-  if (!a.length || !b.length) return null;
+  if (a.length < 3 || !b.length) return null;
   let peggio = 0;
   for (const p of a) {
     let vicino = Infinity;

@@ -11,6 +11,24 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+
+// ---------------------------------------------------------------------------
+// La riga della tappa, delimitata dai suoi due capi veri
+// ---------------------------------------------------------------------------
+//
+// Dall'inizio del modello della riga fino a dove ricominciano i costi.
+//
+// **Non si contano i caratteri.** Il 24/11/2026 quattro prove sono cadute
+// tutte insieme per una ragione che non c'entrava niente con quel che
+// provavano: erano state aggiunte dentro il blocco delle righe di commento, e
+// la finestra contata a mano non arrivava piu' fino alla frase. Una prova che
+// cade quando si spiega meglio il codice non sta misurando il codice.
+const rigaDellaTappa = (() => {
+  const i = app.indexOf('const legRow =');
+  const j = app.indexOf('${rigaCosti(l)}', i);
+  assert.ok(i > 0 && j > i, 'il modello della riga della tappa non si trova piu\u2019');
+  return app.slice(i, j);
+})();
 // Il riquadro del ridisegno, dalla domanda sui luoghi alla fine della funzione
 // che lo apre: il confine e' la funzione dopo, non un numero di caratteri che
 // coi commenti cresce e un giorno sfonda altrove.
@@ -69,7 +87,7 @@ test('la riga della tappa dice l’autostrada dichiarata', () => {
   // codice, e la prova guardava la finestra sbagliata.
   const i = app.indexOf('come hai detto tu`');
   assert.ok(i > 0, 'la frase dei luoghi dichiarati non si trova piu’');
-  const riga = app.slice(i - 1800, i + 300);
+  const riga = rigaDellaTappa;
   assert.match(riga, /senza autostrada/);
   assert.match(riga, /in autostrada/);
 });
@@ -92,22 +110,19 @@ test('la riga della tappa dice l’autostrada dichiarata', () => {
 // servono -- la dichiarazione e i chilometri a pedaggio -- ce li ha gia'
 // tutti e due addosso.
 test('la frase sull’autostrada guarda anche la strada che e’ stata disegnata', () => {
-  const i = app.indexOf('come hai detto tu`');
-  const riga = app.slice(i - 1400, i + 300);
+  const riga = rigaDellaTappa;
   assert.match(riga, /pedaggio_km/,
     'la frase esce dalla sola dichiarazione, senza guardare la strada disegnata');
 });
 
 test('quando la strada smentisce la dichiarazione, la riga lo dice', () => {
-  const i = app.indexOf('come hai detto tu`');
-  const riga = app.slice(i - 1400, i + 300);
+  const riga = rigaDellaTappa;
   assert.match(riga, /ma la riga ne fa|ma la strada ne fa/,
     'una strada con pedaggi sotto un «niente autostrada» non viene smentita');
 });
 
 test('e quando dei pedaggi non si sa niente, non si fa finta di saperlo', () => {
-  const i = app.indexOf('come hai detto tu`');
-  const riga = app.slice(i - 1400, i + 300);
+  const riga = rigaDellaTappa;
   assert.match(riga, /non so dire|non lo so/,
     'pedaggi sconosciuti vengono raccontati come una dichiarazione onorata');
 });

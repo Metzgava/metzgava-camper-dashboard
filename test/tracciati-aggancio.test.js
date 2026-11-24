@@ -73,13 +73,29 @@ test('un tragitto che non cade in nessuna tappa finisce fuori', () => {
   assert.equal(r.perTappa.size, 0);
 });
 
-test('la cucitura mette i buchi delle soste, non una riga continua', () => {
-  // Erano spostamenti separati: una riga dritta sopra la sosta direbbe che si
-  // e' guidato mentre si era fermi.
+// Il nome di prima era «la cucitura mette i buchi delle soste, non una riga
+// continua», e la revisione del 24/11/2026 ha fatto notare che **non lo
+// provava**: misurava la lunghezza e i due capi, cioe' passava su qualunque
+// concatenazione -- compresa quella continua, che e' quel che `cuci` fa
+// davvero. Una prova che afferma col suo nome una cosa che il codice non fa
+// e' peggio di nessuna prova: fa sembrare coperta la cosa piu' delicata.
+//
+// I buchi **non ci sono**, e per metterli servirebbe cambiare il formato
+// della geometria (una riga per segmento) in tutti i posti che la disegnano e
+// la misurano, mappa dell'ospite compresa. Deciso di non farlo adesso: fra
+// due tragitti uniti in una tappa sola il camper e' fermo nello stesso posto,
+// quindi il segmento che li unisce e' lungo pochi metri e non si vede. Il
+// caso in cui si vedrebbe -- un tragitto estraneo finito nella finestra -- lo
+// copre `tracciaPiuLunga` in pagina, che lo dice invece di disegnarlo e
+// tacere.
+//
+// Quel che la prova prova davvero, col nome giusto:
+test('la cucitura tiene tutti i punti dei suoi tragitti, in ordine', () => {
   const riga = cuci([TRAGITTO_A, TRAGITTO_B]);
-  assert.equal(riga.length, TRAGITTO_A.punti.length + TRAGITTO_B.punti.length);
-  assert.deepEqual(riga[0], [45, 11]);
-  assert.deepEqual(riga[riga.length - 1], [45.4, 11.4]);
+  assert.equal(riga.length, TRAGITTO_A.punti.length + TRAGITTO_B.punti.length,
+    'un punto per punto: non si perde ne’ si duplica niente');
+  assert.deepEqual(riga[0], [45, 11], 'si parte dal primo punto del primo tragitto');
+  assert.deepEqual(riga[riga.length - 1], [45.4, 11.4], 'e si finisce sull’ultimo dell’ultimo');
 });
 
 test('i punti si campionano, ma i capi restano', () => {

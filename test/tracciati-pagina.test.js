@@ -37,14 +37,24 @@ test('una tappa col tracciato vero non si disegna piu’ puntinata', () => {
     'il puntinato resta su una strada che non e’ piu’ dedotta');
 });
 
-// Il blocco che racconta la riga della tappa, preso dal suo inizio: una
-// finestra contata a ritroso da una frase in mezzo taglia via il pezzo che
-// decide, ed e’ proprio quello che si vuole provare.
-const racconto = (() => {
-  const i = app.indexOf('daCarlock(l) ? (() => {');
-  assert.ok(i > 0, 'il racconto della riga non si trova piu’');
-  return app.slice(i, i + 3400);
+// ---------------------------------------------------------------------------
+// La riga della tappa, delimitata dai suoi due capi veri
+// ---------------------------------------------------------------------------
+//
+// Dall'inizio del modello della riga fino a dove ricominciano i costi.
+//
+// **Non si contano i caratteri.** Il 24/11/2026 quattro prove sono cadute
+// tutte insieme per una ragione che non c'entrava niente con quel che
+// provavano: erano state aggiunte dentro il blocco delle righe di commento, e
+// la finestra contata a mano non arrivava piu' fino alla frase. Una prova che
+// cade quando si spiega meglio il codice non sta misurando il codice.
+const rigaDellaTappa = (() => {
+  const i = app.indexOf('const legRow =');
+  const j = app.indexOf('${rigaCosti(l)}', i);
+  assert.ok(i > 0 && j > i, 'il modello della riga della tappa non si trova piu\u2019');
+  return app.slice(i, j);
 })();
+const racconto = rigaDellaTappa;
 
 test('la riga della tappa dice che la strada e’ vera', () => {
   assert.match(racconto, /tracciato_vero/, 'la riga racconta ancora una ricostruzione');
@@ -82,4 +92,33 @@ test('il confronto coi chilometri non sgrida una strada vera', () => {
   assert.ok(i > 0, 'la regola della strada sospetta non si trova piu’');
   assert.match(app.slice(i, i + 700), /tracciato_vero/,
     'su un tracciato vero si continua a consigliare di ridisegnare');
+});
+
+// ---------------------------------------------------------------------------
+// Il resoconto arriva intero
+// ---------------------------------------------------------------------------
+//
+// Revisione del 24/11/2026: la rotta contava sei cose, la pagina ne diceva
+// tre. Un tragitto dentro i giorni del viaggio che cade nella finestra di due
+// tappe viene scartato di proposito -- e' la regola che evita la traccia sulla
+// tappa sbagliata -- ma nessuno lo diceva: sette tracce buttate in silenzio.
+//
+// E la frase sulle tappe rimaste senza traccia dava una ragione sola, «nel
+// file non c'e' un tragitto che le copra», anche al traghetto. Per quello e'
+// falsa, e lascia credere che un file migliore sistemerebbe qualcosa.
+test('si dice anche quel che e’ stato scartato di proposito', () => {
+  assert.match(riquadro, /non_agganciati/,
+    'i tragitti che cadono in due tappe si buttano in silenzio');
+  assert.match(riquadro, /fuori_periodo/,
+    'non si dice quanta parte del file stava fuori dai giorni del viaggio');
+});
+
+test('una tappa che la traccia non potra’ mai avere non si chiama «senza traccia»', () => {
+  assert.match(riquadro, /senza_finestra/,
+    'traghetto, aereo e tappe senza orari finiscono nella frase sbagliata');
+});
+
+test('una tappa che aveva gia’ la traccia non sparisce dal resoconto', () => {
+  assert.match(riquadro, /gia_veri|vere_intatte/,
+    'al secondo caricamento i conti vanno a zero e non si dice niente');
 });

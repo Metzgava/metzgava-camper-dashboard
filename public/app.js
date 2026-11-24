@@ -3401,6 +3401,20 @@ async function viewTrip(id) {
     && !l.tracciato_vero
     && !l.pedaggi_dichiarati
     && Math.abs(lungaQuanto(l.geometry) - l.distance_km) > Math.max(15, l.distance_km * 0.08);
+  // **La rete sulle tracce vere.** Zittire `stradaSospetta` sulla strada
+  // misurata era giusto -- non si consiglia di sostituire una misura con una
+  // supposizione -- ma portava via l'unico controllo che c'era. Il caso: la
+  // finestra di una tappa si prende un tragitto in piu', uno che nessun'altra
+  // tappa reclama (quindi non ambiguo, quindi attaccato), e la cucitura lo
+  // unisce al resto. La riga passa dove non si e' passati, con sopra scritto
+  // che e' la traccia registrata.
+  //
+  // Il consiglio qui non e' «ridisegna» ma «guarda gli orari». E la soglia e'
+  // larga perche' il campionamento **accorcia** -- taglia le curve: se la riga
+  // misura molto di piu' dei chilometri veri, ci e' finita dentro roba che non
+  // e' di questa tappa.
+  const tracciaPiuLunga = l => l.tracciato_vero && l.distance_km > 0
+    && lungaQuanto(l.geometry) - l.distance_km > Math.max(10, l.distance_km * 0.15);
   const inStrada = l => {
     const m = t => { const x = String(t || '').match(/^(\d{1,2}):(\d{2})/); return x ? +x[1] * 60 + +x[2] : null; };
     const a = m(l.start_time), b = m(l.end_time);
@@ -3436,7 +3450,7 @@ async function viewTrip(id) {
       <button class="freccia" data-giu="${l.id}" title="Sposta dopo" ${i === legs.length - 1 ? 'disabled' : ''}>\u25bc</button>
     </div><div class="grow">
       <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${!inCamper(l) ? 'in ' + MEZZI[mezzoDi(l)][1].toLowerCase().replace('in camper', 'camper') : conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
-      <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' \u00b7 \ud83d\udcac ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
+      <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ` <span class="badge ok" title="${l.tracciato_vero ? 'Chilometri, orari e strada veri dal tracker: la traccia registrata e\u2019 stata caricata.' : 'Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.'}">CarLock</span>` : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' \u00b7 \ud83d\udcac ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
       ${daCarlock(l) ? (() => {
         const sulla = puntiSullaRiga(l), fuori = puntiFuoriDallaRiga(l);
         const vero = !!l.tracciato_vero;
@@ -3452,13 +3466,27 @@ async function viewTrip(id) {
         // «54 km di autostrada» sono due righe attaccate che si smentiscono -
         // e quella nella voce del programma, attribuita a chi ha guidato, e'
         // la rassicurante. I due dati che servono sono gia' tutti e due qui.
-        const pedKm = l.pedaggio_km == null ? null : +l.pedaggio_km;
+        //
+        // **Col tracciato vero quel numero non descrive questa riga.**
+        // `pedaggio_km` sono i chilometri di autostrada *sulla strada
+        // calcolata*, e la traccia l'ha sostituita. Il numero resta nel
+        // database -- il pedaggio e la sua stima non si rifanno attaccando una
+        // traccia, e' un non-obiettivo del disegno -- ma smette di essere
+        // attribuito alla riga. Senza questo, trovato in revisione il
+        // 24/11/2026: con «niente autostrada» dichiarato e un numero vecchio
+        // maggiore di zero, la frase diventava vuota e **la dichiarazione del
+        // proprietario spariva dalla riga**, mentre il disegno promette che
+        // resta scritta.
+        const pedKm = vero || l.pedaggio_km == null ? null : +l.pedaggio_km;
         const autostrada = l.pedaggi_dichiarati === 'no'
           ? (pedKm == null ? 'senza autostrada' : pedKm > 0 ? '' : 'senza autostrada')
           : l.pedaggi_dichiarati === 'si' ? (pedKm === 0 ? '' : 'in autostrada') : '';
         // Quando quel che e' uscito smentisce quel che e' stato detto, lo dice
         // la riga, non solo l'avviso del momento.
-        const smentita = l.pedaggi_dichiarati === 'no' && pedKm > 0
+        // Sulla traccia vera non si smentisce nessuno: il numero con cui si
+        // darebbe torto a chi ha guidato veniva da una strada che il
+        // programma stesso ha buttato.
+        const smentita = vero ? '' : l.pedaggi_dichiarati === 'no' && pedKm > 0
           ? ` <b>Avevi detto senza autostrada, ma la riga ne fa ${num(pedKm, 0)} km</b>: una strada senza pedaggi fra questi posti non si è trovata.`
           : l.pedaggi_dichiarati === 'si' && pedKm === 0
             ? ' <b>Avevi detto autostrada, ma su questa riga non ce n’è</b>: di pedaggi non ne fa nemmeno un chilometro.'
@@ -3479,13 +3507,15 @@ async function viewTrip(id) {
               ? ` <b>La strada percorsa non passa per ${nomi(fuori)}</b>.`
               : ` <b>Ma la riga non passa ancora per ${nomi(fuori)}</b>: il ridisegno non \u00e8 riuscito, riprova da Modifica.`
         }${smentita}${persi.length ? ` <b>Non ho trovato ${nomi(persi)}</b>: prova un nome pi\u00f9 preciso.` : ''}${
+          tracciaPiuLunga(l) ? ` <b>Ma la traccia \u00e8 lunga ${num(lungaQuanto(l.geometry), 0)} km contro ${num(l.distance_km, 0)} veri</b>: si \u00e8 presa un tragitto che forse non \u00e8 di questa tappa \u2014 controlla gli orari da \u00abModifica\u00bb.` : ''
+        }${
           stradaSospetta(l) ? ` <b>La riga \u00e8 lunga ${num(lungaQuanto(l.geometry), 0)} km contro ${num(l.distance_km, 0)} veri</b>: ${
             sulla.length ? 'controlla l\u2019ordine o i nomi dei posti' : 'la strada ricostruita non \u00e8 quella percorsa \u2014 prova \u00ab\ud83e\udded Ridisegna\u00bb'
           }.` : ''
         }</div>`;
       })() : ''}
       ${rigaCosti(l)}
-      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}${inCamper(l) ? `<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>` : ''}${inCamper(l) && l.source === 'carlock' ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: dimmi per dove siete passati e la riga passa di l\u00ec">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="${mapsIndicazioni({ lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon })}" target="_blank" rel="noopener" title="Indicazioni su Google Maps, calcolate adesso">\ud83d\uddfa\ufe0f Maps</a><a class="btn sm" href="${p4n(l.to_lat, l.to_lon)}" target="_blank" rel="noopener" title="Apri park4night su ${esc(l.to_name.split(',')[0])}">\ud83c\udd7f\ufe0f park4night</a>${eCasa(l.to_name) ? '' : `<button class="btn sm ghost" data-poi="${l.id}">Soste all\u2019arrivo</button>`}${inCamper(l) ? `<button class="btn sm ghost" data-carlock-leg="${l.id}" title="Porta in questa tappa il tragitto davvero percorso">\ud83d\udce1 CarLock</button>` : ''}${stradaDedotta(l) ? `<button class="btn sm ghost" data-ridisegna="${l.id}" title="CarLock registra i chilometri, non la strada: dimmi per dove siete passati e la riga passa di l\u00ec">\ud83e\udded Ridisegna</button>` : ''}<button class="btn sm ghost" data-edit-leg="${l.id}">Modifica</button><button class="btn sm ghost danger" data-del-leg="${l.id}">Elimina</button></div></div></div>`;
   // Ogni materiale si presenta per quello che e': l'appunto si legge, il link
   // si apre, l'immagine si guarda, il file si scarica
   const pesoFile = n => !n ? '' : n > 1048576 ? `${num(n / 1048576, 1)} MB` : `${num(n / 1024, 0)} kB`;
@@ -3726,11 +3756,25 @@ async function viewTrip(id) {
         close();
         toast(r.attaccati
           ? `${r.attaccati === 1 ? 'Una tappa ha' : r.attaccati + ' tappe hanno'} adesso la strada vera.`
-          : 'Nessuna tappa nuova: i tracciati di questi giorni c\u2019erano gi\u00e0 o non si agganciano.');
-        // Quel che e' rimasto fuori si dice: una tappa senza traccia non e'
-        // un guasto, ma nemmeno una cosa da scoprire per caso.
-        if (r.senza_traccia) toast(`${r.senza_traccia} tappe restano senza traccia: nel file non c\u2019\u00e8 un tragitto che le copra.`, true);
-        if (r.capi_lontani?.length) toast(`La traccia comincia lontano dal punto salvato su: ${
+          : r.gia_veri || r.vere_intatte
+            ? `Nessuna tappa nuova: ${r.gia_veri + r.vere_intatte === 1 ? 'quella' : 'quelle'} di questi giorni ${
+                r.gia_veri + r.vere_intatte === 1 ? 'ha' : 'hanno'} gi\u00e0 la strada vera.`
+            : 'Nessuna tappa nuova: di questi giorni nel file non c\u2019\u00e8 un tragitto che si agganci.');
+        // **Quel che e' rimasto fuori si dice, e ogni secchio ha la sua
+        // ragione.** Fino alla revisione del 24/11/2026 la pagina diceva tre
+        // conti su sei, e per le tappe rimaste senza traccia dava una ragione
+        // sola -- \u00abnel file non c'e'\u00bb -- anche al traghetto, dove e' falsa.
+        if (r.senza_traccia) toast(`${r.senza_traccia === 1 ? 'Una tappa resta' : r.senza_traccia + ' tappe restano'} senza traccia: nel file non c\u2019\u00e8 un tragitto che ${r.senza_traccia === 1 ? 'la' : 'le'} copra.`, true);
+        // Queste non e' il file a poterle sistemare: un traghetto o un aereo
+        // non seguono le statali, e una tappa senza orari non si sa quando
+        // abbia viaggiato. Dirlo come le altre sarebbe mandarlo a cercare un
+        // file migliore per niente.
+        if (r.senza_finestra) toast(`${r.senza_finestra === 1 ? 'Una tappa non si pu\u00f2' : r.senza_finestra + ' tappe non si possono'} cercare nel file: fuori dal camper, o senza orari.`, true);
+        // I tragitti scartati di proposito: quelli che cadono nella finestra
+        // di due tappe. Meglio una tappa senza traccia che una traccia sulla
+        // tappa sbagliata -- ma la traccia buttata va detta, non scoperta.
+        if (r.non_agganciati) toast(`${r.non_agganciati} ${r.non_agganciati === 1 ? 'tragitto di questi giorni non si aggancia' : 'tragitti di questi giorni non si agganciano'} a una tappa sola: ${r.non_agganciati === 1 ? 'cade' : 'cadono'} negli orari di due tappe, e non so di quale.${r.fuori_periodo ? ` Altri ${r.fuori_periodo} stanno fuori dai giorni del viaggio.` : ''}`, true);
+        if (r.capi_lontani?.length) toast(`La traccia comincia o finisce lontano dal punto salvato su: ${
           r.capi_lontani.map(x => `${x.nome} (${x.metri} m)`).join(', ')}. I capi non li ho spostati.`, true);
         restaQui();
       });

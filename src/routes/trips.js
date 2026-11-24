@@ -5,7 +5,8 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
-import { leggiTracciati, assegna, cuci, quantoSbagliava } from '../lib/tracciati.js';
+import { leggiTracciati, assegna, cuci, quantoSbagliava,
+         periodoDelViaggio, dentroIlPeriodo, resoconto } from '../lib/tracciati.js';
 import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare, ordineDelleTappe } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
@@ -755,6 +756,11 @@ router.put('/legs/:id', wrap(async (req, res) => {
   if (!cur) return res.status(404).json({ error: 'Tappa non trovata' });
   const m = datiMezzo({ ...cur, ...b });
   let geo = { distance_km: b.distance_km != null ? num(b.distance_km) : cur.distance_km, duration_min: cur.duration_min, geometry: cur.geometry };
+  // **Se la riga e' stata davvero ricalcolata.** `geo` c'e' sempre -- di
+  // partenza contiene la riga di prima, rimessa dentro -- quindi la presenza
+  // di un oggetto non dice niente. Solo i tre rami qui sotto sostituiscono il
+  // disegno, e il bollino della traccia vera dipende da loro.
+  let rigaRifatta = false;
   const scelto = sceltoDaFuori(b.percorso);
   const changedPts = b.from?.lat && b.to?.lat && (b.from.lat !== cur.from_lat || b.from.lon !== cur.from_lon || b.to.lat !== cur.to_lat || b.to.lon !== cur.to_lon);
   // Cambiato il mezzo, il disegno va rifatto: la strada per il camper, la linea
@@ -767,6 +773,7 @@ router.put('/legs/:id', wrap(async (req, res) => {
       // scritti adesso
       geo = await tragittoTappa(m.mezzo, b.from || { lat: cur.from_lat, lon: cur.from_lon }, b.to || { lat: cur.to_lat, lon: cur.to_lon },
         { ...b, distance_km: b.distance_km ?? (cambiaMezzo ? null : cur.distance_km), start_time: m.start_time, end_time: m.end_time });
+      rigaRifatta = true;
     }
   // Scegliere una strada cambia **il disegno**. Su una tappa CarLock i
   // chilometri e la durata restano quelli del tracker: fino al 21/11/2026
@@ -795,6 +802,7 @@ router.put('/legs/:id', wrap(async (req, res) => {
       ? await stradaDellaTappa(cur, { lat: cur.from_lat, lon: cur.from_lon },
           { lat: cur.to_lat, lon: cur.to_lon }, num(cur.distance_km), num(cur.duration_min))
       : scelto;
+    rigaRifatta = true;
   }
   // Qui invece si ricalcola e basta: se i due capi si sono spostati, i
   // chilometri del tracker descrivono un'altra tappa e tenerli sarebbe
@@ -812,6 +820,7 @@ router.put('/legs/:id', wrap(async (req, res) => {
       changedPts ? null : num(cur.distance_km),
       changedPts ? null : num(cur.duration_min));
     geo = r;
+    rigaRifatta = true;
   }
   // **La misura del tracker si protegge qui, in un punto solo.**
   //
@@ -824,7 +833,7 @@ router.put('/legs/:id', wrap(async (req, res) => {
   // Qui ci passano tutti i rami, e l'unico caso in cui i numeri si rifanno e'
   // quello in cui i capi si sono spostati: li' la misura era di un'altra
   // tappa.
-  geo = numeriDellaTappa(cur, geo, { capiSpostati: !!changedPts, scrittoAMano: b.distance_km != null });
+  geo = numeriDellaTappa(cur, geo, { capiSpostati: !!changedPts, scrittoAMano: b.distance_km != null, rigaRifatta });
 
   // I chilometri di autostrada: quelli scritti a mano comandano, poi quelli
   // della strada appena scelta, altrimenti restano quelli che c'erano
@@ -832,13 +841,18 @@ router.put('/legs/:id', wrap(async (req, res) => {
     ? (String(b.pedaggio_km).trim() === '' ? null : num(b.pedaggio_km))
     : (scelto ? (scelto.pedaggio_km != null ? num(scelto.pedaggio_km) : null) : (changedPts ? null : cur.pedaggio_km));
   const leg = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8, distance_km=$9, duration_min=$10, fuel_price=$11, geometry=$12, notes=$13, position=coalesce($14,position), senza_gasolio=$15, pedaggio_km=$16, senza_pedaggio=$17,
-      mezzo=$18, compagnia=$19, codice=$20, tariffa=$21, tariffa_currency=$22, condizioni=$23, sconto=$24, start_time=$25, end_time=$26, senza_tariffa=$27 WHERE id=$1 RETURNING *`,
+      mezzo=$18, compagnia=$19, codice=$20, tariffa=$21, tariffa_currency=$22, condizioni=$23, sconto=$24, start_time=$25, end_time=$26, senza_tariffa=$27,
+      tracciato_vero=$28, scarto_ricostruzione_km=$29 WHERE id=$1 RETURNING *`,
     [cur.id, b.date ?? cur.date, b.from?.name ?? cur.from_name, b.from?.lat ?? cur.from_lat, b.from?.lon ?? cur.from_lon, b.to?.name ?? cur.to_name, b.to?.lat ?? cur.to_lat, b.to?.lon ?? cur.to_lon,
       geo.distance_km, geo.duration_min, b.fuel_price != null && b.fuel_price !== '' ? num(b.fuel_price) : null, JSON.stringify(geo.geometry), b.notes ?? cur.notes, b.position,
       b.senza_gasolio != null ? !!b.senza_gasolio : cur.senza_gasolio, pedKm,
       b.senza_pedaggio != null ? !!b.senza_pedaggio : cur.senza_pedaggio,
       m.mezzo, m.compagnia, m.codice, m.tariffa, m.tariffa_currency, m.condizioni, m.sconto, m.start_time, m.end_time,
-      b.senza_tariffa != null ? !!b.senza_tariffa : cur.senza_tariffa])).rows[0];
+      b.senza_tariffa != null ? !!b.senza_tariffa : cur.senza_tariffa,
+      // Il bollino della traccia vera e il suo scarto escono da
+      // `numeriDellaTappa`, che sa se la riga e' stata sostituita o
+      // rimessa com'era. Qui non si decide niente: si scrive.
+      geo.tracciato_vero, geo.scarto_ricostruzione_km])).rows[0];
   await costiTappa(leg.id);
   // I costi scritti a mano vengono dopo il ricalcolo: sono loro a dover restare
   await costoAMano(leg.id, 'gasolio', b.costo_gasolio);
@@ -930,7 +944,10 @@ router.post('/legs/:id/via', wrap(async (req, res) => {
       const scelto = await stradaDellaTappa({ ...l, via: punti, pedaggi_dichiarati: pedaggi },
         { lat: l.from_lat, lon: l.from_lon }, { lat: l.to_lat, lon: l.to_lon },
         num(l.distance_km), num(l.duration_min));
-      await q('UPDATE legs SET geometry=$2, pedaggio_km=$3 WHERE id=$1',
+      // La riga calcolata prende il posto del tracciato: il bollino della
+      // traccia vera e il suo scarto se ne vanno con la riga che
+      // descrivevano.
+      await q('UPDATE legs SET geometry=$2, pedaggio_km=$3, tracciato_vero=false, scarto_ricostruzione_km=null WHERE id=$1',
         [l.id, JSON.stringify(scelto.geometry), scelto.pedaggio_km ?? null]);
       // I chilometri a pedaggio appena scritti rifanno la stima del pedaggio
       // della tappa -- **zero compreso**: con una strada senza pedaggi la
@@ -969,7 +986,8 @@ router.post('/legs/:id/ridisegna', wrap(async (req, res) => {
     { name: l.from_name, lat: l.from_lat, lon: l.from_lon },
     { name: l.to_name, lat: l.to_lat, lon: l.to_lon },
     num(l.distance_km), num(l.duration_min));
-  await q('UPDATE legs SET geometry=$2, pedaggio_km=$3 WHERE id=$1',
+  // Vedi sopra: si ridisegna, quindi il tracciato vero non c'e' piu'.
+  await q('UPDATE legs SET geometry=$2, pedaggio_km=$3, tracciato_vero=false, scarto_ricostruzione_km=null WHERE id=$1',
     [l.id, JSON.stringify(scelto.geometry), scelto.pedaggio_km ?? null]);
   await costiTappa(l.id);
   console.log(`tappa ${l.id}: ridisegnata su «${scelto.nome}», ${scelto.distance_km} km contro ${l.distance_km} veri`);
@@ -1180,7 +1198,8 @@ router.post('/legs/:id/carlock', upload.single('file'), wrap(async (req, res) =>
   try {
     aggiornata = (await q(`UPDATE legs SET date=$2, from_name=$3, from_lat=$4, from_lon=$5, to_name=$6, to_lat=$7, to_lon=$8,
         distance_km=$9, duration_min=$10, geometry=$11, start_time=$12, end_time=$13, source='carlock', external_id=$14,
-        notes=coalesce(nullif($15,''), notes), pedaggio_km=$16
+        notes=coalesce(nullif($15,''), notes), pedaggio_km=$16,
+        tracciato_vero=false, scarto_ricostruzione_km=null
       WHERE id=$1 RETURNING *`,
       [leg.id, primo.date, da.name, da.lat, da.lon, a.name, a.lat, a.lon, km, minuti, JSON.stringify(geometry),
         primo.start, ultimo.end, id_esterno,
@@ -1219,18 +1238,24 @@ router.post('/trips/:id/tracciati', upload.single('file'), wrap(async (req, res)
   if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
   const tappe = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
 
-  // Il periodo: le date del viaggio, o il primo e l'ultimo giorno delle sue
-  // tappe se il viaggio non le ha.
-  const giorni = tappe.map(l => l.date).filter(Boolean).map(d => new Date(d).getTime()).sort((a, b) => a - b);
-  const daQuando = new Date(trip.start_date || giorni[0] || 0).setHours(0, 0, 0, 0);
-  const aQuando = new Date(trip.end_date || giorni[giorni.length - 1] || 0).setHours(23, 59, 59, 999);
+  // Il periodo e il filtro stanno in `tracciati.js`, dove si provano sui
+  // valori: qui era una riga in mezzo al resto, e la prova che la guardava
+  // passava anche cancellandola.
+  const periodo = periodoDelViaggio(trip, tappe);
 
   const tutti = leggiTracciati(req.file.buffer.toString('utf8'));
-  const dentro = tutti.filter(x => x.da != null && x.da >= daQuando && x.da <= aQuando);
+  // **Un file che non si e' saputo leggere non e' un file senza tragitti.**
+  // Senza questo, sbagliando export -- quello normale invece di quello delle
+  // posizioni -- la risposta era `ok` con tutti zero, e la pagina dava la
+  // colpa ai giorni del viaggio: tre spiegazioni, tutte false, per «non ho
+  // capito il tuo file».
+  if (!tutti.length) return res.status(400).json({
+    error: 'Nessun tragitto nel file. Serve l\u2019export delle posizioni di CarLock, '
+      + 'con le colonne trip, trip_start, trip_end, time, latitude, longitude.' });
+  const dentro = tutti.filter(x => dentroIlPeriodo(x, periodo));
   const fuori_periodo = tutti.length - dentro.length;
 
   const { perTappa, fuori } = assegna(dentro, tappe);
-  let attaccati = 0, gia_veri = 0;
   const capi_lontani = [];
   for (const tappa of tappe) {
     const suoi = perTappa.get(tappa.id);
@@ -1241,18 +1266,18 @@ router.post('/trips/:id/tracciati', upload.single('file'), wrap(async (req, res)
     const scarto = tappa.tracciato_vero ? tappa.scarto_ricostruzione_km : quantoSbagliava(vecchia, riga);
     await q('UPDATE legs SET geometry=$2, tracciato_vero=true, scarto_ricostruzione_km=$3 WHERE id=$1',
       [tappa.id, JSON.stringify(riga), scarto]);
-    if (tappa.tracciato_vero) gia_veri++; else attaccati++;
     // I capi restano dove sono: si dice soltanto quanto dista la traccia.
     const dista = (p, lat, lon) => (p == null || lat == null ? null
       : Math.round(haversineKm([p[0], p[1]], [Number(lat), Number(lon)]) * 1000));
     const m = Math.max(dista(riga[0], tappa.from_lat, tappa.from_lon) ?? 0,
                        dista(riga[riga.length - 1], tappa.to_lat, tappa.to_lon) ?? 0);
-    if (m > LONTANO_M) capi_lontani.push({ tappa: tappa.id, nome: `${String(tappa.from_name).split(',')[0]} \u2192 ${String(tappa.to_name).split(',')[0]}`, metri: m });
+    if (m > LONTANO_M) capi_lontani.push({ tappa: tappa.id, nome: `${String(tappa.from_name || '?').split(',')[0]} \u2192 ${String(tappa.to_name || '?').split(',')[0]}`, metri: m });
   }
-  const senza_traccia = tappe.filter(l => !perTappa.get(l.id)?.length && !l.tracciato_vero).length;
-  console.log(`viaggio ${trip.id}: tracciati veri su ${attaccati} tappe, ${senza_traccia} senza, ${fuori.length} tragitti non agganciati`);
-  res.json({ ok: true, attaccati, gia_veri, senza_traccia, fuori_periodo,
-    non_agganciati: fuori.length, capi_lontani });
+  // I secchi li conta `resoconto`, che li fa tornare col numero delle tappe:
+  // una tappa in nessun secchio e' una tappa di cui non si dice niente.
+  const conti = resoconto(tappe, perTappa);
+  console.log(`viaggio ${trip.id}: tracciati veri su ${conti.attaccati} tappe, ${conti.senza_traccia} senza, ${fuori.length} tragitti non agganciati`);
+  res.json({ ok: true, ...conti, fuori_periodo, non_agganciati: fuori.length, capi_lontani });
 }));
 
 router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req, res) => {

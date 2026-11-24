@@ -117,3 +117,68 @@ test('un numero battuto a mano comanda: e’ l’unico modo di rimediare a un im
     { scrittoAMano: true });
   assert.equal(n.distance_km, 201);
 });
+
+// ---------------------------------------------------------------------------
+// Il bollino del tracciato vero segue la riga
+// ---------------------------------------------------------------------------
+//
+// Revisione del 24/11/2026. `tracciato_vero` dice «questa riga e' la traccia
+// registrata»: appena la riga viene sostituita da una strada calcolata, quel
+// bollino parla di una riga che non c'e' piu'.
+//
+// Sta qui, insieme alla protezione dei chilometri, perche' e' la stessa
+// distinzione: si protegge quel che e' misurato, e si butta quel che
+// descriveva una cosa sostituita. E sta qui anche perche' il salvataggio
+// riscrive `geometry` **sempre** -- anche quando nessun ramo ha calcolato
+// niente, rimettendoci quella di prima. Spegnere il bollino senza guardare
+// avrebbe cancellato la traccia vera a ogni correzione di una nota.
+// **Il salvataggio chiama sempre con un oggetto**, anche quando nessun ramo
+// ha calcolato niente: li' `strada` e' la tappa stessa rimessa a posto. Per
+// questo la domanda non e' «c'e' una strada?» ma «la riga e' stata rifatta?»,
+// e deve arrivare da chi lo sa: la rotta.
+//
+// La prima versione di queste prove chiamava con `null` per dire «nessuna
+// strada nuova» -- una forma che la rotta non usa mai -- e passava mentre il
+// programma vero spegneva la traccia a ogni correzione di una nota. L'ha fatto
+// vedere la pagina, non la prova: il 24/11/2026, salvando una tappa, la
+// traccia appena caricata se ne andava. Adesso le prove chiamano come chiama
+// la rotta.
+const tappaConTraccia = () => ({
+  source: 'carlock', distance_km: 187, duration_min: 150, geometry: [[1, 2]],
+  tracciato_vero: true, scarto_ricostruzione_km: 15.6,
+});
+// Com'e' fatta la chiamata quando nessun ramo ha calcolato niente: la riga di
+// prima, rimessa dentro.
+const comeLaRotta = (t, { rigaRifatta = false, strada = null } = {}) =>
+  numeriDellaTappa(t, strada || { distance_km: t.distance_km, duration_min: t.duration_min, geometry: t.geometry },
+    { rigaRifatta });
+
+test('senza una strada nuova il bollino della traccia vera resta', () => {
+  const r = comeLaRotta(tappaConTraccia());
+  assert.equal(r.tracciato_vero, true, 'correggere una nota spegneva la traccia vera');
+  assert.equal(r.scarto_ricostruzione_km, 15.6);
+});
+
+test('con una strada nuova il bollino si spegne e lo scarto si butta', () => {
+  const r = comeLaRotta(tappaConTraccia(), { rigaRifatta: true,
+    strada: { distance_km: 201, duration_min: 170, geometry: [[3, 4], [5, 6]] } });
+  assert.equal(r.tracciato_vero, false,
+    'una strada calcolata si portava appresso il bollino «vera dal tracker»');
+  assert.equal(r.scarto_ricostruzione_km, null,
+    'lo scarto era misurato contro una riga che e’ stata sostituita');
+  assert.equal(r.distance_km, 187, 'e i chilometri del tracker restano protetti');
+});
+
+test('nel dubbio il bollino si spegne: il verso prudente e’ quello che non afferma', () => {
+  // Chiamando senza dire niente, la riga potrebbe essere stata rifatta. Fra
+  // «dico che e' misurata» e «non lo dico», il verso giusto e' il secondo.
+  const r = numeriDellaTappa(tappaConTraccia(),
+    { distance_km: 201, duration_min: 170, geometry: [[3, 4]] });
+  assert.equal(r.tracciato_vero, false);
+});
+
+test('su una tappa che non ha mai avuto la traccia vera non si inventa un bollino', () => {
+  const r = comeLaRotta({ distance_km: 100, geometry: [[1, 2]] });
+  assert.equal(r.tracciato_vero, false);
+  assert.equal(r.scarto_ricostruzione_km, null);
+});

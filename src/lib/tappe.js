@@ -66,11 +66,33 @@ export function tappeDaPercorso(percorso) {
 // una tappa del tracker. La protezione difende dagli effetti collaterali, non
 // dalle correzioni volute: togliere anche questa gli leverebbe l'unico modo di
 // rimediare a un import sbagliato, e lui lo fa vedendolo.
+//
+// **Il bollino della traccia vera segue la riga**, e non i chilometri. Si
+// spegne appena una strada calcolata prende il posto del tracciato, perche'
+// `tracciato_vero` e' un'affermazione sulla riga -- «questa e' la traccia
+// registrata» -- e su una riga sostituita e' falsa. Lo scarto se ne va con
+// lui: era la distanza misurata contro una riga che non esiste piu'.
+//
+// `rigaRifatta` dice se la riga e' stata **davvero** ricalcolata, e deve
+// arrivare da chi lo sa, cioe' la rotta. Guardare se `strada` c'e' non
+// basta: il salvataggio chiama **sempre** con un oggetto, anche quando
+// nessun ramo ha calcolato niente -- li' dentro c'e' la riga di prima,
+// rimessa a posto. La prima versione di questa regola guardava `strada`, e
+// spegneva la traccia appena caricata a ogni correzione di una nota. Le prove
+// non se ne accorgevano perche' chiamavano con `null`, una forma che la rotta
+// non usa mai; l'ha fatto vedere la pagina.
+//
+// Di suo vale `false`, cioe' «la riga potrebbe essere stata rifatta»: fra
+// affermare che una riga e' misurata e non affermarlo, il verso prudente e' il
+// secondo.
 export function numeriDellaTappa(tappa, strada,
-                                 { capiSpostati = false, scrittoAMano = false } = {}) {
+                                 { capiSpostati = false, scrittoAMano = false,
+                                   rigaRifatta = true } = {}) {
   if (!strada) {
     return { distance_km: tappa?.distance_km ?? null, duration_min: tappa?.duration_min ?? null,
-             geometry: tappa?.geometry ?? null, pedaggio_km: tappa?.pedaggio_km ?? null };
+             geometry: tappa?.geometry ?? null, pedaggio_km: tappa?.pedaggio_km ?? null,
+             tracciato_vero: !!tappa?.tracciato_vero,
+             scarto_ricostruzione_km: tappa?.scarto_ricostruzione_km ?? null };
   }
   const dalTracker = tappa?.source === 'carlock' && !capiSpostati && !scrittoAMano;
   return {
@@ -80,6 +102,8 @@ export function numeriDellaTappa(tappa, strada,
     // `null` e non `0`: un percorso che non dice niente sui pedaggi non sta
     // dicendo che non ce ne sono.
     pedaggio_km: strada.pedaggio_km ?? null,
+    tracciato_vero: rigaRifatta ? false : !!tappa?.tracciato_vero,
+    scarto_ricostruzione_km: rigaRifatta ? null : (tappa?.scarto_ricostruzione_km ?? null),
   };
 }
 
