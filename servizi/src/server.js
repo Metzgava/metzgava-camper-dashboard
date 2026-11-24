@@ -3,7 +3,8 @@ import express from 'express';
 import cookieSession from 'cookie-session';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { migrate } from './lib/db.js';
+import { migrate, segna } from './lib/db.js';
+import { passaggioCloud } from './lib/avarie.js';
 import { router as auth } from './routes/auth.js';
 import { router as stato, aperte as statoAperte } from './routes/stato.js';
 import { router as taratura } from './routes/taratura.js';
@@ -56,7 +57,14 @@ const IMPRONTA = (() => {
 
 // Un controllo di salute che non interroga l'archivio: se il database e'
 // lento, il servizio non deve risultare morto e farsi riavviare in loop.
-app.get('/api/health', (req, res) => res.json({ ok: true, app: 'camper-servizi', versione: IMPRONTA }));
+// `versione` e' l'impronta dei file di `public/`: non cambia quando la modifica
+// tocca solo il server, e il 24/11/2026 questo ha reso impossibile verificare
+// da fuori che una pubblicazione fosse arrivata davvero. `commit` copre quel
+// buco: Railway lo mette in RAILWAY_GIT_COMMIT_SHA, e in locale resta `null`
+// -- che e' la verita', non un ripiego.
+const COMMIT = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null;
+app.get('/api/health', (req, res) =>
+  res.json({ ok: true, app: 'camper-servizi', versione: IMPRONTA, commit: COMMIT }));
 
 app.use('/api/ingresso', ingresso);
 app.use('/api', statoAperte);
@@ -144,10 +152,27 @@ migrate().then(() => {
   if (passo > 0) {
     // Non si decide all'avvio se leggere: il collegamento Bluetti puo' nascere
     // dopo, da un tasto nella pagina, e il giro deve accorgersene da solo.
+    // Quanto spesso il cloud di Bluetti ci lascia a piedi, e per quanto. Serve
+    // a decidere con dei numeri se vale la pena leggerla via Bluetooth: una
+    // avaria ogni sei mesi e' un'altra cosa da una ogni due settimane. Si
+    // segnano i **passaggi**, non i tentativi, e la regola sta in
+    // `lib/avarie.js`, dove girano le prove.
+    let statoCloud = null;
     const leggi = async () => {
       if (!await collegato()) return;
       const r = await registra();
       if (r.errore) console.warn('lettura Bluetti:', r.errore);
+      const p = passaggioCloud(statoCloud, !r.errore, Date.now(), String(r.errore || '').slice(0, 80));
+      if (p) {
+        statoCloud = p.stato;
+        await segna(p.tipo, p.testo).catch(e => console.warn('evento non scritto:', e.message));
+      } else if (statoCloud) {
+        // Lo stato non cambia, ma l'istante dell'ultima conferma si': senza,
+        // la durata di un'avaria futura partirebbe da chissa' quando.
+        statoCloud = { ...statoCloud };
+      } else {
+        statoCloud = { ok: !r.errore, da: Date.now() };
+      }
     };
     // Si segna il ritmo **prima** di leggere, non dopo: la pagina deve sapere
     // quando scatta il giro, e una lettura che impiega dieci secondi non deve
