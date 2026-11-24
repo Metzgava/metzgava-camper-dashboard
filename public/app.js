@@ -104,7 +104,13 @@ const inCamper = l => mezzoDi(l) === 'camper';
 const CAT = { gasolio: ['⛽', 'Gasolio'], traghetto: ['⛴️', 'Traghetti'], area_sosta: ['🅿️', 'Aree sosta'], campeggio: ['⛺', 'Campeggi'], pedaggi: ['🛣️', 'Pedaggi'], vitto: ['🍝', 'Vitto'], spesa: ['🛒', 'Spesa'], visite: ['🏛️', 'Visite'], manutenzione: ['🔧', 'Manutenzione'], altro: ['💶', 'Altro'],
   // In coda, cosi' le categorie di prima tengono il colore che avevano
   bus: ['🚌', 'Bus'], treno: ['🚆', 'Treno'], aereo: ['✈️', 'Aereo'],
-  spettacoli: ['🎭', 'Spettacoli'], sport: ['🏟️', 'Incontri sportivi'] };
+  spettacoli: ['🎭', 'Spettacoli'], sport: ['🏟️', 'Incontri sportivi'],
+  parcheggio: ['🚗', 'Parcheggi'] };
+// Le tipologie aggiunte da lui entrano **dentro** la mappa, in coda: simbolo,
+// nome e colore funzionano da se' in ogni grafico, filtro e riquadro, senza
+// toccarli uno per uno. Senza questo, la sua categoria comparirebbe come
+// `gas_e_bombole` ovunque, perche' il nome leggibile sta qui.
+const assorbiCategorieSue = () => Object.assign(CAT, settings.categorie_mie || {});
 const catLabel = c => CAT[c] ? `${CAT[c][0]} ${CAT[c][1]}` : c;
 const catColor = c => `var(--c${(Object.keys(CAT).indexOf(c) + 15) % 15 + 1})`;
 // Nessuna emoji rappresenta un tapis roulant: lo disegniamo (nastro, montante, console)
@@ -140,7 +146,16 @@ async function api(path, opts = {}) {
   if (o.body && !(o.body instanceof FormData)) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(o.body); }
   const r = await fetch('/api' + path, o);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { if (r.status === 401 && user) { user = null; render(); } throw new Error(data.error || `Errore ${r.status}`); }
+  if (!r.ok) {
+    if (r.status === 401 && user) { user = null; render(); }
+    // L'errore porta appresso **il corpo della risposta**. Prima restava solo
+    // il messaggio, quindi un server che manda anche un dato utile -- «c'era
+    // gia', ed e' questa» -- lo mandava per niente, e chi chiama poteva solo
+    // mostrare la frase.
+    const e = new Error(data.error || `Errore ${r.status}`);
+    e.stato = r.status; e.dati = data;
+    throw e;
+  }
   return data;
 }
 const toast = (msg, err = false) => { const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), err ? 4500 : 2500); };
@@ -2274,7 +2289,7 @@ function viewAuth(setup) {
       const body = Object.fromEntries(new FormData(e.target));
       const r = await api(mode === 'login' ? '/auth/login' : '/auth/register', { method: 'POST', body });
       if (r.pending) { app.innerHTML = `<div class="auth"><div class="card stack"><h2>In attesa di autorizzazione</h2><p>L'amministratore deve approvare il tuo account. Riprova più tardi.</p><button class="btn" onclick="location.reload()">Ricarica</button></div></div>`; return; }
-      user = r.user; settings = await api('/settings'); render();
+      user = r.user; settings = await api('/settings'); assorbiCategorieSue(); render();
     });
   };
   draw();
@@ -4766,7 +4781,7 @@ function expenseForm(trip, legs, ex = null, soste = []) {
     ...legs.flatMap(l => [l.to_name, l.from_name]).map(n => String(n || '').split(',')[0].trim()),
   ].filter(Boolean))].slice(0, 40);
   modal(`<h2>${ex ? 'Modifica spesa' : 'Nuova spesa'}</h2>${ex?.auto ? '<p class="small muted">Spesa calcolata automaticamente: se la modifichi non verrà più ricalcolata (potrai ripristinarla con ↺).</p>' : ''}<form id="f" class="stack" style="margin-top:14px">
-    <div class="form-grid"><div><label class="f">Categoria</label><select name="category">${cats.map(c => `<option value="${c}" ${ex?.category === c ? 'selected' : ''}>${catLabel(c)}</option>`).join('')}</select></div>
+    <div class="form-grid"><div><label class="f">Categoria</label><select name="category">${cats.map(c => `<option value="${c}" ${ex?.category === c ? 'selected' : ''}>${catLabel(c)}</option>`).join('')}<option value="__nuova__">➕ Nuova tipologia…</option></select></div>
       <div><label class="f">Importo</label><input type="text" name="amount" required inputmode="decimal" value="${ex?.amount ?? ''}" placeholder="Es. 18,50"></div>
       <div><label class="f">Valuta</label>${scegliValuta('currency', ex?.currency)}</div>
       <div style="align-self:end"><div class="small muted" id="in-euro"></div></div></div>
@@ -4781,6 +4796,40 @@ function expenseForm(trip, legs, ex = null, soste = []) {
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Salva</button></div></form>`,
     (el, close) => {
       $('[data-x]', el).onclick = close;
+      // **Una tipologia nuova, scritta da lui.** Sta qui e non nelle
+      // Impostazioni perche' qui e' dove uno se ne accorge di averne bisogno:
+      // sta scrivendo una spesa e nella tendina non trova la voce giusta.
+      //
+      // Al server vanno **un nome e un simbolo**, non una chiave: quella la
+      // costruisce lui, che e' anche il posto dove si decide che `gasolio` non
+      // si puo' ribattezzare.
+      const tendina = $('[name=category]', el);
+      let ultimaBuona = tendina.value;
+      tendina.onchange = safe(async () => {
+        if (tendina.value !== '__nuova__') { ultimaBuona = tendina.value; return; }
+        const nome = String(prompt('Come si chiama la tipologia nuova?') || '').trim();
+        if (!nome) { tendina.value = ultimaBuona; return; }
+        const simbolo = String(prompt(`Un simbolo per «${nome}» (anche vuoto: ne metto uno io)`) || '').trim();
+        try {
+          const r = await api('/settings/categorie', { method: 'PUT', body: { nome, simbolo } });
+          settings.categories = r.categories; settings.categorie_mie = r.categorie_mie;
+          assorbiCategorieSue();
+          // La voce nuova si infila **prima** di «Nuova tipologia…», e resta
+          // scelta: e' quella che stava cercando.
+          const voce = document.createElement('option');
+          voce.value = r.chiave; voce.textContent = catLabel(r.chiave);
+          tendina.insertBefore(voce, tendina.querySelector('[value="__nuova__"]'));
+          tendina.value = r.chiave; ultimaBuona = r.chiave;
+          toast(`«${catLabel(r.chiave)}» aggiunta alle tipologie di spesa.`);
+        } catch (err) {
+          // Se c'era gia', il server torna la chiave: si sceglie quella invece
+          // di lasciarlo sul «Nuova tipologia…» con un errore e nient'altro.
+          const gia = err?.dati?.chiave;
+          if (gia && tendina.querySelector(`[value="${gia}"]`)) { tendina.value = gia; ultimaBuona = gia; }
+          else tendina.value = ultimaBuona;
+          toast(String(err.message).slice(0, 140), true);
+        }
+      });
       // Quanto fa in euro, col cambio del giorno della spesa: si vede prima di salvare.
       // Se il servizio non risponde la spesa non si blocca: compare il campo per
       // scrivere il cambio a mano, ed e' quello a comandare.
@@ -6354,6 +6403,7 @@ async function render(opzioni = {}) {
       if (me.user?.approved) {
         let valute;
         [settings, atleti, valute] = await Promise.all([api('/settings'), api('/athletes'), api('/valute').catch(() => null)]);
+        assorbiCategorieSue();
         user = me.user;
         if (valute) VALUTE = Object.fromEntries(Object.entries(valute).map(([c, v]) => [c, `${v.segno} ${v.nome}`]));
         // Una riga sola per ogni apertura, con la versione del codice che sta

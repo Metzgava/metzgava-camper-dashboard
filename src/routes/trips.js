@@ -11,6 +11,7 @@ import { leggiTracciati, assegna, cuci, quantoSbagliava, copreLaTappa, lunghezza
          periodoDelViaggio, dentroIlPeriodo, resoconto } from '../lib/tracciati.js';
 import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare, ordineDelleTappe } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
+import { categoriaNuova } from '../lib/categorie.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
 import { requireAuth } from './auth.js';
 import { materialiDi } from './materiali.js';
@@ -272,6 +273,29 @@ router.put('/settings/vehicle', wrap(async (req, res) => {
     toll_per_km: num(req.body.toll_per_km, cur.toll_per_km ?? 0.09) };
   await q(`INSERT INTO settings(key,value) VALUES('vehicle',$1) ON CONFLICT(key) DO UPDATE SET value=$1`, [v]);
   res.json(v);
+}));
+
+// Una tipologia di spesa nuova, scritta da lui.
+//
+// Dal corpo arrivano **un nome e un simbolo**, non una chiave: la chiave la
+// costruisce `categoriaNuova`, che e' anche il posto dove si decide che una
+// categoria del programma non si puo' ribattezzare. Qui non si decide niente,
+// si salva.
+router.put('/settings/categorie', wrap(async (req, res) => {
+  const s = await getSettings();
+  const r = categoriaNuova(req.body?.nome, req.body?.simbolo, s);
+  if (!r.chiave) return res.status(400).json({
+    error: 'Il nome non va bene: serve almeno una lettera o un numero' });
+  if (r.gia) return res.status(409).json({
+    error: `«${String(req.body?.nome).trim()}» c’e’ già fra le tipologie di spesa`, chiave: r.chiave });
+  // Le due insieme: una chiave nell'elenco senza il suo nome comparirebbe
+  // grezza in ogni grafico.
+  await q(`INSERT INTO settings(key,value) VALUES('categories',$1::jsonb)
+    ON CONFLICT(key) DO UPDATE SET value=$1::jsonb`, [JSON.stringify(r.elenco)]);
+  await q(`INSERT INTO settings(key,value) VALUES('categorie_mie',$1::jsonb)
+    ON CONFLICT(key) DO UPDATE SET value=$1::jsonb`, [JSON.stringify(r.mie)]);
+  console.log(`spese: tipologia nuova «${r.mie[r.chiave][1]}» (${r.chiave})`);
+  res.json({ ok: true, chiave: r.chiave, categories: r.elenco, categorie_mie: r.mie });
 }));
 
 // ---- geocoding & anteprima percorso ----

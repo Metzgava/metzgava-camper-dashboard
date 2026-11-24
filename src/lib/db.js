@@ -735,10 +735,15 @@ export async function migrate() {
 
   await q(`INSERT INTO settings(key, value) VALUES
     ('vehicle', '{"length_m": 6, "km_per_liter": 10, "fuel_price": 1.75}'),
-    ('categories', '["gasolio","traghetto","bus","treno","aereo","area_sosta","campeggio","pedaggi","vitto","spesa","visite","spettacoli","sport","manutenzione","altro"]')
+    ('categories', '["gasolio","traghetto","bus","treno","aereo","area_sosta","parcheggio","campeggio","pedaggi","vitto","spesa","visite","spettacoli","sport","manutenzione","altro"]')
     ON CONFLICT (key) DO NOTHING`);
 
   await categorieNuove(['bus', 'treno', 'aereo'], 'traghetto');
   await categorieNuove(['spettacoli', 'sport'], 'visite');
+  // Il parcheggio accanto alle aree di sosta, che e' dove uno lo cerca -- ma
+  // non e' la stessa cosa: l'area di sosta e' dove il camper dorme e si
+  // scarica, e si paga a notte; il parcheggio e' dove lo si lascia per andare
+  // a vedere un posto, e si paga a ore.
+  await categorieNuove(['parcheggio'], 'area_sosta');
   await spesePerSosteGiaScritte();
 }
