@@ -203,6 +203,37 @@ export function uscitaEctive(righe) {
 // Quanti minuti ha la piu' recente lettura delle Ective, o null se non ce ne
 // sono. Non sapere l'eta' non e' «vecchio»: e' non sapere, e la figura della
 // carica continua come prima -- uno zero la spegnerebbe per sempre.
+// Quanto stanno prendendo i carichi del camper. **Dedotto**, perche' nessuno
+// li misura: non c'e' un contatore sulla linea a 12 V.
+//
+// L'app sa solo quanto esce dalle batterie, e quando il sole copre tutto
+// dalle batterie non esce niente -- e la figura dice «niente», che e' vero ma
+// si legge come «non consuma nulla». Il 24/11/2026: «ora vedo flussi da sole
+// ma non consumi, come mai».
+//
+// Una formula sola per i due versi, perche' `entra` ed `esce` sono le due
+// facce dello stesso netto e uno dei due e' sempre zero:
+//
+//     consumi = quel che esce dal pacco + le fonti - quel che entra nel pacco
+//
+// **E un caso in cui non si deduce niente.** Se entra piu' di quanto le fonti
+// viste diano, c'e' una fonte che non vediamo -- e' la stessa differenza da
+// cui si ricava il ramo della 220 -- e quella potrebbe alimentare anche i
+// carichi. Un caricatore da 50 W mentre i consumi ne prendono 100 non si vede
+// da qui: li' la risposta e' «non so», non «zero».
+export function consumiDedotti({ entra, esce, sole, motore } = {}) {
+  const n = v => (v == null || Number.isNaN(Number(v)) ? null : Number(v));
+  const dentro = n(entra), fuori = n(esce), s = n(sole), m = n(motore);
+  // Serve sapere tutto: una fonte ignota rende ignota la sottrazione.
+  if (dentro == null || fuori == null || s == null || m == null) return null;
+  // Entra piu' di quanto si veda arrivare: c'e' una fonte nascosta, e non si
+  // puo' dire quanto dei suoi watt vada ai carichi.
+  if (dentro > s + m) return null;
+  // Il fondo a zero: le misure vengono da apparecchi diversi in istanti
+  // diversi, e qualche watt al rovescio e' rumore, non un consumo negativo.
+  return { watt: Math.max(0, fuori + s + m - dentro), base: 'dedotto' };
+}
+
 export function etaEctiveMinuti(righe, adesso = Date.now()) {
   const quando = (righe || [])
     .filter(eBatteria)
@@ -473,6 +504,13 @@ export async function tuttiIConti(bluetti) {
   // vede da qui.
   const dalla220 = entraEctive == null || entraEctive <= 0 ? null
     : Math.max(0, entraEctive - (dalSole || 0) - (dalMotore || 0));
+
+  // Quanto stanno prendendo i carichi del camper. Dedotto: nessuno li misura,
+  // e quando il sole copre tutto dalle batterie non esce niente -- la figura
+  // diceva «niente» e si leggeva come «non consuma nulla». La regola sta in
+  // `consumiDedotti`, qui sopra, dove girano le prove.
+  out.consumi_camper = consumiDedotti({
+    entra: entraEctive, esce: u.watt, sole: dalSole, motore: dalMotore });
 
   out.fonti_ective = entraEctive == null
     ? manca('W', ['letture delle Ective'], 'Arriva con la scatoletta: oggi nessuno misura la loro corrente.')

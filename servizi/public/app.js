@@ -781,6 +781,25 @@ function vistaFlusso() {
         </g>
       </svg>
       ${(() => {
+        // Quanto stanno prendendo i carichi del camper. Il ramo di destra
+        // mostra quanto esce **dalle batterie**, che e' un'altra cosa: quando
+        // il sole copre tutto, dalle batterie non esce niente e quel ramo dice
+        // «niente» -- vero, ma si legge come «non consuma nulla».
+        //
+        // Nessuno misura i consumi: questo numero e' una sottrazione, e porta
+        // il suo bollino. Quando non si puo' dedurre (c'e' una fonte che non
+        // vediamo) non si scrive uno zero, che direbbe «ho guardato e non
+        // consuma niente»: non si scrive niente.
+        const cc = dati.conti?.consumi_camper;
+        if (!cc || cc.watt == null) return '';
+        const esceDalPacco = (f.uscita?.rami || [])[0]?.watt;
+        if (!(cc.watt > 0) || cc.watt === esceDalPacco) return '';
+        return `<div class="perche" style="text-align:center">\u{1F3E0} I carichi del camper stanno
+          prendendo <b>${num(cc.watt, 0)} W</b> <i>(dedotto: nessuno li misura \u2014 si ricava da quel
+          che danno le fonti e da quel che passa nelle batterie)</i>.${esceDalPacco === 0
+            ? ' Dalle batterie non esce niente: li\u2019 paga tutto il sole.' : ''}</div>`;
+      })()}
+      ${(() => {
         // Di cosa e' fatto il buco fra «escono 447 W dalla 220» e «ne entrano
         // 199». Sono due cose diverse: una parte si **disperde** in calore nel
         // caricatore e non torna piu', il resto lo stanno **consumando** il
