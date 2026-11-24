@@ -101,6 +101,36 @@ export function oraDaParete(ms, fuso = 'Europe/Rome') {
 // coordinata mancante sarebbe diventata 0,0 -- al largo dell'Africa -- invece
 // di essere scartata. E uno zero chiesto a un dato che non c'e' e' la bugia
 // piu' comoda che questo progetto conosca.
+// Quanto e' avanti un fuso su UTC, a un dato istante. Si ottiene formattando
+// l'istante nel fuso e rileggendo quei numeri come se fossero UTC: la
+// differenza e' l'offset, cambio d'ora compreso.
+const offsetDi = (ms, fuso) => {
+  const p = {};
+  for (const x of formattatore(fuso).formatToParts(new Date(ms))) p[x.type] = x.value;
+  return Date.parse(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:00Z`)
+    - Math.floor(ms / 60000) * 60000;
+};
+
+/**
+ * La mezzanotte di un giorno **nel fuso dato**, in millisecondi.
+ *
+ * Serve perche' i capi della finestra vanno a CarLock come istanti assoluti.
+ * Costruirli sulla mezzanotte del **server** li sposta di un'ora su Railway
+ * (UTC), e un tragitto partito alle 00:30 del primo giorno del viaggio
+ * resterebbe fuori -- senza che niente lo dica.
+ *
+ * Due passaggi: si stima l'offset all'istante di partenza e si corregge, poi
+ * si ricontrolla l'offset all'istante trovato. I due differiscono nelle notti
+ * del cambio d'ora, ed e' l'unico modo di non sbagliarle.
+ */
+export function mezzanotteNelFuso(giorno, fuso = 'Europe/Rome') {
+  const base = Date.parse(`${String(giorno).slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(base)) return null;
+  const primo = base - offsetDi(base, fuso);
+  const secondo = base - offsetDi(primo, fuso);
+  return secondo;
+}
+
 const numero = v => {
   if (v == null || v === '') return null;
   const n = Number(v);

@@ -404,6 +404,16 @@ export async function migrate() {
   -- appena qualcuno la legge.
   ALTER TABLE trips ADD COLUMN IF NOT EXISTS quando_circa TEXT;
   ALTER TABLE trips ADD COLUMN IF NOT EXISTS notti_previste INT;
+  -- Fin dove si e' gia' chiesto a CarLock, per questo viaggio.
+  --
+  -- Le date di un viaggio si fissano prima di partire, quindi il cartello che
+  -- propone i tragitti non e' una cosa che capita una volta a cose fatte:
+  -- ritorna ogni volta che un giorno e' passato. Questo segno e' cosa lo fa
+  -- ritornare, e cosa gli impedisce di riproporre un giorno di sosta in
+  -- eterno: avanza anche quando non si e' trovato niente.
+  --
+  -- Nullo vuol dire mai chiesto, e si riparte dall'inizio del viaggio.
+  ALTER TABLE trips ADD COLUMN IF NOT EXISTS carlock_chiesto_fino_a TIMESTAMPTZ;
   -- Il traghetto e' prenotato? Il campeggio ha risposto? Finche' no, la riga
   -- porta il suo bollino: e' la roba che fa saltare un viaggio.
   ALTER TABLE legs  ADD COLUMN IF NOT EXISTS da_confermare BOOLEAN NOT NULL DEFAULT false;
