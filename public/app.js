@@ -3392,7 +3392,13 @@ async function viewTrip(id) {
   // che invita a rifare la riga subito sotto «senza autostrada» -- il
   // programma si smentiva nello stesso paragrafo e consigliava di rifare una
   // cosa appena fatta bene.
+  // Col **tracciato vero** non c'e' niente da ridisegnare: il confronto fra
+  // la lunghezza della riga e i chilometri veri serve quando la strada l'ha
+  // scelta il programma. Lasciarlo acceso consigliava di premere Ridisegna
+  // sopra una strada misurata -- cioe' di sostituire la verita' con una
+  // supposizione.
   const stradaSospetta = l => l.source === 'carlock' && l.distance_km > 0
+    && !l.tracciato_vero
     && !l.pedaggi_dichiarati
     && Math.abs(lungaQuanto(l.geometry) - l.distance_km) > Math.max(15, l.distance_km * 0.08);
   const inStrada = l => {
@@ -3431,8 +3437,9 @@ async function viewTrip(id) {
     </div><div class="grow">
       <div class="row between"><div>${inCamper(l) ? '' : `<span title="${esc(MEZZI[mezzoDi(l)][1])}">${MEZZI[mezzoDi(l)][0]}</span> `}<b>${esc(l.from_name.split(',')[0])}</b> → <b>${esc(l.to_name.split(',')[0])}</b></div><div class="nowrap"><b>${num(l.distance_km)} km</b> <span class="muted small">\u00b7 ${dur(l.duration_min * 60)} ${!inCamper(l) ? 'in ' + MEZZI[mezzoDi(l)][1].toLowerCase().replace('in camper', 'camper') : conSoste(l) ? 'in strada' : 'di guida'}${!conSoste(l) && inStrada(l) > (l.duration_min || 0) + 5 ? ` \u00b7 ${dur(inStrada(l) * 60)} in strada` : ''}</span></div></div>
       <div class="small muted">${l.compagnia || l.codice ? `<b>${esc([l.compagnia, l.codice].filter(Boolean).join(' '))}</b> · ` : ''}${fdate(l.date)}${l.start_time ? ' ' + l.start_time + '–' + l.end_time : ''}${l.source === 'carlock' ? ' <span class="badge ok" title="Chilometri e orari veri dal tracker. La strada sulla mappa e\u2019 ricostruita: CarLock non registra il percorso.">CarLock</span>' : ''}${stradaSospetta(l) ? ` <span class="badge warn" title="La riga sulla mappa e\u2019 lunga ${num(lungaQuanto(l.geometry), 0)} km, i chilometri veri sono ${num(l.distance_km, 0)}: la strada ricostruita non e\u2019 quella percorsa. Prova \u00ab\ud83e\udded Ridisegna\u00bb.">strada da ridisegnare</span>` : ''}${l.fuel_price ? ' · gasolio ' + l.fuel_price + ' €/l' : ''}${l.senza_gasolio ? ' · <span class="badge" title="La spesa del gasolio l\u2019hai tolta: si riaccende da Modifica">gasolio non calcolato</span>' : ''}${l.notes ? ' \u00b7 \ud83d\udcac ' + esc(l.notes) : ''}${l.pois ? ` · 🅿️ ${l.pois.stops?.length || 0} soste` : ' · <i>cerco aree sosta…</i>'}</div>
-      ${stradaDedotta(l) ? (() => {
+      ${daCarlock(l) ? (() => {
         const sulla = puntiSullaRiga(l), fuori = puntiFuoriDallaRiga(l);
+        const vero = !!l.tracciato_vero;
         const persi = (l.via || []).filter(p => p.lat == null);
         const nomi = v => esc(v.map(p => p.nome).join(', '));
         // L'autostrada dichiarata sta nella stessa frase dei luoghi: sono la
@@ -3459,10 +3466,18 @@ async function viewTrip(id) {
               ? ' <b>Dei pedaggi però non so dire</b>: il servizio dei percorsi non li ha misurati su questa strada.'
               : '';
         const detto = [sulla.length ? `passando per ${nomi(sulla)}` : '', autostrada].filter(Boolean).join(', ');
-        return `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 <b>Chilometri e orari veri</b>, strada <b>ricostruita</b>${
-          detto ? ` <b>${detto}</b>, come hai detto tu` : ''
-        }: il tracker registra quanto si \u00e8 percorso, non per dove.${
-          fuori.length ? ` <b>Ma la riga non passa ancora per ${nomi(fuori)}</b>: il ridisegno non \u00e8 riuscito, riprova da Modifica.` : ''
+        return `<div class="small muted" style="margin-top:3px">\u2022 \u2022 \u2022 ${vero
+          ? `<b>Chilometri, orari e strada veri dal tracker</b>${detto ? ` \u2014 ${detto}, come avevi detto` : ''}.`
+          : `<b>Chilometri e orari veri</b>, strada <b>ricostruita</b>${
+              detto ? ` <b>${detto}</b>, come hai detto tu` : ''
+            }: il tracker registra quanto si \u00e8 percorso, non per dove.`}${
+          !fuori.length ? ''
+            : vero
+              // Con la traccia vera non c'e' niente da ridisegnare: e' la
+              // strada percorsa che smentisce quel che era stato dichiarato,
+              // ed e' un fatto, non un guasto.
+              ? ` <b>La strada percorsa non passa per ${nomi(fuori)}</b>.`
+              : ` <b>Ma la riga non passa ancora per ${nomi(fuori)}</b>: il ridisegno non \u00e8 riuscito, riprova da Modifica.`
         }${smentita}${persi.length ? ` <b>Non ho trovato ${nomi(persi)}</b>: prova un nome pi\u00f9 preciso.` : ''}${
           stradaSospetta(l) ? ` <b>La riga \u00e8 lunga ${num(lungaQuanto(l.geometry), 0)} km contro ${num(l.distance_km, 0)} veri</b>: ${
             sulla.length ? 'controlla l\u2019ordine o i nomi dei posti' : 'la strada ricostruita non \u00e8 quella percorsa \u2014 prova \u00ab\ud83e\udded Ridisegna\u00bb'
@@ -3524,7 +3539,7 @@ async function viewTrip(id) {
     <div class="card pad-0"><div id="map" class="map tall"></div>
       ${legendaViaggio(d)}</div>
     <div class="grid due" style="margin-top:14px">
-      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn sm" id="riordina" title="Rimette le tappe in fila per data e ora">\u2195\ufe0f In ordine di data</button><button class="btn sm" id="damaps" title="Incolla un itinerario di Google Maps">\ud83d\uddfa\ufe0f Da Maps</button><button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
+      <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>Tappe</h2>${`<div class="row">${legs.some(l => !l.external_id) ? '<button class="btn sm" id="sostituisci" title="Al posto del percorso previsto, quello davvero percorso">\ud83d\udce1 Sostituisci con CarLock</button>' : '<button class="btn sm" id="carlock">\ud83d\udce1 Importa CarLock</button>'}<button class="btn sm" id="riordina" title="Rimette le tappe in fila per data e ora">\u2195\ufe0f In ordine di data</button><button class="btn sm" id="tracciati" title="Il percorso davvero registrato dal tracker, per i giorni di questo viaggio">\ud83d\udccd Tracciati veri</button><button class="btn sm" id="damaps" title="Incolla un itinerario di Google Maps">\ud83d\uddfa\ufe0f Da Maps</button><button class="btn primary sm" id="addleg">\uff0b Tappa</button></div>`}</div>
         <div id="legs">${legs.length ? legs.map(legRow).join('') : '<div class="empty">Aggiungi la prima tappa: la distanza stradale e il costo del gasolio vengono calcolati automaticamente.</div>'}</div></div>
       <div class="card pad-0"><div class="row between" style="padding:14px 16px 6px"><h2>\ud83c\udd7f\ufe0f Dove dormiamo o dove ci fermiamo</h2>${'<div class="row"><button class="btn sm" id="cercasoste" title="Aree sosta e campeggi alle destinazioni delle tappe">\ud83d\udd0e Alle destinazioni</button><button class="btn primary sm" id="addsosta">\uff0b Sosta</button></div>'}</div>
         ${legs.length ? `<div class="small muted" style="padding:0 16px 10px">
@@ -3689,6 +3704,37 @@ async function viewTrip(id) {
   }));
   $('#addleg')?.addEventListener('click', () => legForm(trip, legs));
   $('#damaps')?.addEventListener('click', () => tappeDaMaps(trip, legs));
+  // I tracciati veri: il file che CarLock manda su richiesta, con le
+  // posizioni registrate. Si guardano **solo i giorni di questo viaggio**: il
+  // file ne copre mesi, e un tragitto di agosto non deve finire su una tappa
+  // di novembre.
+  $('#tracciati')?.addEventListener('click', () => modal(`<h2>\ud83d\udccd Tracciati veri da CarLock</h2>
+    <p class="small muted">La strada disegnata sulle tappe del tracker \u00e8 una <b>ricostruzione</b>: CarLock
+      registra quanto si \u00e8 percorso, non per dove. Il file dei tracciati contiene le posizioni vere,
+      e lo mandano <b>su richiesta</b> scrivendo a <b>info@carlock.co</b>.</p>
+    <p class="small muted">Guardo <b>solo i giorni di questo viaggio</b>: il resto del file lo lascio
+      perdere. Chilometri, orari e capi delle tappe <b>non si toccano</b> \u2014 cambia il disegno.</p>
+    <form id="f" class="stack">
+      <input type="file" name="file" accept=".csv,text/csv" required>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-x>Annulla</button><button class="btn primary">Carica</button></div>
+    </form>`, (el, close) => {
+      $('[data-x]', el).onclick = close;
+      $('#f', el).onsubmit = safe(async e => {
+        e.preventDefault();
+        toast('Leggo i tracciati\u2026');
+        const r = await api(`/trips/${trip.id}/tracciati`, { method: 'POST', body: new FormData($('#f', el)) });
+        close();
+        toast(r.attaccati
+          ? `${r.attaccati === 1 ? 'Una tappa ha' : r.attaccati + ' tappe hanno'} adesso la strada vera.`
+          : 'Nessuna tappa nuova: i tracciati di questi giorni c\u2019erano gi\u00e0 o non si agganciano.');
+        // Quel che e' rimasto fuori si dice: una tappa senza traccia non e'
+        // un guasto, ma nemmeno una cosa da scoprire per caso.
+        if (r.senza_traccia) toast(`${r.senza_traccia} tappe restano senza traccia: nel file non c\u2019\u00e8 un tragitto che le copra.`, true);
+        if (r.capi_lontani?.length) toast(`La traccia comincia lontano dal punto salvato su: ${
+          r.capi_lontani.map(x => `${x.nome} (${x.metri} m)`).join(', ')}. I capi non li ho spostati.`, true);
+        restaQui();
+      });
+    }));
   // L'ordine di una tappa e' un numero a parte e **non** si ricalcola quando
   // si corregge una data: per questo una tappa puo' avere la data giusta e
   // comparire lo stesso nel momento sbagliato dentro «Rivedi il percorso».
@@ -4843,7 +4889,14 @@ const TRATTO_RICOSTRUITO = '2 7';
 // La legenda e la polilinea guardavano gia' il mezzo; questa no, e la
 // revisione del 21/11/2026 ha trovato le due regole che dissentivano. Una
 // guardia con un nome serve a questo: a non averne due.
-const stradaDedotta = l => l?.source === 'carlock' && inCamper(l);
+// Una tappa che viene dal tracker: i suoi chilometri e i suoi orari sono
+// misurati, e la riga sulla mappa merita una frase che lo dica.
+const daCarlock = l => l?.source === 'carlock' && inCamper(l);
+// Una strada **dedotta** e' quella che il programma ha ricostruito scegliendo
+// fra due possibili. Col tracciato vero di CarLock non lo e' piu': il
+// puntinato vorrebbe dire «questa e' una supposizione», e lasciarlo direbbe
+// il falso -- nella direzione prudente, ma pur sempre il falso.
+const stradaDedotta = l => daCarlock(l) && !l?.tracciato_vero;
 const COLORI_SPORT = {
   'Bicicletta': '#2563eb',
   'Escursione': '#16a34a',

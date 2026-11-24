@@ -57,8 +57,16 @@ test('si applica solo dove c’e’ una misura che la riga contraddice', () => {
   // confronto ripetuto: cosi' la regola sta scritta in un posto solo. La prova
   // chiede le due cose -- che la guardia dica quel che deve, e che ogni uso
   // del tratto le stia dietro.
-  assert.match(app, /const stradaDedotta = l => l\?\.source === 'carlock'/,
+  //
+  // **24/11/2026:** la guardia si e' spaccata in due. `daCarlock` dice da
+  // dove viene la tappa, `stradaDedotta` aggiunge che la strada e' ancora una
+  // ricostruzione -- col tracciato vero non lo e' piu', e il puntinato
+  // direbbe il falso. La prova segue la divisione invece di pretendere la
+  // vecchia riga, ma chiede le stesse due cose di prima.
+  assert.match(app, /const daCarlock = l => l\?\.source === 'carlock'/,
     'la guardia non guarda se la tappa viene dal tracker');
+  assert.match(app, /const stradaDedotta = l => daCarlock\(l\) && !l\?\.tracciato_vero/,
+    'il puntinato resta su una strada che non e\u2019 piu\u2019 una ricostruzione');
   for (const m of app.matchAll(/TRATTO_RICOSTRUITO/g)) {
     if (app.slice(Math.max(0, m.index - 60), m.index).includes('const ')) continue;
     const prima = app.slice(Math.max(0, m.index - 200), m.index);

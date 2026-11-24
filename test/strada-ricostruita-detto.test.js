@@ -90,7 +90,10 @@ test('la legenda della mappa distingue la strada ricostruita', () => {
 // Due affermazioni false in una riga sola.
 
 test('la guardia guarda anche il mezzo, come fanno la legenda e la riga', () => {
-  assert.match(app, /const stradaDedotta = l => l\?\.source === 'carlock' && inCamper\(l\)/,
+  // **24/11/2026:** la guardia si e' spaccata in due -- `daCarlock` dice da
+  // dove viene la tappa, `stradaDedotta` aggiunge che la strada e' ancora
+  // dedotta. Il mezzo si controlla dove stava, dentro la prima.
+  assert.match(app, /const daCarlock = l => l\?\.source === 'carlock' && inCamper\(l\)/,
     'la guardia non guarda il mezzo');
 });
 

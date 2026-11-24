@@ -97,7 +97,11 @@ test('la pagina dice che un ridisegno rifa’ i chilometri di autostrada', () =>
 test('la frase guarda la riga, non quel che e’ stato dichiarato', () => {
   assert.match(app, /const passaDa = /,
     'nessuno controlla se la riga passa davvero dai punti');
-  const riga = blocco('strada da ridisegnare');
+  // Finestra larga come nelle due prove qui sotto: fra il cartello e la
+  // frase c'e' l'intestazione della riga, che e' una riga di sorgente sola e
+  // lunghissima, piu' il racconto che dal 24/11/2026 ha due versi -- strada
+  // ricostruita e strada vera.
+  const riga = blocco('strada da ridisegnare', 6000);
   assert.match(riga, /puntiSullaRiga\(l\)/,
     'la frase afferma i punti dichiarati invece di quelli che la riga tocca');
   assert.match(riga, /non passa ancora per/i,
