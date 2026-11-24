@@ -13,7 +13,7 @@
 //
 //     trip,trip_start,trip_end,time,latitude,longitude,speed_kmh,heading_deg,altitude_m
 
-import { samplePoints } from './util.js';
+import { samplePoints, haversineKm } from './util.js';
 
 // Le colonne si trovano per **nome**, non per posizione: e' la stessa scelta
 // gia' presa per l'altro export di CarLock, e regge se un giorno ne
@@ -162,4 +162,37 @@ export function cuci(tragitti, { massimo = 600 } = {}) {
   if (!punti.length) return [];
   const riga = punti.map(p => [+p.lat.toFixed(5), +p.lon.toFixed(5)]);
   return samplePoints(riga, massimo);
+}
+
+// ---------------------------------------------------------------------------
+// Quanto sbagliava la ricostruzione
+// ---------------------------------------------------------------------------
+//
+// Si ottiene gratis mentre si sostituisce, e dopo un centinaio di tappe dice
+// quanto vale il ricostruttore -- se indovina nove volte su dieci o sei.
+//
+// La misura e' **la distanza del punto piu' lontano**: per ogni punto della
+// riga vecchia, quanto dista dal punto piu' vicino di quella vera; si tiene
+// la maggiore. E' il numero che ha reso evidente il caso di Novaledo ->
+// Udine: la ricostruzione passava per Bassano, a 15,6 km dalla strada vera.
+//
+// Una media direbbe che quasi tutto combaciava, ed e' proprio il pezzo che
+// non combacia a essere il difetto.
+//
+// `null` quando manca una delle due righe: uno zero direbbe «la ricostruzione
+// era perfetta», che e' un'altra affermazione.
+export function quantoSbagliava(vecchia, vera) {
+  const a = (vecchia || []).filter(p => Array.isArray(p) && p.length >= 2);
+  const b = (vera || []).filter(p => Array.isArray(p) && p.length >= 2);
+  if (!a.length || !b.length) return null;
+  let peggio = 0;
+  for (const p of a) {
+    let vicino = Infinity;
+    for (const q of b) {
+      const d = haversineKm(p, q);
+      if (d < vicino) vicino = d;
+    }
+    if (vicino > peggio) peggio = vicino;
+  }
+  return +peggio.toFixed(2);
 }

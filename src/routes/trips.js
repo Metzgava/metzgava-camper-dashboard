@@ -5,6 +5,7 @@ import { wrap, num, haversineKm } from '../lib/util.js';
 import { proposteDi } from './proposte.js';
 import { percorsiConTappe, sannoEvitareIPedaggi, route, geocode, poisAlongRoute, linkPark4night, numeroPark4night, linkPark4nightPosto, percorsoVicinoAiKm, percorsoPerIPunti, puntiDichiarati } from '../lib/geo.js';
 import { readCarlockFile, mergeTrips, addressCandidates, shortName, nomeTappa } from '../lib/carlock.js';
+import { leggiTracciati, assegna, cuci, quantoSbagliava } from '../lib/tracciati.js';
 import { numeriDellaTappa, puntiDaUsare, pedaggiDaUsare, pedaggiDichiarati, pedaggiNonTornano, laTappaHaDetto, daRidisegnare, ordineDelleTappe } from '../lib/tappe.js';
 import { puntiDaLinkMaps, seguiLinkBreve } from '../lib/maps.js';
 import { VALUTE, valutaValida, cambioPerSpesa } from '../lib/cambi.js';
@@ -1196,6 +1197,64 @@ router.post('/legs/:id/carlock', upload.single('file'), wrap(async (req, res) =>
 // ---- import CarLock (CSV/XLSX esportato da my.carlock.co) ----
 // Anteprima: POST /trips/:id/import/carlock?preview=1  -> elenco tratte senza salvare
 // Import:    POST /trips/:id/import/carlock            -> crea le tappe con i km reali
+// I tracciati veri: la riga della mappa smette di essere una ricostruzione.
+//
+// Disegno: docs/superpowers/specs/2026-11-24-tracciati-veri-design.md
+//
+// **Si guardano solo i giorni di questo viaggio.** Fuori da quelli si lascia
+// perdere: cosi' un tragitto di agosto non puo' finire su una tappa di
+// novembre, e quando i dati arriveranno dall'interfaccia di CarLock si chiede
+// solo il periodo che serve.
+//
+// Non si toccano chilometri, durata, orari ne' i capi. I capi in particolare:
+// la traccia saprebbe dire dove si e' partiti al metro, ma sulle tappe non
+// esiste un segno di «corretto a mano», quindi non si distingue un capo del
+// geocoder da uno sistemato di persona. Se la traccia comincia lontano, lo si
+// **dice** -- e la decisione resta sua.
+const LONTANO_M = 200;
+
+router.post('/trips/:id/tracciati', upload.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'File dei tracciati mancante' });
+  const trip = (await q('SELECT * FROM trips WHERE id=$1', [req.params.id])).rows[0];
+  if (!trip) return res.status(404).json({ error: 'Viaggio non trovato' });
+  const tappe = (await q('SELECT * FROM legs WHERE trip_id=$1 ORDER BY position, id', [trip.id])).rows;
+
+  // Il periodo: le date del viaggio, o il primo e l'ultimo giorno delle sue
+  // tappe se il viaggio non le ha.
+  const giorni = tappe.map(l => l.date).filter(Boolean).map(d => new Date(d).getTime()).sort((a, b) => a - b);
+  const daQuando = new Date(trip.start_date || giorni[0] || 0).setHours(0, 0, 0, 0);
+  const aQuando = new Date(trip.end_date || giorni[giorni.length - 1] || 0).setHours(23, 59, 59, 999);
+
+  const tutti = leggiTracciati(req.file.buffer.toString('utf8'));
+  const dentro = tutti.filter(x => x.da != null && x.da >= daQuando && x.da <= aQuando);
+  const fuori_periodo = tutti.length - dentro.length;
+
+  const { perTappa, fuori } = assegna(dentro, tappe);
+  let attaccati = 0, gia_veri = 0;
+  const capi_lontani = [];
+  for (const tappa of tappe) {
+    const suoi = perTappa.get(tappa.id);
+    if (!suoi?.length) continue;
+    const riga = cuci(suoi);
+    if (!riga.length) continue;
+    const vecchia = Array.isArray(tappa.geometry) ? tappa.geometry : null;
+    const scarto = tappa.tracciato_vero ? tappa.scarto_ricostruzione_km : quantoSbagliava(vecchia, riga);
+    await q('UPDATE legs SET geometry=$2, tracciato_vero=true, scarto_ricostruzione_km=$3 WHERE id=$1',
+      [tappa.id, JSON.stringify(riga), scarto]);
+    if (tappa.tracciato_vero) gia_veri++; else attaccati++;
+    // I capi restano dove sono: si dice soltanto quanto dista la traccia.
+    const dista = (p, lat, lon) => (p == null || lat == null ? null
+      : Math.round(haversineKm([p[0], p[1]], [Number(lat), Number(lon)]) * 1000));
+    const m = Math.max(dista(riga[0], tappa.from_lat, tappa.from_lon) ?? 0,
+                       dista(riga[riga.length - 1], tappa.to_lat, tappa.to_lon) ?? 0);
+    if (m > LONTANO_M) capi_lontani.push({ tappa: tappa.id, nome: `${String(tappa.from_name).split(',')[0]} \u2192 ${String(tappa.to_name).split(',')[0]}`, metri: m });
+  }
+  const senza_traccia = tappe.filter(l => !perTappa.get(l.id)?.length && !l.tracciato_vero).length;
+  console.log(`viaggio ${trip.id}: tracciati veri su ${attaccati} tappe, ${senza_traccia} senza, ${fuori.length} tragitti non agganciati`);
+  res.json({ ok: true, attaccati, gia_veri, senza_traccia, fuori_periodo,
+    non_agganciati: fuori.length, capi_lontani });
+}));
+
 router.post('/trips/:id/import/carlock', upload.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'File CarLock mancante' });
   const isNew = req.params.id === 'new'; // anteprima senza viaggio (import in un viaggio nuovo)

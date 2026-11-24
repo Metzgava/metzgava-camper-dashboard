@@ -360,6 +360,18 @@ export async function migrate() {
   -- Nessun vincolo qui: il valore si normalizza nella rotta, che e' dove
   -- arriva da fuori, ed e' li' che gira la prova.
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS pedaggi_dichiarati TEXT;
+
+  -- La riga della tappa non e' piu' dedotta: e' il tracciato che CarLock ha
+  -- registrato. E' il segno che spegne il puntinato sulla mappa -- il
+  -- tratteggio voleva dire «questa strada e' una ricostruzione», e non lo e'
+  -- piu'.
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS tracciato_vero BOOLEAN NOT NULL DEFAULT false;
+
+  -- Quanto si allontanava la riga ricostruita da quella vera, in chilometri:
+  -- la distanza del suo punto piu' lontano. Si ottiene gratis mentre si
+  -- sostituisce, e dopo un centinaio di tappe dice quanto vale il
+  -- ricostruttore. Su Novaledo -> Udine valeva 15,6: passava per Bassano.
+  ALTER TABLE legs ADD COLUMN IF NOT EXISTS scarto_ricostruzione_km REAL;
   ALTER TABLE legs ADD COLUMN IF NOT EXISTS external_id TEXT;
   -- La copertina del viaggio la sceglie chi l'ha fatto: senza scelta resta la
   -- prima foto, che e' un ripiego, non una decisione. Se quella foto viene
