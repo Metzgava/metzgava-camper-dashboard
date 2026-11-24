@@ -157,6 +157,13 @@ export function mergeTrips(trips, gapMin = 30) {
     const last = out[out.length - 1];
     if (last && last.date === t.date && gapMin > 0 && toMin(t.start) - toMin(last.end) <= gapMin && toMin(t.start) >= toMin(last.end)) {
       last.end = t.end; last.to = t.to; last.km = +(last.km + t.km).toFixed(1); last.duration_min += t.duration_min; last.merged = (last.merged || 1) + 1;
+      // **Il capo d'arrivo porta appresso le sue coordinate**, quando ci sono.
+      // Dal file non arrivano e restano `undefined`, come e' sempre stato; dal
+      // rubinetto di CarLock si'. Senza queste due righe una tappa unita
+      // terrebbe le coordinate d'arrivo del PRIMO tragitto -- un capo nel
+      // posto sbagliato, e muto -- mentre il nome, due righe sopra, era quello
+      // giusto.
+      if (t.a_lat != null) { last.a_lat = t.a_lat; last.a_lon = t.a_lon; }
       last.external_id += '+' + t.external_id.split(':').pop();
     } else out.push({ ...t });
   }

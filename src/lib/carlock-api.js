@@ -45,6 +45,129 @@ export function hashPassword(password) {
   return crypto.createHash('sha256').update(String(password ?? ''), 'utf8').digest('hex');
 }
 
+// ---------------------------------------------------------------------------
+// L'orologio
+// ---------------------------------------------------------------------------
+//
+// **E' la trappola di tutto questo lavoro**, trovata dal controllo del
+// costruttore prima di scrivere una riga.
+//
+// Oggi il programma lavora con orari **senza fuso**: `leggiTracciati` legge
+// «2026-07-31 17:20:26» nel fuso del processo e `finestraDellaTappa`
+// costruisce la mezzanotte nello stesso fuso. Sono storti dello stesso tanto,
+// quindi quando si confrontano l'errore **si annulla**, e col file va bene sia
+// sul Mac (Roma) sia su Railway (UTC).
+//
+// L'interfaccia invece da' **istanti assoluti**. Confrontarli con una finestra
+// costruita nel fuso del server significa che su Railway la finestra di una
+// tappa e' spostata di un'ora, e la tolleranza e' di **tre minuti**: nessuna
+// traccia si aggancia a nessuna tappa, mai, e non c'e' nessun errore. In
+// locale funziona.
+//
+// Quindi il traduttore produce **quel che produce il file**: orari da orologio
+// da parete nel fuso del veicolo. Da li' in poi non cambia niente.
+//
+// `Intl.DateTimeFormat` e' l'unico modo di non dipendere dal fuso del
+// processo. Niente aritmetica a mano sugli offset: l'ora legale la sbaglia, e
+// la sbaglia in un giorno all'anno -- cioe' quando nessuno la sta guardando.
+const formattatori = new Map();
+const formattatore = fuso => {
+  if (!formattatori.has(fuso)) {
+    formattatori.set(fuso, new Intl.DateTimeFormat('en-CA', {
+      timeZone: fuso, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    }));
+  }
+  return formattatori.get(fuso);
+};
+
+/**
+ * Un istante in millisecondi diventa `{ giorno: 'YYYY-MM-DD', ora: 'HH:MM' }`
+ * nel fuso dato -- che e' quello del **veicolo**, non del server.
+ *
+ * `hourCycle: 'h23'` e non `h24`: con quello di suo mezzanotte diventa
+ * «24:00», e l'identificativo del tragitto non combacerebbe piu' con quello
+ * costruito dal file.
+ */
+export function oraDaParete(ms, fuso = 'Europe/Rome') {
+  const pezzi = {};
+  for (const p of formattatore(fuso || 'Europe/Rome').formatToParts(new Date(ms)))
+    pezzi[p.type] = p.value;
+  return { giorno: `${pezzi.year}-${pezzi.month}-${pezzi.day}`, ora: `${pezzi.hour}:${pezzi.minute}` };
+}
+
+// `Number(null)` e `Number('')` fanno **zero**, che e' un numero finito. Una
+// coordinata mancante sarebbe diventata 0,0 -- al largo dell'Africa -- invece
+// di essere scartata. E uno zero chiesto a un dato che non c'e' e' la bugia
+// piu' comoda che questo progetto conosca.
+const numero = v => {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * I tragitti dell'interfaccia nella forma di `readCarlockFile`, piu' le
+ * coordinate dei due capi.
+ *
+ * **L'identificativo e' identico a quello del file** -- `carlock:<data>:<inizio>:<fine>`
+ * con gli orari a minuti -- perche' se i due non coincidono lo stesso tragitto
+ * preso dal file e dal rubinetto diventa **due tappe**, e il vincolo unico su
+ * `(trip_id, external_id)` non se ne accorge. L'`uuid` vero resta a parte, in
+ * `uuid`: serve a chiedere i punti, non a identificare una tappa.
+ *
+ * `da_lat`/`da_lon`/`a_lat`/`a_lon` sono **in piu'** rispetto alla forma del
+ * file: dove ci sono, la geocodifica si salta. Col file restano `undefined` e
+ * tutto va come prima.
+ */
+export function comeIlFile(tragitti, fuso = 'Europe/Rome') {
+  return (tragitti || []).map(t => {
+    const p = oraDaParete(t.start_time, fuso), a = oraDaParete(t.end_time, fuso);
+    return {
+      date: p.giorno,
+      start: p.ora,
+      end: a.ora,
+      from: String(t.start_location?.address ?? ''),
+      to: String(t.end_location?.address ?? ''),
+      km: +((numero(t.distance) ?? 0) / 1000).toFixed(1),
+      // **Dagli istanti, non dagli orari scritti.** A cavallo della mezzanotte
+      // la differenza fra gli orari da parete e' negativa; a cavallo dell'ora
+      // legale e' sbagliata di sessanta minuti.
+      duration_min: Math.round((t.end_time - t.start_time) / 60000),
+      type: String(t.tag ?? ''),
+      external_id: `carlock:${p.giorno}:${p.ora}:${a.ora}`,
+      uuid: t.uuid,
+      da_lat: numero(t.start_location?.latitude),
+      da_lon: numero(t.start_location?.longitude),
+      a_lat: numero(t.end_location?.latitude),
+      a_lon: numero(t.end_location?.longitude),
+    };
+  });
+}
+
+/**
+ * Un tragitto coi suoi punti nella forma di `leggiTracciati`:
+ * `{ id, da, a, punti: [{ t, lat, lon }] }`.
+ *
+ * `t` sono i millisecondi cosi' come arrivano: la stessa scala che
+ * `leggiTracciati` produce leggendo le sue date, quindi `assegna` e `cuci`
+ * lavorano come col file.
+ *
+ * Un punto senza coordinate si salta e il tragitto resta: la stessa regola del
+ * file, dove buttare settecento punti buoni per un refuso vorrebbe dire
+ * perdere la strada per niente.
+ */
+export function comePunti(tragitto, fuso = 'Europe/Rome') {
+  const punti = (tragitto?.locations || [])
+    .map(p => ({ t: numero(p?.timestamp), lat: numero(p?.latitude), lon: numero(p?.longitude) }))
+    .filter(p => p.t != null && p.lat != null && p.lon != null
+      && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180)
+    .sort((x, y) => x.t - y.t);
+  return { id: tragitto?.uuid ?? null, da: numero(tragitto?.start_time),
+           a: numero(tragitto?.end_time), punti, fuso };
+}
+
 // Quante pagine si chiedono al massimo, qualunque cosa dica `total_count`.
 // Con 200 tragitti per pagina sono quarantamila tragitti: molto piu' di quel
 // che lo storico puo' contenere. E' una cintura contro un ciclo infinito, non
