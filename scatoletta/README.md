@@ -26,7 +26,8 @@ Sono le stesse della pagina, e valgono più di qualsiasi funzione:
 | Orion XS (carica dal motore) | annunci Bluetooth cifrati | la chiave da VictronConnect, una volta |
 | Pannelli solari Victron | annunci Bluetooth cifrati | idem |
 | Ective 1 e 2 (le batterie) | connessione Bluetooth, testo su FFE4 | no |
-| Termometri BTHome / ATC | annunci Bluetooth in chiaro | i termometri, da comprare |
+| Termometri SwitchBot (i tre di bordo) | annunci Bluetooth in chiaro | no |
+| Termometri BTHome / ATC | annunci Bluetooth in chiaro | i termometri, se se ne aggiungono |
 | Allarme Tuya | rete locale, protocollo 3.5 | la sua chiave locale |
 | Bluetti Elite 300 V2 | **non passa da qui**: la legge il server dal cloud | no |
 | Truma Combi | **non ancora**: vedi sotto | una basetta in più |
@@ -276,8 +277,8 @@ non c'è la porta.
 Due cose si ottengono comunque, e insieme bastano:
 
 - **la temperatura dentro**, con un termometro Bluetooth da pochi euro appoggiato
-  in un cestello. Questo agente li legge già (BTHome o ATC, in chiaro, senza
-  accoppiamento);
+  in un cestello. Questo agente li legge già (SwitchBot, BTHome o ATC, in
+  chiaro, senza accoppiamento);
 - **il consumo**, che si vede di riflesso sulla corrente delle Ective: il
   compressore parte e si ferma, e quei gradini nella corrente sono il frigo.
   Non è una misura diretta, e la pagina lo dirà: una stima è una stima.

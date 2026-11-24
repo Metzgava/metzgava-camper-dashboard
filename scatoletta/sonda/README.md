@@ -48,3 +48,23 @@ Per capire quale registro contiene cosa serve confrontarlo con quel che
 l'apparecchio dichiara **nello stesso istante**. La fonte giusta e' il
 **display della Bluetti**, non la sua app: il display non costa un posto
 Bluetooth, l'app si — e l'app collegata ha fermato la carica.
+
+## Chi sta parlando, e se sta misurando davvero
+
+Due attrezzi nati il 24/11/2026, da una domanda semplice — «quale termometro è
+quale?» — che ha scoperto un numero inventato.
+
+- **`che-temperatura.py [secondi]`** ascolta e stampa ogni termometro che
+  sente: indirizzo, come lo chiamiamo, gradi, umidità, pila, **potenza del
+  segnale** e quanti annunci ha mandato. Il segnale è la colonna che risponde
+  alla domanda: i tuoi sono dentro il camper e si sentono forte, quello del
+  vicino arriva attraverso due pareti.
+- **`chi-sei.py INDIRIZZO [secondi]`** stampa i byte grezzi di un apparecchio
+  solo — dati di servizio, dati del costruttore, UUID, potenza — e prova a
+  leggerli con tutti i decodificatori che abbiamo.
+
+Il secondo si usa **prima** di cercare dove sta una sonda, quando il numero
+non torna. Un annuncio qualunque letto con la chiave sbagliata dà un numero
+plausibile, ed è il tipo di errore peggiore, perché rassicura: un Hub Mini
+SwitchBot — un telecomando a infrarossi — si leggeva come −6,1 gradi in un
+camper che non ha congelatori.

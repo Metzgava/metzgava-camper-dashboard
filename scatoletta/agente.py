@@ -190,14 +190,75 @@ SWITCHBOT_ID = 0x0969          # dal firmware Meter V2.7; prima era 0x0059
 SWITCHBOT_ID_VECCHIO = 0x0059
 SWITCHBOT_SRV = "0000fd3d-0000-1000-8000-00805f9b34fb"
 
+# I modelli SwitchBot che misurano, **e** che misurano dove li cerca questo
+# decodificatore: Meter, Meter Plus, Indoor/Outdoor. Le due forme sono il modo
+# normale e il modo accoppiamento dello stesso apparecchio.
+#
+# Il Meter Pro (0x34) e il Pro CO2 (0x35) stanno fuori di proposito: misurano
+# anche loro, ma non in questi byte, e leggerli qui darebbe un numero
+# sbagliato invece di nessun numero.
+#
+# Tutto il resto della famiglia -- hub, telecomandi, prese, serrature,
+# tapparelle, aspirapolvere -- non misura niente, e il 24/11/2026 un Hub Mini
+# in camper si e' fatto leggere come -6,1 gradi: i byte 8-10 del suo annuncio
+# danno un numero plausibile, e nessuno sospetta un numero plausibile.
+SWITCHBOT_TERMOMETRI = frozenset({
+    0x54, 0x74,     # Meter               T t
+    0x69, 0x49,     # Meter Plus          i I
+    0x77, 0x57,     # Indoor/Outdoor      w W
+})
 
-def switchbot_leggi(costruttore, servizio=None):
+
+def switchbot_tipo(servizio):
+    """Che apparecchio e', dal primo byte dei dati di servizio.
+
+    Il bit 7 dice «cifrato», non «un altro modello»: va azzerato prima di
+    confrontare, come chiede la documentazione. `None` se i dati di servizio
+    non ci sono: il tipo sta solo li'.
+    """
+    if not servizio or len(servizio) < 1:
+        return None
+    return servizio[0] & 0x7F
+
+
+def switchbot_quale(indirizzo, servizio, memoria):
+    """Che apparecchio e' quell'indirizzo: da questo annuncio, o da prima.
+
+    Il tipo sta nei dati di servizio, e **bleak non li consegna sempre**: dello
+    stesso termometro arrivano annunci col tipo e annunci senza. Misurato in
+    camper il 24/11/2026 su «bait interno», che in un ascolto da quattordici
+    secondi ha mandato soltanto annunci spaiati ed e' sparito dal giro.
+
+    Il tipo pero' e' una proprieta' dell'apparecchio, non dell'annuncio: visto
+    una volta, vale per quell'indirizzo. Cosi' un annuncio senza dati di
+    servizio si legge comunque -- senza la pila, che quella sta nei dati di
+    servizio e non si indovina.
+    """
+    tipo = switchbot_tipo(servizio)
+    if tipo is not None:
+        memoria[indirizzo] = tipo
+        return tipo
+    return memoria.get(indirizzo)
+
+
+def switchbot_leggi(costruttore, servizio=None, tipo=None):
     """Temperatura, umidita' e carica della pila di un termometro SwitchBot.
 
     `costruttore` e' manufacturer_data[0x0969] come lo da' bleak, cioe' senza
     i due byte dell'azienda. `servizio` e' service_data[fd3d], senza l'UUID:
-    serve solo per la pila, e se manca si legge il resto.
+    da li' arrivano il tipo dell'apparecchio e la pila. `tipo` lo si passa
+    quando lo si e' imparato da un annuncio precedente (vedi
+    `switchbot_quale`).
+
+    **Di un apparecchio di tipo sconosciuto non si legge niente**: i byte 8-10
+    danno un numero plausibile per qualunque membro della famiglia, e un
+    numero plausibile non lo sospetta nessuno. Il 24/11/2026 un Hub Mini si
+    faceva leggere come -6,1 gradi in un camper senza congelatori.
     """
+    if tipo is None:
+        tipo = switchbot_tipo(servizio)
+    if tipo not in SWITCHBOT_TERMOMETRI:
+        return None
     if not costruttore or len(costruttore) < 11:
         return None
     # bit 3-0: i decimi di grado. bit 7 del byte dopo: il segno, dove 1 e'
@@ -421,6 +482,14 @@ async def ascolta_ective(flusso, tetto_s, leggi=ective_leggi,
 # Il giro della radio
 # ----------------------------------------------------------------------------
 
+# Che apparecchio e' ciascun indirizzo SwitchBot, imparato strada facendo, e
+# di quali si e' gia' detto che non misurano. Durano quanto il processo: al
+# riavvio si reimparano al primo annuncio col tipo, e il diario nuovo ridice
+# una volta che cosa c'e' intorno.
+_SWITCHBOT_TIPI = {}
+_SWITCHBOT_DETTI = set()
+
+
 async def ascolta_annunci(conf, secondi=None):
     """Solo ascolto: chi grida i suoi dati a chiunque passi.
 
@@ -438,6 +507,12 @@ async def ascolta_annunci(conf, secondi=None):
     annunci = {}
 
     termometri = {}
+
+    # Gli apparecchi SwitchBot che hanno parlato e non misurano. Si tengono
+    # per dirlo **una volta**, non a ogni giro: la riga «termometro non in
+    # elenco» dell'Hub Mini e' finita nel diario 971 volte in un giorno, e un
+    # diario che si riempie di una cosa sola nasconde le altre.
+    saltati_sb = {}
 
     # Quanto forte si sente ciascuno. Non e' una curiosita': e' il dato che
     # dice dove va montato il Raspberry. Un apparecchio che si sente a -90 dBm
@@ -468,7 +543,16 @@ async def ascolta_annunci(conf, secondi=None):
             # tutti e due, ed e' per questo che sta in un ramo suo.
             sb = costruttori.get(SWITCHBOT_ID) or costruttori.get(SWITCHBOT_ID_VECCHIO)
             if sb:
-                letto = switchbot_leggi(sb, servizi.get(SWITCHBOT_SRV))
+                srv = servizi.get(SWITCHBOT_SRV)
+                tipo = switchbot_quale(dispositivo.address, srv, _SWITCHBOT_TIPI)
+                letto = switchbot_leggi(sb, srv, tipo)
+                # Si annota solo chi si sa che non misura. Di un apparecchio
+                # che non ha mai detto il suo tipo non si puo' dire niente di
+                # vero, e dirlo male e' peggio che tacere: 0x0059, il vecchio
+                # identificativo di SwitchBot, e' anche quello di Nordic, che
+                # sta dentro mezzo mondo.
+                if letto is None and tipo is not None:
+                    saltati_sb[dispositivo.address] = tipo
         if letto and "temperatura" in letto:
             termometri[dispositivo.address] = (dispositivo.name or "", letto)
 
@@ -531,6 +615,15 @@ async def ascolta_annunci(conf, secondi=None):
                  indirizzo,
                  f" ({nome})" if nome and nome != indirizzo else "",
                  f" {t} gradi" if t is not None else "")
+    for indirizzo, tipo in saltati_sb.items():
+        if indirizzo in termometri or indirizzo in _SWITCHBOT_DETTI:
+            continue
+        _SWITCHBOT_DETTI.add(indirizzo)
+        log.info("apparecchio SwitchBot che non misura, saltato: %s (tipo "
+                 "0x%02x). Non e' un guasto: hub, telecomandi e prese "
+                 "annunciano come i termometri, e leggerne i gradi darebbe un "
+                 "numero inventato", indirizzo, tipo)
+
     for indirizzo, etichetta, letto in nostri:
         # `pila` entra nello storico insieme alle altre: una tensione che scende
         # e' quel che dice di cambiare la batteria prima che il sensore taccia.
