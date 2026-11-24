@@ -1,0 +1,162 @@
+{
+  "_cos_e_questo": [
+    "Le FORME delle risposte dell'interfaccia di CarLock, misurate il 24/11/2026.",
+    "Quell'interfaccia non e' documentata ne' supportata: questo file e' l'unica",
+    "documentazione che esiste, e serve a scrivere le prove senza rete.",
+    "",
+    "**Le coordinate, gli indirizzi, gli identificativi e gli orari qui dentro sono",
+    "INVENTATI.** Le posizioni vere del proprietario non entrano nel versionamento:",
+    "quel che conta per le prove sono i nomi dei campi, i tipi e le unita' di misura,",
+    "e quelli sono veri.",
+    "",
+    "Disegno: docs/superpowers/specs/2026-11-24-rubinetto-carlock-design.md"
+  ],
+
+  "_unita_di_misura": {
+    "timestamp": "millisecondi dal 1970, UTC. Stessa scala in trips e in locations.",
+    "distance": "METRI. 124929 sono 124,9 km.",
+    "date_from/date_to": "millisecondi, come sopra",
+    "page": "si conta da ZERO",
+    "page_size": "se non lo mandi, ne torna 20 -- e total_count dice quanti sono in tutto"
+  },
+
+  "login": {
+    "_via": "POST /v2/user/login  {email, password_hash: SHA-256 esadecimale}  -> 201",
+    "token": "00000000-0000-4000-8000-000000000000",
+    "account_uuid": "11111111-1111-4111-8111-111111111111",
+    "is_account_owner": true,
+    "vehicles": ["22222222-2222-4222-8222-222222222222"]
+  },
+
+  "user_vehicles": {
+    "_via": "GET /v2/user/vehicles",
+    "vehicles": [
+      {
+        "uuid": "22222222-2222-4222-8222-222222222222",
+        "name": "Camper di prova",
+        "time_zone_id": "Europe/Rome",
+        "subscription_tier": "STANDARD_PLUS",
+        "subscription_status": "ACTIVE",
+        "device_serial_number": "SN-FINTO-0000",
+        "_altri_campi": "ce ne sono una trentina: immagine, piani, SIM, batteria di riserva. Non ci servono."
+      }
+    ]
+  },
+
+  "trips_elenco": {
+    "_via": "GET /v2/vehicle/<uuid>/trips?ascending=true&date_from=<ms>&date_to=<ms>&page=0&page_size=50",
+    "_nota": "`locations` torna VUOTO nell'elenco: i punti si chiedono un tragitto per volta.",
+    "total_count": 2,
+    "trips": [
+      {
+        "uuid": "33333333-3333-4333-8333-333333333333",
+        "start_time": 1700000000000,
+        "end_time": 1700000600000,
+        "distance": 8086,
+        "score": 95,
+        "tag": "PERSONAL",
+        "start_location": {
+          "timestamp": 1700000000000,
+          "latitude": 45.000001,
+          "longitude": 11.000001,
+          "address": "Via Finta 1, 30000 Paese Inventato, Italia",
+          "altitude": null,
+          "speed": null,
+          "heading": null,
+          "number_of_satellites": null
+        },
+        "end_location": {
+          "timestamp": 1700000600000,
+          "latitude": 45.100001,
+          "longitude": 11.100001,
+          "address": "Via Immaginaria 2, 30001 Altro Paese, Italia",
+          "altitude": null,
+          "speed": null,
+          "heading": null,
+          "number_of_satellites": null
+        },
+        "locations": [],
+        "notifications": [],
+        "beacon": null
+      },
+      {
+        "uuid": "44444444-4444-4444-8444-444444444444",
+        "start_time": 1700001000000,
+        "end_time": 1700010840000,
+        "distance": 183979,
+        "score": 88,
+        "tag": "PERSONAL",
+        "start_location": {
+          "timestamp": 1700001000000,
+          "latitude": 45.100001,
+          "longitude": 11.100001,
+          "address": "Via Immaginaria 2, 30001 Altro Paese, Italia",
+          "altitude": null,
+          "speed": null,
+          "heading": null,
+          "number_of_satellites": null
+        },
+        "end_location": {
+          "timestamp": 1700010840000,
+          "latitude": 46.000001,
+          "longitude": 13.000001,
+          "address": "Piazza Inesistente 3, 30002 Terzo Paese, Italia",
+          "altitude": null,
+          "speed": null,
+          "heading": null,
+          "number_of_satellites": null
+        },
+        "locations": [],
+        "notifications": [],
+        "beacon": null
+      }
+    ]
+  },
+
+  "trip_singolo": {
+    "_via": "GET /v2/trip/<uuid>",
+    "_nota": [
+      "Lo stesso oggetto dell'elenco, ma con `locations` pieno: nel caso vero 603",
+      "punti per un tragitto di 184 km, uno ogni quindici secondi circa.",
+      "`address` sui punti e' quasi sempre NULL: ce l'hanno i due capi, non la scia."
+    ],
+    "uuid": "44444444-4444-4444-8444-444444444444",
+    "start_time": 1700001000000,
+    "end_time": 1700010840000,
+    "distance": 183979,
+    "score": 88,
+    "tag": "PERSONAL",
+    "start_location": {
+      "timestamp": 1700001000000,
+      "latitude": 45.100001,
+      "longitude": 11.100001,
+      "address": "Via Immaginaria 2, 30001 Altro Paese, Italia",
+      "altitude": null, "speed": null, "heading": null, "number_of_satellites": null
+    },
+    "end_location": {
+      "timestamp": 1700010840000,
+      "latitude": 46.000001,
+      "longitude": 13.000001,
+      "address": "Piazza Inesistente 3, 30002 Terzo Paese, Italia",
+      "altitude": null, "speed": null, "heading": null, "number_of_satellites": null
+    },
+    "locations": [
+      { "timestamp": 1700001000000, "latitude": 45.100001, "longitude": 11.100001, "altitude": 120, "speed": 0, "heading": 0, "number_of_satellites": 11, "address": null },
+      { "timestamp": 1700001015000, "latitude": 45.110001, "longitude": 11.120001, "altitude": 124, "speed": 48, "heading": 95, "number_of_satellites": 12, "address": null },
+      { "timestamp": 1700001030000, "latitude": 45.120001, "longitude": 11.140001, "altitude": 131, "speed": 71, "heading": 97, "number_of_satellites": 12, "address": null },
+      { "timestamp": 1700010840000, "latitude": 46.000001, "longitude": 13.000001, "altitude": 108, "speed": 0, "heading": 180, "number_of_satellites": 10, "address": null }
+    ],
+    "notifications": [],
+    "beacon": null
+  },
+
+  "errore": {
+    "_via": "qualunque, quando va storto",
+    "id": "00000000-0000-0000-0000-000000000000",
+    "http_status": 400,
+    "code": "INVALID_REQUEST",
+    "description": "Invalid request.",
+    "details": "[PARAMETER]\r[login.arg4.passwordHash]\r[may not be empty]\r[]\r\r",
+    "timestamp": 1700000000000
+  }
+}
