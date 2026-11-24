@@ -222,6 +222,15 @@ export function comePunti(tragitto, fuso = 'Europe/Rome') {
 const PAGINE_MASSIME = 200;
 const PER_PAGINA = 200;
 
+// Quanto si aspetta una risposta, al massimo.
+//
+// `fetch` non ha un tempo massimo di suo: senza questo, un servizio appeso --
+// e questo non ci ha promesso niente -- tiene appesa la richiesta che lo
+// aspetta. Trovato il 24/11/2026, quando la pagina di un viaggio ha
+// cominciato ad aspettare un accesso a CarLock per sapere se mostrare un
+// cartello.
+const ATTESA_MS = Number(process.env.CARLOCK_TIMEOUT_MS) || 12000;
+
 /**
  * Apre il rubinetto.
  *
@@ -257,6 +266,7 @@ export function creaRubinetto({ email, password, uuid = null, fetch: f = fetch }
       method: 'POST',
       headers: intestazioni(false),
       body: JSON.stringify({ email, password_hash: hashPassword(password) }),
+      signal: AbortSignal.timeout(ATTESA_MS),
     });
     const d = await r.json().catch(() => null);
     if (r.status !== 200 && r.status !== 201) throw guasto('/user/login', r.status, d);
@@ -274,7 +284,8 @@ export function creaRubinetto({ email, password, uuid = null, fetch: f = fetch }
    */
   async function chiedi(via, rinnovato = false) {
     if (!gettone) await accedi();
-    const r = await f(`${BASE}${via}`, { method: 'GET', headers: intestazioni(true) });
+    const r = await f(`${BASE}${via}`, { method: 'GET', headers: intestazioni(true),
+      signal: AbortSignal.timeout(ATTESA_MS) });
     if (r.status === 401 && !rinnovato) {
       gettone = null;
       await accedi();
@@ -337,5 +348,16 @@ export function creaRubinetto({ email, password, uuid = null, fetch: f = fetch }
     return chiedi(`/trip/${encodeURIComponent(uuidTragitto)}`);
   }
 
-  return { tragittiDelPeriodo, puntiDelTragitto, veicolo, configurato };
+  /**
+   * Il veicolo **se lo sappiamo gia'**, senza toccare la rete.
+   *
+   * Serve a chi non puo' permettersi di aspettare: la pagina di un viaggio
+   * vuole sapere quanti mesi di storico c'e' per decidere se mostrare un
+   * cartello, e quel numero non vale un'attesa su un servizio non
+   * documentato. `null` vuol dire «non lo so ancora», e chi chiede decide
+   * cosa farne.
+   */
+  const veicoloNoto = () => suo;
+
+  return { tragittiDelPeriodo, puntiDelTragitto, veicolo, veicoloNoto, configurato };
 }

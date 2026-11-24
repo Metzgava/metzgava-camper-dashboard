@@ -465,7 +465,7 @@ export async function datiViaggio(id) {
     // rubinetto per decidere **senza chiamare nessuno** se comparire. Senza
     // rubinetto configurato, o se il veicolo non si e' potuto leggere, vale 3:
     // nel dubbio si chiede meno, non si inventa.
-    carlock_mesi_storico: await mesiStoricoDelConto(),
+    carlock_mesi_storico: mesiStoricoDelConto(),
     materiali: await materialiDi(trip.id), totals: await tripTotals(trip.id) };
 }
 
@@ -1328,14 +1328,26 @@ const MIN_KM_RUBINETTO = 3, UNISCI_MIN = 30;
 // Se CarLock non risponde si torna 3 e non si alza la voce: il cartello sara'
 // piu' prudente del necessario, e la pagina del viaggio non si accorge di
 // niente.
-async function mesiStoricoDelConto() {
-  // **Zero quando il rubinetto e' spento**, cosi' il cartello in pagina non
-  // compare: la pagina non puo' saperlo da se'. Tre -- il piano piu' piccolo
-  // -- quando il rubinetto c'e' ma CarLock non ha risposto: li' il cartello
-  // sara' piu' prudente del necessario, e si puo' chiedere davvero.
-  if (!rubinetto().configurato) return mesiDiStorico(null, { configurato: false });
-  try { return mesiDiStorico((await rubinetto().veicolo()).subscription_tier); }
-  catch { return 3; }
+// **Non aspetta nessuno.** Questo numero finisce nella pagina di ogni viaggio
+// e decide soltanto se un cartello compare: non vale un'attesa su un servizio
+// non documentato. Trovato il 24/11/2026, appena le credenziali sono andate in
+// produzione -- `datiViaggio` lo aspettava, e a processo freddo quell'attesa
+// era un accesso a CarLock.
+//
+// Quindi: si guarda solo quel che si sa gia'. Se non si sa, si risponde col
+// piano piu' piccolo e si scalda la cache **in sottofondo**, senza che nessuno
+// stia a guardare: la prima apertura e' prudente, la seconda giusta.
+//
+// Zero quando il rubinetto e' spento, cosi' il cartello non compare: la pagina
+// non puo' saperlo da se'.
+function mesiStoricoDelConto() {
+  const r = rubinetto();
+  if (!r.configurato) return mesiDiStorico(null, { configurato: false });
+  const noto = r.veicoloNoto();
+  if (noto) return mesiDiStorico(noto.subscription_tier);
+  // In sottofondo, e un guasto qui non deve diventare un rifiuto non gestito.
+  r.veicolo().catch(e => console.warn('CarLock: veicolo non letto:', String(e.message).slice(0, 120)));
+  return 3;
 }
 
 const nonConfigurato = res =>

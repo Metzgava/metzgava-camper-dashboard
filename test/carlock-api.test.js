@@ -207,3 +207,40 @@ test('senza credenziali il rubinetto dice che non e’ configurato, invece di pr
   const r = creaRubinetto({ email: '', password: '', fetch: async () => risposta({}, 200) });
   await assert.rejects(() => r.veicolo(), /configurat/i);
 });
+
+// ---------------------------------------------------------------------------
+// Il veicolo gia' noto, e il tempo massimo di attesa
+// ---------------------------------------------------------------------------
+//
+// Trovato il 24/11/2026, appena le credenziali sono andate in produzione:
+// `datiViaggio` aspettava `mesiStoricoDelConto()`, che a processo freddo fa un
+// accesso a CarLock. `fetch` non ha un tempo massimo di suo, quindi la pagina
+// di un viaggio restava appesa a un servizio non documentato -- per un numero
+// che decide soltanto se un cartello compare.
+//
+// Due cose: si puo' chiedere **se il veicolo e' gia' noto** senza toccare la
+// rete, e ogni chiamata ha un tempo massimo.
+test('si puo’ sapere se il veicolo e’ gia’ noto senza chiamare nessuno', async () => {
+  let chiamate = 0;
+  const finto = async url => { chiamate++; return risposta(
+    String(url).includes('/user/login') ? FORME.login : FORME.user_vehicles,
+    String(url).includes('/user/login') ? 201 : 200); };
+  const r = creaRubinetto({ email: 'a@b.c', password: 'x', fetch: finto });
+  assert.equal(r.veicoloNoto(), null, 'si e’ inventato un veicolo mai letto');
+  assert.equal(chiamate, 0, 'chiedere «lo sai?» ha fatto una chiamata');
+  await r.veicolo();
+  assert.equal(r.veicoloNoto()?.time_zone_id, 'Europe/Rome');
+  const prima = chiamate;
+  r.veicoloNoto();
+  assert.equal(chiamate, prima, 'rileggere quel che si sa gia’ fa una chiamata');
+});
+
+test('ogni chiamata ha un tempo massimo: un servizio appeso non appende noi', async () => {
+  const viste = [];
+  const finto = async (url, opz) => { viste.push(opz); return risposta(
+    String(url).includes('/user/login') ? FORME.login : FORME.user_vehicles,
+    String(url).includes('/user/login') ? 201 : 200); };
+  await creaRubinetto({ email: 'a@b.c', password: 'x', fetch: finto }).veicolo();
+  for (const o of viste)
+    assert.ok(o.signal, 'una chiamata senza tempo massimo puo’ restare appesa per sempre');
+});

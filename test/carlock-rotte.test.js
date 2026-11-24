@@ -195,3 +195,31 @@ test('non si offre di togliere un traghetto o un aereo', () => {
   assert.match(sorgente.slice(i, i + 500), /mezzo/,
     'si offre di cancellare tappe che il tracker non puo’ sostituire');
 });
+
+test('la pagina di un viaggio non aspetta CarLock', () => {
+  // Trovato il 24/11/2026, appena le credenziali sono andate in produzione:
+  // `datiViaggio` aspettava un accesso a CarLock per sapere quanti mesi di
+  // storico c'e'. `fetch` non ha un tempo massimo di suo, quindi la pagina di
+  // un viaggio restava appesa a un servizio non documentato -- per un numero
+  // che decide soltanto se un cartello compare.
+  //
+  // Adesso si guarda solo quel che si sa gia' (`veicoloNoto`), e se non si sa
+  // si risponde col piano piu' piccolo scaldando la cache **in sottofondo**:
+  // la prima apertura e' prudente, la seconda giusta, e nessuna aspetta.
+  // La finestra e' la funzione, non tot caratteri: 900 caratteri sfondavano in
+  // `periodoDelRubinetto`, che invece **deve** aspettare -- quello e' il
+  // percorso del tocco, dove l'attesa e' quel che il proprietario ha chiesto.
+  const i = sorgente.indexOf('function mesiStoricoDelConto');
+  assert.ok(i > 0, 'il numero dei mesi non si calcola piu’');
+  const chiude = sorgente.indexOf('\n}', i);
+  assert.ok(chiude > i, 'la funzione dei mesi non si delimita');
+  const corpo = sorgente.slice(i, chiude);
+  assert.match(corpo, /veicoloNoto\(\)/, 'si chiede il veicolo invece di guardare se si sa gia’');
+  assert.doesNotMatch(corpo, /await /, 'la pagina di un viaggio aspetta una chiamata a CarLock');
+  // E il campo non si aspetta nemmeno dove viene messo nella risposta.
+  const d = sorgente.indexOf('carlock_mesi_storico:');
+  assert.ok(d > 0, 'il viaggio non porta piu’ i mesi di storico');
+  // Solo quella riga: quelle accanto hanno degli `await` che ci stanno bene.
+  const riga = sorgente.slice(d, sorgente.indexOf('\n', d));
+  assert.doesNotMatch(riga, /await/, 'il campo si aspetta dentro `datiViaggio`');
+});
