@@ -34,10 +34,34 @@ h1 { font-size: 26px; font-weight: 700; } h2 { font-size: 18px; font-weight: 650
 .ico svg { width: 1.25em; height: auto; display: block; margin: 0 auto; }
 .sidebar .user { margin-top: auto; padding: 10px 12px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
 main { flex: 1; min-width: 0; padding: 24px clamp(16px, 4vw, 40px) 90px; max-width: 1180px; }
+
+/* In cima resta scritto dove sei, anche mentre scorri. Le pagine sono lunghe
+   e il titolo della sezione scorre via dopo due dita; sul telefono la barra
+   delle sezioni sta in basso e mostra icone, sul computer la colonna di
+   sinistra e' fuori da dove stai guardando.
+
+   **Piena, non velata.** Sull'altra app una fascia velata lasciava vedere il
+   contenuto che le scorreva sotto, e il risultato non era ne' sfondo ne'
+   testo: «la parte alta opaca». Qui si parte gia' corretti.
+
+   I margini negativi la portano da bordo a bordo nonostante il padding di
+   `main`; il padding in cima tiene conto della tacca dell'iPhone. */
+.dove {
+  position: sticky; top: 0; z-index: 40;
+  margin: -24px clamp(-40px, -4vw, -16px) 16px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) clamp(16px, 4vw, 40px) 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font-size: 15px; font-weight: 650; letter-spacing: -.01em;
+  display: flex; align-items: center; gap: 8px;
+}
+.dove .ico { font-size: 17px; line-height: 1; }
 .tabbar { display: none; }
 @media (max-width: 800px) {
   .sidebar { display: none; }
   main { padding: 16px 16px calc(84px + env(safe-area-inset-bottom)); }
+  /* Col padding del telefono cambiano anche i margini che la portano a bordo. */
+  .dove { margin: -16px -16px 14px; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; }
   .tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); z-index: 50; }
   /* Con sette voci su un telefono le scritte si pestano i piedi: invece di
      stringerle fino a non leggerle piu', la barra scorre di lato. Chi ne ha

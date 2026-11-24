@@ -2230,12 +2230,24 @@ const nav = () => [
   ['#/riepiloghi', '📊', 'Riepiloghi'],
   ['#/impostazioni', '⚙️', 'Impostazioni'],
 ];
-function layout(content) {
+// `dove` e' il titolo da scrivere nella fascia in cima quando la sezione da
+// sola non basta: dentro un viaggio «Viaggi» dice meno del nome del viaggio.
+// Omesso, si usa il nome della sezione.
+function layout(content, dove = null) {
   const h = location.hash || '#/';
   const active = x => (x === '#/' ? (h === '#/' || h.startsWith('#/trip')) : h.startsWith(x)) ? 'active' : '';
   const links = nav().map(([href, ico, l]) => `<a href="${href}" class="${active(href)}"><span class="ico">${ico}</span>${l}</a>`).join('');
+  // In cima resta scritto dove sei, anche a meta' pagina. Le pagine sono
+  // lunghe e il titolo scorre via dopo due dita: sul telefono la barra delle
+  // sezioni sta in **basso** e mostra icone, sul computer la colonna di
+  // sinistra ce l'ha ma e' fuori da dove stai guardando.
+  //
+  // Il nome viene da `nav()`, che e' gia' l'elenco delle sezioni: scriverlo
+  // una seconda volta vorrebbe dire che un giorno i due diranno cose diverse.
+  const qui = nav().find(([href]) => active(href)) || nav()[0];
+  const fascia = `<div class="dove"><span class="ico">${qui[1]}</span>${esc(dove || qui[2])}</div>`;
   return `<aside class="sidebar"><div class="brand"><img src="icon.svg?v=2" alt="">Camper</div><nav class="nav">${links}</nav><div class="user">${esc(user.name)}<br><a href="#" data-logout>Esci</a></div></aside>
-  <main>${content}</main><nav class="tabbar">${links}</nav>`;
+  <main>${fascia}${content}</main><nav class="tabbar">${links}</nav>`;
 }
 
 // ---------- Auth ----------
@@ -3591,7 +3603,7 @@ async function viewTrip(id) {
           <div class="small muted"><i class="segno-atleta" style="border-top-style:${trattoDi(nome)[1]}"></i> ${suoi.length} ${suoi.length === 1 ? 'uscita' : 'uscite'}${km >= 0.1 ? ` \u00b7 ${num(km)} km` : ''}</div></div>
           <div class="list">${suoi.map(w => `<a class="item" href="#/allenamento/${w.id}"><div class="sport-ico">${sportIco(w.sport)}</div><div class="grow"><div class="title">${esc(w.name || w.sport || 'Allenamento')}</div><div class="meta">${fdt(w.started_at)} \u00b7 ${num((w.distance_m || 0) / 1000)} km \u00b7 ${dur(w.duration_s)}${w.elevation_up_m ? ' \u00b7 \u26f0\ufe0f ' + w.elevation_up_m + ' m' : ''}${w.hr_avg ? ' \u00b7 \u2764\ufe0f ' + w.hr_avg : ''}${w.calories ? ' \u00b7 \ud83d\udd25 ' + w.calories : ''}</div></div>${w.track?.length > 1 ? `<button class="btn ghost icon rivedi-uno" data-rivedi-uno="${w.id}" title="Rivedi questo percorso sulla mappa">\u25b6</button>` : ''}</a>`).join('')}</div></div>`;
       }).join('') : '<div class="card pad-0"><div style="padding:14px 16px 6px"><h2>Allenamenti del viaggio</h2></div><div class="empty">Gli allenamenti nelle date del viaggio compaiono qui automaticamente.</div></div>'}
-    </div>`);
+    </div>`, trip.title);
 
   // La mappa, la legenda e i tasti per rivedere: gli stessi che vede l\u2019ospite
   mappaDelViaggio($('#map'), d);
