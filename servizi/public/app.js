@@ -283,6 +283,37 @@ const STANZE = [
   ['#/impianto', '🔧', 'Impianto'],
 ];
 
+// Quanto sono vecchi i dati del camper, in testata.
+//
+// Qui c'era «letto alle HH:MM», e dietro c'era l'istante in cui il **server**
+// aveva composto la risposta: diceva quanto fa avevi ricaricato, e sembrava
+// dire quanto erano freschi i numeri sotto. Il 28/11/2026 ha ingannato chi ha
+// scritto il codice, che lo stava guardando proprio per sapere se la
+// scatoletta mandasse ancora dopo un cambio di SIM: diceva 12:43 ed erano le
+// 12:43:59.
+//
+// E' il verso rassicurante, il piu' pericoloso: un numero fresco accanto a
+// un'etichetta che suona come l'eta' del dato non lo mette in dubbio nessuno.
+//
+// Adesso dice da quanto non parla il camper. Tre stati, perche' sono tre cose
+// diverse: fresco, vecchio (e **in ambra**, come la riga dentro il riquadro
+// delle batterie), oppure non e' mai arrivato niente -- che non e' «zero
+// minuti fa».
+const VECCHI_DOPO_MINUTI = 10;
+
+function etaInTestata() {
+  const m = dati?.dati_eta_minuti;
+  if (m == null) {
+    return dati ? '<span style="color:var(--ambra)">nessun dato dal camper</span>' : '';
+  }
+  if (m <= 3) return 'dati di adesso';
+  // `dilloInMinuti` il «fa» ce l'ha gia' dentro, in tutti i suoi rami.
+  const detto = `dati di ${dilloInMinuti(m)}`;
+  return m >= VECCHI_DOPO_MINUTI
+    ? `<span style="color:var(--ambra)">${detto}</span>`
+    : detto;
+}
+
 function guscio(dentro) {
   const h = location.hash || '#/adesso';
   const voci = STANZE.map(([v, i, n]) =>
@@ -293,7 +324,7 @@ function guscio(dentro) {
       <header class="testata">
         <img src="icona.svg" alt="">
         <h1>Camper Servizi</h1>
-        <div class="quando">${dati?.letto_il ? 'letto alle ' + ora(dati.letto_il) : ''}<br>
+        <div class="quando">${etaInTestata()}<br>
           <button class="btn piccolo" id="rileggi" style="margin-top:4px">↻ rileggi</button></div>
       </header>
       <main id="vista">${dentro}</main>

@@ -14,6 +14,7 @@ import { statoBluetti, collegato, associa, comanda, COMANDI,
 import { tuttiIConti, impianto, etaEctiveMinuti } from '../lib/conti.js';
 import { leggiTravaso } from '../lib/travaso.js';
 import { ramiDellaCarica, ramiDellaBluetti } from '../lib/flusso.js';
+import { etaDeiDati } from '../lib/eta-dati.js';
 import { serieUscite, passoDelGrafico, FINE_MAX } from '../lib/storico.js';
 import { segnaOcchiata, ritmoRichiesto, ultimaOcchiata } from '../lib/occhiata.js';
 import { serveAccesso } from './auth.js';
@@ -157,8 +158,20 @@ router.get('/stato', wrap(async (req, res) => {
   // oppure il contenitore e' appena ripartito e il primo giro non c'e'
   // ancora stato: la pagina in quel caso non mostra niente, invece di
   // mostrare un numero inventato.
+  // **Due orari diversi, e tenerli distinti e' il punto.**
+  //
+  // `letto_il` e' quando il server ha composto questa risposta: serve alla
+  // pagina per sapere se sta guardando roba sua di dieci minuti fa. Non dice
+  // **niente** sull'eta' dei dati, e in testata diceva «letto alle HH:MM»,
+  // che suonava esattamente come se lo dicesse.
+  //
+  // `dati_eta_minuti` e' la cosa che si vuole sapere davvero: da quanto non
+  // parla il camper. Vedi lib/eta-dati.js.
+  const eta = etaDeiDati(ultimi);
   res.json({
     letto_il: new Date().toISOString(),
+    dati_il: eta.quando,
+    dati_eta_minuti: eta.eta_minuti,
     passo_minuti: passoMinuti(),
     // Il passo che la scatoletta sta tenendo adesso: quando qualcuno guarda
     // va svelta, e la pagina deve aggiornarsi altrettanto spesso -- altrimenti
