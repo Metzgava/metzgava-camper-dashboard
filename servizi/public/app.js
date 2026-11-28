@@ -7,6 +7,7 @@
 
 import { rifondi } from './rifondi.js';
 import { istantanea, scorri } from './scorri.js';
+import { comprimiNelTesto } from './note.js';
 
 const $ = (s, d = document) => d.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1613,6 +1614,27 @@ function vistaAccesso(primoAvvio) {
 
 // ---------- il giro ----------
 
+// Quali note ha aperto, per chiave. Vive fuori dal disegno perche' deve
+// sopravvivergli: `#/adesso` ed `#/energia` si rifanno ogni due secondi e
+// mezzo, e senza questo una nota aperta si richiuderebbe in faccia.
+//
+// In memoria e non in `localStorage`: alla riapertura della pagina e' giusto
+// che siano chiuse -- e' tutto il senso della richiesta.
+const NOTE_APERTE = new Set();
+
+// Il tocco sul sommario si prende **delegato** su `#app`: i nodi cambiano a
+// ogni giro, e un gestore attaccato a ciascun sommario andrebbe riattaccato
+// ogni volta. `toggle` non risale, `click` si'.
+document.addEventListener('click', ev => {
+  const s = ev.target.closest?.('details.nota > summary');
+  if (!s) return;
+  const chiave = s.parentElement.dataset.chiave;
+  if (!chiave) return;
+  // Al momento del tocco `open` e' ancora quello di prima: lo stato nuovo e'
+  // il suo contrario.
+  if (s.parentElement.open) NOTE_APERTE.delete(chiave); else NOTE_APERTE.add(chiave);
+});
+
 async function disegna() {
   const h = location.hash || '#/adesso';
   if (!location.hash) location.hash = '#/adesso';
@@ -1632,7 +1654,11 @@ async function disegna() {
   // L'istantanea si prende **prima**: dopo, i numeri in pagina sono gia' quelli
   // nuovi e non ci sarebbe piu' traccia di dove stavano.
   const prima = istantanea($('#app'));
-  rifondi($('#app'), guscio(dentro));
+  // Le note lunghe si chiudono **qui**, sul testo, e non dopo nel DOM:
+  // `rifondi` confronta, e una modifica fatta dopo il disegno verrebbe
+  // annullata al giro successivo. Una chiamata sola, e vale per tutte le
+  // pagine e per le note che verranno. Vedi note.js.
+  rifondi($('#app'), comprimiNelTesto(guscio(dentro), NOTE_APERTE));
   scorri($('#app'), prima);
   aggancia();
   // Di ritorno dalla pagina di Bluetti: si dice com'è andata e si pulisce
