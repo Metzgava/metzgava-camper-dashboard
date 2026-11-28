@@ -7,7 +7,8 @@
 
 import { rifondi } from './rifondi.js';
 import { istantanea, scorri } from './scorri.js';
-import { comprimiNelTesto, riassuntoAttesi, riassuntoCalcolo } from './note.js';
+import { comprimiNelTesto, riassuntoAttesi, riassuntoCalcolo,
+         riassuntoRegistro } from './note.js';
 
 const $ = (s, d = document) => d.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1389,12 +1390,21 @@ async function vistaStoria() {
     </div>
 
     <div class="titolo">Registro</div>
-    <div class="scheda">${(ev.eventi || []).length
-      ? ev.eventi.slice(0, 30).map(e => `<div class="riga">
-          <div class="cresci"><div>${esc(e.testo)}</div>
-            <div class="perche">${new Date(e.quando).toLocaleString('it-IT')}${e.chi ? ' · ' + esc(e.chi) : ''}</div></div>
-        </div>`).join('')
-      : '<div class="vuoto">Ancora niente da raccontare.</div>'}</div>`;
+    ${!(ev.eventi || []).length
+      ? '<div class="scheda"><div class="vuoto">Ancora niente da raccontare.</div></div>'
+      // Chiuso, come gli altri blocchi grossi: fino a trenta voci una sotto
+      // l'altra, e lo si guarda quando **e' successo qualcosa**. Il sommario
+      // dice quante e quando e' l'ultima, cioe' le due cose per cui lo si
+      // apriva: senza la data bisognerebbe aprirlo ogni volta per sapere se
+      // e' cambiato niente.
+      : `<details class="scheda" data-chiave="registro"${apertoSe('registro')} style="padding:12px 14px">
+          <summary style="cursor:pointer">${esc(riassuntoRegistro(ev.eventi,
+            q => new Date(q).toLocaleString('it-IT')))}</summary>
+          <div style="margin-top:10px">${ev.eventi.slice(0, 30).map(e => `<div class="riga">
+            <div class="cresci"><div>${esc(e.testo)}</div>
+              <div class="perche">${new Date(e.quando).toLocaleString('it-IT')}${e.chi ? ' · ' + esc(e.chi) : ''}</div></div>
+          </div>`).join('')}</div>
+        </details>`}`;
 }
 
 // ---------- la taratura ----------

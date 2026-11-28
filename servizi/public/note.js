@@ -162,3 +162,28 @@ export function riassuntoAttesi(attesi) {
   if (mai) pezzi.push(mai === 1 ? '1 non ancora collegato' : `${mai} non ancora collegati`);
   return pezzi.join(', ');
 }
+
+/**
+ * La riga che si legge col Registro chiuso: quante voci, e quando l'ultima.
+ *
+ * `quandoDetto` si passa da fuori: cosi' questa funzione non dipende dal
+ * fuso ne' dalla lingua della macchina, e la prova non e' ballerina.
+ *
+ * **Si cerca la piu' recente, non si prende la prima.** Se le voci
+ * arrivassero dalla piu' vecchia, prendere la prima direbbe che non succede
+ * niente da giorni mentre e' appena successo qualcosa -- una bugia
+ * silenziosa, e nella direzione che tranquillizza.
+ */
+export function riassuntoRegistro(eventi, quandoDetto) {
+  const tutti = eventi || [];
+  if (!tutti.length) return '';
+  const quante = tutti.length === 1 ? '1 voce' : `${tutti.length} voci`;
+  let ultima = null;
+  for (const e of tutti) {
+    const t = new Date(e?.quando).getTime();
+    if (Number.isFinite(t) && (ultima == null || t > ultima)) ultima = t;
+  }
+  // Nessuna data leggibile: si dice quel che si sa invece di mostrare
+  // «Invalid Date».
+  return ultima == null ? quante : `${quante} · l’ultima ${quandoDetto(ultima)}`;
+}

@@ -262,3 +262,54 @@ test('ogni details con una chiave sa anche RIAPRIRSI dopo il ridisegno', () => {
       `«${chiave}» non si riapre dopo il ridisegno: ${intero.slice(0, 70)}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Il Registro della pagina Storia
+// ---------------------------------------------------------------------------
+//
+// Fino a trenta voci, una sotto l'altra: e' il blocco piu' alto di Storia, e
+// lo si guarda quando e' successo qualcosa -- non a ogni apertura.
+//
+// Chiuso deve dire **quante** e **quando e' l'ultima**: sono le due cose per
+// cui lo si apriva. Senza la data, per sapere se e' cambiato qualcosa
+// bisognerebbe aprirlo ogni volta, e non si sarebbe guadagnato niente.
+import { riassuntoRegistro } from '../public/note.js';
+
+const quando = d => new Date(d).toISOString().slice(0, 16).replace('T', ' ');
+
+test('il registro chiuso dice quante voci e quando e’ l’ultima', () => {
+  const r = riassuntoRegistro([
+    { quando: '2026-11-28T14:15:00Z' },
+    { quando: '2026-11-28T09:02:00Z' },
+  ], quando);
+  assert.match(r, /2/, `non dice quante sono: «${r}»`);
+  assert.match(r, /14:15/, `non dice quando e’ l’ultima: «${r}»`);
+});
+
+test('non si fida dell’ordine in cui arrivano', () => {
+  // **La prova che evita una bugia silenziosa.** Se le voci arrivassero dal
+  // piu' vecchio al piu' recente e prendessimo la prima, il riassunto
+  // direbbe che non succede niente da giorni mentre e' appena successo.
+  const crescente = [
+    { quando: '2026-11-20T08:00:00Z' },
+    { quando: '2026-11-28T14:15:00Z' },
+  ];
+  assert.match(riassuntoRegistro(crescente, quando), /14:15/,
+    'ha preso la prima voce invece della piu’ recente');
+});
+
+test('con una voce sola non scrive al plurale', () => {
+  const r = riassuntoRegistro([{ quando: '2026-11-28T14:15:00Z' }], quando);
+  assert.doesNotMatch(r, /voci\b/, `plurale con una sola: «${r}»`);
+});
+
+test('registro vuoto: riassunto vuoto, cosi’ non si chiude una scatola vuota', () => {
+  assert.equal(riassuntoRegistro([], quando), '');
+  assert.equal(riassuntoRegistro(null, quando), '');
+});
+
+test('una data storta non diventa «Invalid Date» in faccia', () => {
+  const r = riassuntoRegistro([{ quando: 'non una data' }], quando);
+  assert.doesNotMatch(r, /Invalid|NaN/, `mostra una data rotta: «${r}»`);
+  assert.match(r, /1/, 'ha perso anche il conteggio');
+});
