@@ -68,3 +68,47 @@ non torna. Un annuncio qualunque letto con la chiave sbagliata dà un numero
 plausibile, ed è il tipo di errore peggiore, perché rassicura: un Hub Mini
 SwitchBot — un telecomando a infrarossi — si leggeva come −6,1 gradi in un
 camper che non ha congelatori.
+
+## «Non si sente» quasi sempre vuol dire «siamo noi»
+
+Un apparecchio Bluetooth **con un cliente attaccato smette di annunciarsi a
+tutti gli altri**. Da fuori è indistinguibile da uno spento, e la sonda
+scriveva «la Bluetti non si sente».
+
+`async with BleakClient(...)` chiude il collegamento quando il blocco finisce e
+anche se dentro scoppia un errore, ma **non può fare niente contro un segnale
+che uccide il processo**. I servizi della raccolta hanno
+`KillMode=control-group` e `KillSignal=15`: un `systemctl restart` manda
+SIGTERM anche al python che sta fotografando. Il collegamento resta aperto
+dentro bluetoothd e **niente lo pulisce mai più**, perché nessun processo lo
+possiede.
+
+È accaduto il **21/11/2026 alle 11:01** — `raccolta.sh` modificato alle 11:00,
+ultima fotografia riuscita alle 11:01:06 — e per **sette giorni** la raccolta
+ha scritto «non si sente» ogni mezz'ora, 58 giri di fila, mentre la Bluetti
+funzionava benissimo. Nel frattempo al proprietario sono state fatte fare prove
+inutili: spegnere, accendere, chiudere l'app, cambiare modalità, svegliare il
+display. Nessuna poteva funzionare.
+
+Adesso ci sono tre strati, e nessuno dei tre basta da solo:
+
+1. `async with` per l'uscita normale e per gli errori;
+2. **SIGTERM e SIGINT si prendono al volo** e diventano una cancellazione, così
+   la chiusura avviene; più un `finally` che chiude a mano, perché durante una
+   cancellazione l'`await` di bleak può essere interrotto a metà;
+3. **la guarigione al giro dopo**: se la ricerca non sente niente, la sonda
+   chiede a bluetoothd chi è collegato e se uno di quelli ha il nome che
+   cercava — lo stacca e riprova, dicendolo. Contro SIGKILL è l'unico strato
+   che tiene.
+
+La logica che decide sta in `../collegamenti.py`, separata dai comandi che
+eseguono, e si prova senza radio (`../prove/test_collegamenti.py`).
+
+**A mano**, quando serve capire in fretta:
+
+    hcitool con
+    bluetoothctl info 90:70:69:35:76:F2        # `Connected: yes` è la risposta
+    bluetoothctl disconnect 90:70:69:35:76:F2
+
+Niente `sudo`. E **dopo ogni fotografia conviene ricontrollare `hcitool con`**:
+lasciarne uno appeso ricrea il guasto.

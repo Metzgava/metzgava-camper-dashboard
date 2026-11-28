@@ -6,17 +6,31 @@
 # Si lancia piu' volte, in condizioni diverse (220 accesa, 220 spenta, un
 # carico attaccato): un registro che si muove insieme al valore del cloud e'
 # identificato; uno che coincide una volta sola e' un caso.
-import asyncio, json, os, struct, sys, time, logging
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import asyncio, json, os, signal, struct, sys, time, logging
+QUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, QUI)
+# `collegamenti` sta accanto a `agente.py`, e le due cartelle non stanno nello
+# stesso rapporto nei due posti: nel repository `sonda/` e' **dentro**
+# `scatoletta/`, sulla scatoletta sono **sorelle** sotto `~`. Si cercano
+# entrambe, invece di dare per buona una delle due e scoprirlo solo in camper.
+SOPRA = os.path.dirname(QUI)
+sys.path.insert(0, SOPRA)
+sys.path.insert(0, os.path.join(SOPRA, "scatoletta"))
 logging.basicConfig(level=logging.WARNING)
 
 from encryption import EncryptedConnection  # noqa: E402
+import collegamenti                          # noqa: E402
 
 SCRITTURA = "0000ff02-0000-1000-8000-00805f9b34fb"
 NOTIFICHE = "0000ff01-0000-1000-8000-00805f9b34fb"
 NOME = "EL300"                 # il prefisso del nome Bluetooth dell'Elite 300
 BLOCCO = 20                    # registri per richiesta
 FINO_A = 220                   # fin dove leggere
+
+# L'indirizzo a cui siamo collegati in questo momento, per poterlo chiudere se
+# usciamo per la via sbagliata. Si svuota appena la chiusura normale e'
+# avvenuta, cosi' nel caso buono non si fa niente in piu'.
+APERTO = {"indirizzo": None}
 
 # Si puo' puntare a un altro apparecchio dalla riga di comando:
 #   fotografia-bluetti.py CHARGER        -> il caricatore
@@ -58,14 +72,37 @@ async def main():
         nonlocal trovato
         if (d.name or "").upper().startswith(NOME):
             trovato = d.address
-    s = BleakScanner(detection_callback=senti)
-    await s.start(); await asyncio.sleep(12); await s.stop()
-    if not trovato:
-        print("la Bluetti non si sente"); return
+
+    async def cerca(secondi=12):
+        nonlocal trovato
+        trovato = None
+        s = BleakScanner(detection_callback=senti)
+        await s.start(); await asyncio.sleep(secondi); await s.stop()
+        return trovato
+
+    # **Prima di dire che non c'e', chiediti se sei tu a tenerlo occupato.**
+    #
+    # Il 21/11/2026 alle 11:01 un riavvio del servizio ha ucciso una
+    # fotografia a meta' (SIGTERM a tutto il gruppo), e il collegamento e'
+    # rimasto aperto dentro bluetoothd. Un apparecchio BLE con un cliente
+    # attaccato smette di annunciarsi: per **sette giorni** questa sonda ha
+    # scritto «non si sente» ogni mezz'ora mentre la Bluetti funzionava.
+    # Niente lo avrebbe mai pulito, perche' nessun processo lo possedeva piu'.
+    #
+    # Adesso si guarisce da se', al primo giro: vedi collegamenti.py.
+    if not await cerca():
+        liberato = collegamenti.libera(NOME)
+        if not liberato:
+            print("la Bluetti non si sente"); return
+        print(f"era un nostro collegamento appeso ({liberato}): staccato, riprovo")
+        if not await cerca(8):
+            print("la Bluetti non si sente nemmeno dopo averla liberata")
+            return
 
     quando = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"=== fotografia delle {quando} — {trovato} ===")
     raccolto = {}
+    APERTO["indirizzo"] = trovato
 
     async with BleakClient(trovato, timeout=25) as cliente:
         risposte = []
@@ -95,6 +132,10 @@ async def main():
             if vivi:
                 print(f"{inizio:>4}: " + "  ".join(f"[{r}]={v}" for r, v in vivi))
 
+    # Da qui in poi il collegamento e' chiuso da bleak per la via normale, e
+    # non c'e' piu' niente da garantire.
+    APERTO["indirizzo"] = None
+
     # Accanto allo strumento, non in /tmp: un riavvio non deve portarsele via.
     cartella = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foto")
     os.makedirs(cartella, exist_ok=True)
@@ -107,4 +148,40 @@ async def main():
     print("Ora servono i numeri del cloud dello stesso minuto:")
     print("  carica %, entra W, esce W, 220 V W, 12 V W")
 
-asyncio.run(main())
+# ----------------------------------------------------------------------------
+# Uscire senza lasciare il collegamento aperto
+# ----------------------------------------------------------------------------
+#
+# Tre strati, perche' nessuno dei tre basta da solo:
+#
+#   1. `async with` chiude quando il blocco finisce e anche se dentro scoppia
+#      un errore. Non puo' fare niente contro un segnale.
+#   2. **SIGTERM e SIGINT si prendono al volo** e si trasformano in una
+#      cancellazione: cosi' l'`async with` si srotola e chiude. E' il caso che
+#      ci e' costato la settimana -- `systemctl restart` della raccolta manda
+#      SIGTERM a tutto il gruppo.
+#   3. Il `finally` qui sotto chiude comunque, a mano, se siamo usciti per la
+#      via sbagliata: durante una cancellazione l'`await` di bleak puo' essere
+#      interrotto a metta' e la chiusura non arrivare in fondo.
+#
+# Contro SIGKILL non c'e' nessuno strato che tenga, e per quello serve la
+# guarigione al giro dopo (vedi `cerca` in `main`). Le due cose sono
+# complementari: questa evita di sporcare, quella ripulisce.
+async def avvio():
+    compito = asyncio.current_task()
+    try:
+        ciclo = asyncio.get_running_loop()
+        for quale in (signal.SIGTERM, signal.SIGINT):
+            ciclo.add_signal_handler(quale, compito.cancel)
+    except (NotImplementedError, RuntimeError):
+        pass                                   # non su tutte le piattaforme
+    try:
+        await main()
+    except asyncio.CancelledError:
+        print("\ninterrotto: chiudo il collegamento prima di uscire")
+    finally:
+        if APERTO["indirizzo"]:
+            collegamenti.stacca(APERTO["indirizzo"])
+
+
+asyncio.run(avvio())
