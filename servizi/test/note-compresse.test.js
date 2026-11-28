@@ -180,3 +180,85 @@ test('passarci due volte non raddoppia niente', () => {
   const una = comprimiNelTesto(BOX(TESTO_LUNGO), new Set());
   assert.equal(comprimiNelTesto(una, new Set()), una);
 });
+
+// ---------------------------------------------------------------------------
+// I due blocchi grossi: la calcolatrice e gli apparecchi attesi
+// ---------------------------------------------------------------------------
+//
+// Misurati il 28/11/2026 a larghezza di telefono: la calcolatrice di Energia
+// e' **835 px**, un quarto della pagina; i cinque riquadri degli apparecchi
+// attesi su Adesso sono **640 px**, cioe' centotrenta pixel a testa per dire
+// che non hanno niente da dire.
+//
+// Chiuderli vale piu' di mille pixel in due -- una schermata e mezza. Ma
+// chiudere non deve voler dire **nascondere**: il riassunto porta fuori quel
+// che si andava a leggere li' dentro.
+import { riassuntoAttesi, riassuntoCalcolo } from '../public/note.js';
+import { readFileSync } from 'node:fs';
+
+test('il riassunto della calcolatrice porta fuori la risposta', () => {
+  // Chiusa deve dire **il numero**, non «calcolatrice»: altrimenti bisogna
+  // aprirla per sapere una cosa che si sapeva gia' guardando.
+  const r = riassuntoCalcolo({ da: 30, a: 100, wh: 1930 });
+  assert.match(r, /30/);
+  assert.match(r, /100/);
+  assert.match(r, /1,93|1\.93/, `manca i kWh: «${r}»`);
+});
+
+test('se manca la capacita’ la calcolatrice non inventa un numero', () => {
+  const r = riassuntoCalcolo({ da: 30, a: 100, wh: null });
+  assert.doesNotMatch(r, /\d+[,.]\d+ kWh/, `si e’ inventato i kWh: «${r}»`);
+  assert.match(r, /30/, 'ha perso anche quel che sapeva');
+});
+
+test('gli apparecchi che TACCIONO si dicono per primi, e non si confondono con gli altri', () => {
+  // **La prova che impedisce di nascondere un allarme.** Un apparecchio che
+  // ha parlato e ora tace e' una notizia; uno che non ha mai parlato e' un
+  // pezzo che non c'e' ancora. Metterli nello stesso mucchio chiuso
+  // sotterrerebbe il primo sotto il secondo.
+  const r = riassuntoAttesi([
+    { nome: 'Ective', tace_da_minuti: 40 },
+    { nome: 'Blink', tace_da_minuti: null },
+    { nome: 'Tuya', tace_da_minuti: null },
+  ]);
+  assert.match(r, /2 tacciono|tacciono.*2|1 tace/, `non conta quelli che tacciono: «${r}»`);
+  assert.match(r, /\b1\b|\b2\b/, 'non dice quanti sono');
+  assert.ok(r.indexOf('tace') < r.indexOf('collegat') || !/collegat/.test(r),
+    `quelli che tacciono non vengono per primi: «${r}»`);
+});
+
+test('quando nessuno tace si dice soltanto quanti mancano', () => {
+  const r = riassuntoAttesi([{ nome: 'Blink', tace_da_minuti: null },
+                             { nome: 'Tuya', tace_da_minuti: null }]);
+  assert.doesNotMatch(r, /tace|tacciono/, `parla di silenzi che non ci sono: «${r}»`);
+  assert.match(r, /2/);
+});
+
+test('con un apparecchio solo non si scrive al plurale', () => {
+  const r = riassuntoAttesi([{ nome: 'Blink', tace_da_minuti: null }]);
+  assert.doesNotMatch(r, /apparecchi\b/, `plurale con uno solo: «${r}»`);
+});
+
+test('senza nessun atteso il riassunto e’ vuoto, cosi’ il blocco non si disegna', () => {
+  assert.equal(riassuntoAttesi([]), '');
+  assert.equal(riassuntoAttesi(null), '');
+});
+
+test('ogni details con una chiave sa anche RIAPRIRSI dopo il ridisegno', () => {
+  // Trovato guardando, il 28/11/2026: la calcolatrice aveva la chiave e il
+  // gestore del tocco la registrava — ma il suo markup non consultava mai
+  // `NOTE_APERTE`, quindi a ogni ridisegno rinasceva chiusa. Da fuori e'
+  // identico a un tasto che non funziona.
+  //
+  // La chiave da sola non basta: dare la chiave e leggere la chiave sono due
+  // cose, e la prima senza la seconda non si vede finche' non si guarda.
+  // Questa prova vale per **tutti** i details con chiave, anche quelli che
+  // verranno.
+  const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const con = [...app.matchAll(/<details[^>]*data-chiave="([^"$]+)"([^>]*)>/g)];
+  assert.ok(con.length >= 2, `trovati solo ${con.length} details con chiave`);
+  for (const [intero, chiave, resto] of con) {
+    assert.match(intero + resto, /apertoSe|NOTE_APERTE|\$\{.*open/,
+      `«${chiave}» non si riapre dopo il ridisegno: ${intero.slice(0, 70)}`);
+  }
+});

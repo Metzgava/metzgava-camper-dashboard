@@ -120,3 +120,45 @@ export function comprimiNelTesto(html, aperte = new Set()) {
   }
   return da ? fuori + testo.slice(da) : testo;
 }
+
+// ---------------------------------------------------------------------------
+// I riassunti dei due blocchi grossi
+// ---------------------------------------------------------------------------
+//
+// Misurati il 28/11/2026 a larghezza di telefono: la calcolatrice di Energia
+// e' 835 px, un quarto della pagina; i cinque riquadri degli apparecchi
+// attesi su Adesso sono 640 px -- centotrenta a testa per dire che non hanno
+// niente da dire.
+//
+// Chiudere non deve voler dire **nascondere**: il riassunto porta fuori
+// esattamente quel che si andava a leggere li' dentro, altrimenti bisogna
+// aprire ogni volta e non si e' guadagnato niente.
+
+const inNumero = n => n.toLocaleString('it-IT', { minimumFractionDigits: 2,
+                                                  maximumFractionDigits: 2 });
+
+/** La riga che si legge a calcolatrice chiusa: da quanto a quanto, e quanto manca. */
+export function riassuntoCalcolo({ da, a, wh } = {}) {
+  const testa = `Da ${da ?? '—'}% a ${a ?? '—'}%`;
+  // Senza capacita' non si inventa un numero: si dice quel che si sa.
+  return wh == null ? testa : `${testa}: ${inNumero(wh / 1000)} kWh da rimettere dentro`;
+}
+
+/**
+ * La riga che si legge con gli apparecchi attesi chiusi.
+ *
+ * **Chi tace viene per primo, ed e' il punto.** Un apparecchio che ha parlato
+ * e ora tace e' una notizia; uno che non ha mai parlato e' un pezzo che non
+ * c'e' ancora. Nello stesso mucchio, il primo sparirebbe sotto il secondo --
+ * e chiudere un blocco non deve mai sotterrare un allarme.
+ */
+export function riassuntoAttesi(attesi) {
+  const tutti = attesi || [];
+  if (!tutti.length) return '';
+  const muti = tutti.filter(a => a?.tace_da_minuti != null).length;
+  const mai = tutti.length - muti;
+  const pezzi = [];
+  if (muti) pezzi.push(muti === 1 ? '1 tace' : `${muti} tacciono`);
+  if (mai) pezzi.push(mai === 1 ? '1 non ancora collegato' : `${mai} non ancora collegati`);
+  return pezzi.join(', ');
+}

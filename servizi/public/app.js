@@ -7,7 +7,7 @@
 
 import { rifondi } from './rifondi.js';
 import { istantanea, scorri } from './scorri.js';
-import { comprimiNelTesto } from './note.js';
+import { comprimiNelTesto, riassuntoAttesi, riassuntoCalcolo } from './note.js';
 
 const $ = (s, d = document) => d.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -513,9 +513,15 @@ ${catena()}
     ${vistaTemperature()}
     ${vistaTelecamere()}
     ${vistaSegnale()}
-        <div class="titolo">${(dati.attesi || []).some(a => a.tace_da_minuti != null) ? 'Apparecchi che non parlano' : 'Non ancora collegati'}</div>
-    <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono in camper ma qui non ci sono: alcuni non hanno ancora parlato, altri hanno parlato e ora tacciono — e c’è scritto quale dei due. Finché non ci sono, <b>non mostro numeri</b>: un ultimo valore vecchio di ore, messo dove si guarda «adesso», è peggio di una casella vuota.</div>
-    ${attesi}`;
+        ${!(dati.attesi || []).length ? '' : `
+    <div class="titolo">${(dati.attesi || []).some(a => a.tace_da_minuti != null) ? 'Apparecchi che non parlano' : 'Non ancora collegati'}</div>
+    <details class="scheda" data-chiave="attesi"${apertoSe('attesi')} style="padding:12px 14px">
+      <summary style="cursor:pointer">${esc(riassuntoAttesi(dati.attesi))}</summary>
+      <div style="margin-top:10px">
+        <div class="nota" style="margin-bottom:12px">Questi apparecchi esistono in camper ma qui non ci sono: alcuni non hanno ancora parlato, altri hanno parlato e ora tacciono — e c’è scritto quale dei due. Finché non ci sono, <b>non mostro numeri</b>: un ultimo valore vecchio di ore, messo dove si guarda «adesso», è peggio di una casella vuota.</div>
+        ${attesi}
+      </div>
+    </details>`}`;
 }
 
 // ---------- la barra della carica ----------
@@ -1142,7 +1148,16 @@ function calcolo() {
     </div>`;
   }).join('');
 
-  return `<div class="scheda">
+  // **Chiusa, con la risposta gia' fuori.** Misurata il 28/11/2026: questa
+  // scheda e' 835 px a larghezza di telefono, un quarto della pagina
+  // Energia. Ma e' uno strumento -- si usa quando si pianifica una
+  // ricarica -- non un numero da guardare di sfuggita.
+  //
+  // Il sommario porta fuori i kWh che mancano: chiusa dice gia' la cosa
+  // per cui la si apriva, e aprirla serve solo a cambiare i due estremi.
+  return `<details class="scheda" data-chiave="calcolatrice"${apertoSe('calcolatrice')} style="padding:12px 14px">
+    <summary style="cursor:pointer">${esc(riassuntoCalcolo({ da, a, wh: mancaWh }))}</summary>
+    <div style="margin-top:10px">
     <div style="display:flex;gap:12px;align-items:flex-end;padding-bottom:14px;border-bottom:1px solid var(--bordo)">
       <div style="flex:1;min-width:0"><div class="eti">Dalla carica</div>
         <input type="number" id="c-da" min="0" max="100" step="1" value="${da}" style="font-size:22px;font-weight:650;text-align:center"></div>
@@ -1163,7 +1178,8 @@ function calcolo() {
       }</select></div>
     </div>
     <div class="nota">La presa \u00e8 <b>un piatto solo</b>: se carichi Bluetti ed Ective insieme, quei watt <b>si dividono</b>, non raddoppiano. E la Truma elettrica mangia dallo stesso piatto \u2014 1800 W di resistenza su una presa da 6 A non lasciano niente per caricare.</div>
-  </div>`;
+    </div>
+  </details>`;
 }
 
 function vistaEnergia() {
@@ -1622,11 +1638,19 @@ function vistaAccesso(primoAvvio) {
 // che siano chiuse -- e' tutto il senso della richiesta.
 const NOTE_APERTE = new Set();
 
+// Per i blocchi che nascono gia' come `<details>` nel markup -- la
+// calcolatrice, gli apparecchi attesi -- e che quindi non passano da
+// `comprimiNelTesto`. **Dare la chiave non basta: va anche riletta.** Il
+// 28/11/2026 la calcolatrice aveva la chiave e il gestore del tocco la
+// registrava, ma il suo markup non la consultava mai: a ogni ridisegno
+// rinasceva chiusa, e da fuori sembrava un tasto che non funziona.
+const apertoSe = chiave => (NOTE_APERTE.has(chiave) ? ' open' : '');
+
 // Il tocco sul sommario si prende **delegato** su `#app`: i nodi cambiano a
 // ogni giro, e un gestore attaccato a ciascun sommario andrebbe riattaccato
 // ogni volta. `toggle` non risale, `click` si'.
 document.addEventListener('click', ev => {
-  const s = ev.target.closest?.('details.nota > summary');
+  const s = ev.target.closest?.('details[data-chiave] > summary');
   if (!s) return;
   const chiave = s.parentElement.dataset.chiave;
   if (!chiave) return;

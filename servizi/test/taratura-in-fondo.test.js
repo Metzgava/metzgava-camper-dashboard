@@ -60,7 +60,13 @@ test('e’ chiusa quando apri la pagina', () => {
 test('l’intestazione dice cos’e’ e quando serve, senza doverla aprire', () => {
   // Una sezione chiusa che si chiama solo «Taratura» non si apre mai, perche'
   // nessuno ricorda cosa c'e' dentro.
-  const s = app.slice(app.indexOf('<summary'), app.indexOf('</summary>'));
+  // Ancorata **al suo blocco**, non al primo `<summary>` del file: dal
+  // 28/11/2026 ce ne sono altri prima (gli apparecchi attesi, la
+  // calcolatrice), e questa prova guardava il sommario sbagliato — passando
+  // o fallendo per dove stava nel file, non per quel che dice.
+  const d = app.indexOf('<details class="scheda taratura"');
+  assert.ok(d > 0, 'non trovo il blocco della taratura');
+  const s = app.slice(app.indexOf('<summary', d), app.indexOf('</summary>', d));
   assert.match(s, /12 V|una sera|carico per volta/i,
     `l’intestazione non dice a cosa serve: «${s.slice(0, 120)}»`);
 });
