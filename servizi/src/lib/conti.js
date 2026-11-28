@@ -354,7 +354,15 @@ export async function tuttiIConti(bluetti) {
   //     stacca quando arriva a temperatura, quindi l'orologio dura di piu';
   //   - la ventola sta sui 12 V delle Ective, non sulla Bluetti: qui non c'e'.
   const rendInv = val(m, 'rendimento_inverter_bluetti');
-  for (const [chiave, potenza] of [['ore_truma_el1', 'truma_el1_w'], ['ore_truma_el2', 'truma_el2_w']]) {
+  // Il terzo caso, misurato il 28/11/2026 e scoperto misurando: con l'aria
+  // gia' a temperatura la Combi scalda **solo l'acqua**, e allora EL 2 non
+  // consuma il doppio -- la seconda resistenza non ha lavoro, e sono 885 W in
+  // qualunque modalita'. E' la condizione piu' comune di una notte in sosta:
+  // chi guardasse `ore_truma_el2` in quello stato si dimezzerebbe l'autonomia
+  // vera.
+  for (const [chiave, potenza] of [['ore_truma_el1', 'truma_el1_w'],
+                                   ['ore_truma_el2', 'truma_el2_w'],
+                                   ['ore_truma_boiler', 'truma_boiler_w']]) {
     const w = val(m, potenza);
     const residuoWh = out.carica_residua.valore;
     out[chiave] = residuoWh == null

@@ -28,6 +28,53 @@ export const q = (testo, parametri) => pool.query(testo, parametri);
 // E' un'osservazione sull'impianto vero, quindi vale piu' di un dato di
 // catalogo — ma vale al regime a cui e' stata fatta: al minimo l'alternatore
 // puo' darne meno, e allora i tempi veri si allungano.
+// I consumi della Truma, misurati il 28/11/2026 invece che letti dal manuale.
+//
+// Si sono potuti misurare perche' quel giorno il 220 del camper era
+// alimentato **dalla Bluetti**, e allora la Truma passa dentro un registro
+// che lei conta: `[142]`, i watt in uscita, appaiato con la sua app nello
+// stesso minuto (0 a vuoto, 889 in EL1, 1,8 kW in EL2). Dalla colonnina non
+// si vede niente: a bordo nessun sensore guarda la 220.
+//
+// Prima qui c'erano 900 e 1800 «dal manuale Truma» **con la bandierina del
+// misurato alzata** -- cioe' esattamente quel che la regola venti righe sopra
+// vieta. E non era cosmetico: `ore_truma_el1` e `ore_truma_el2` scelgono il
+// bollino guardando quel campo.
+const NOTA_TRUMA_EL1 = 'Resistenza elettrica della Combi, livello 1 (EL 1 e MIX 1). '
+  + 'Misurata il 28/11/2026 sui watt in uscita della Bluetti: 889 W, '
+  + 'contro i 900 dichiarati da Truma.';
+// **Un campione solo**, e la nota lo dice: il proprietario ha scelto di
+// scriverlo senza altre misure dopo che gliel'ho detto. Senza questa riga,
+// fra sei mesi 1733 sembrerebbe una misura ripetuta. Il registro segnava
+// 1733 e l'app arrotondava a 1,8 kW.
+const NOTA_TRUMA_EL2 = 'Resistenza elettrica della Combi, livello 2 (EL 2 e MIX 2). '
+  + 'Misurata il 28/11/2026 sui watt in uscita della Bluetti: 1733 W '
+  + '(l\u2019app arrotondava a 1,8 kW), contro i 1800 dichiarati da Truma. '
+  + 'Da una sola lettura, a 231 V.';
+// La scoperta pratica del 28/11: con l'abitacolo gia' a temperatura, EL2
+// **non** consuma il doppio. La resistenza dell'aria non ha lavoro e resta
+// solo l'acqua, 885 W in qualunque modalita'. E' la condizione piu' comune di
+// una notte in sosta, e senza questa riga il conto delle ore in quello stato
+// sbaglia di un fattore due.
+//
+// I conti tornano fra loro, che e' la conferma migliore: 1733 - 884 = 849 W
+// per la resistenza dell'aria, contro gli 885 W di quella dell'acqua da sola.
+// Due resistenze quasi gemelle, come devono essere su una Combi -- e nessuno
+// dei due numeri e' stato scelto: escono dalla sottrazione.
+const NOTA_TRUMA_BOILER = 'Combi che scalda solo l\u2019acqua, con l\u2019aria gia\u2019 a '
+  + 'temperatura: la seconda resistenza non lavora e EL 2 consuma come EL 1. '
+  + 'Misurato il 28/11/2026 sui watt in uscita della Bluetti.';
+// Misurato ai due capi il 28/11, confrontando i watt in uscita `[142]` con
+// quelli dal lato batteria `[101]`: 885 -> 973 fa 0,91; 1733 -> 1986 fa 0,87.
+//
+// **Dipende dal carico, e qui si prende il peggiore.** Non la media e non il
+// migliore: questo numero divide un'autonomia, e un rendimento generoso
+// promette ore che non ci sono. E il carico alto e' proprio quello che
+// interessa, perche' e' la Truma in EL2.
+const NOTA_RENDIMENTO_INVERTER = 'Rendimento dell\u2019inverter della Bluetti verso la '
+  + '230 V. Misurato il 28/11/2026 a due carichi: 0,91 a 885 W e 0,87 a 1733 W. '
+  + 'Si tiene il peggiore, perche\u2019 divide un\u2019autonomia.';
+
 const NOTA_CHARGER = 'Riferito il 16/11/2026: il Charger 2 non supera i 700 W sulla Elite 300. '
   + 'Al minimo l’alternatore potrebbe darne meno, quindi i tempi veri possono allungarsi.';
 
@@ -67,9 +114,10 @@ const IMPIANTO = [
   ['ective_v', 12.8, 'V', 'Tensione nominale del pacco LiFePO4, per passare da Ah a Wh.', true],
   ['ective_carica_a', null, 'A', 'Ampere del caricabatterie che alimenta le Ective dalla 220. DA COMPILARE.', false],
   ['rendimento_bluetti_ective', 0.80, '', 'Rendimento della catena Bluetti → inverter → caricabatterie → Ective. Stima prudente: si misura guardando salire una carica e scendere l’altra.', false],
-  ['truma_el1_w', 900, 'W', 'Resistenza elettrica della Combi, livello 1 (EL 1 e MIX 1). Dal manuale Truma.', true],
-  ['truma_el2_w', 1800, 'W', 'Resistenza elettrica della Combi, livello 2 (EL 2 e MIX 2). Dal manuale Truma.', true],
-  ['rendimento_inverter_bluetti', 0.90, '', 'Rendimento dell’inverter della Bluetti verso la 230 V. Stima: si misura confrontando i watt in uscita con la discesa della carica.', false],
+  ['truma_el1_w', 889, 'W', NOTA_TRUMA_EL1, true],
+  ['truma_el2_w', 1733, 'W', NOTA_TRUMA_EL2, true],
+  ['truma_boiler_w', 885, 'W', NOTA_TRUMA_BOILER, true],
+  ['rendimento_inverter_bluetti', 0.87, '', NOTA_RENDIMENTO_INVERTER, true],
   ['consumo_fermo_w', 11, 'W', NOTA_FERMO, false],
   ['starlink_w', 18.1, 'W', 'Consumo medio di Starlink. Misurato il 16/11/2026 su 900 campioni al secondo.', true],
   ['scatoletta_w', 1.5, 'W', 'Consumo del Raspberry in camper. Da misurare quando sara’ in funzione.', false],
@@ -187,6 +235,26 @@ export async function migrate() {
   // mai dall'alto.
   await q(`UPDATE impianto SET nota=$1, misurato=false, aggiornato=now()
            WHERE chiave='consumo_fermo_w' AND nota <> $1`, [NOTA_FERMO]);
+
+  // I valori della Truma e il rendimento dell'inverter, misurati il
+  // 28/11/2026. Le righe esistono in produzione dal 16/11 e il seme e' `ON
+  // CONFLICT DO NOTHING`: senza questi aggiornamenti la misura non
+  // arriverebbe mai dove serve.
+  //
+  // **Condizionati al valore di catalogo che stanno sostituendo.** E' la
+  // regola di questo archivio, la stessa del Charger: un numero scritto a
+  // mano dall'utente vale piu' di uno scritto dal codice, e non si
+  // sovrascrive mai dall'alto. Se lui ha messo 1500 perche' ha misurato a
+  // modo suo, resta 1500 -- e la nota nuova non gliela si attacca sopra un
+  // valore che non le corrisponde.
+  for (const [chiave, catalogo, misura, nota] of [
+    ['truma_el1_w', 900, 889, NOTA_TRUMA_EL1],
+    ['truma_el2_w', 1800, 1733, NOTA_TRUMA_EL2],
+    ['rendimento_inverter_bluetti', 0.90, 0.87, NOTA_RENDIMENTO_INVERTER],
+  ]) {
+    await q(`UPDATE impianto SET valore=$1, nota=$2, misurato=true, aggiornato=now()
+             WHERE chiave=$3 AND valore=$4`, [misura, nota, chiave, catalogo]);
+  }
 }
 
 export async function segna(tipo, testo, chi = null) {

@@ -1166,8 +1166,10 @@ function vistaEnergia() {
     </div>
     <div class="titolo">Quanta Truma elettrica ci sta</div>
     <div class="scheda">
-      ${rigaConto('A 900 W — EL 1 e MIX 1', c.ore_truma_el1)}
-      ${rigaConto('A 1800 W — EL 2 e MIX 2', c.ore_truma_el2)}
+      ${rigaConto('EL 1 e MIX 1', c.ore_truma_el1)}
+      ${rigaConto('EL 2 e MIX 2', c.ore_truma_el2)}
+      ${rigaConto('Solo acqua', c.ore_truma_boiler)}
+      <div class="nota"><b>Solo acqua</b> è il caso più comune di una notte in sosta: con l'aria già a temperatura la seconda resistenza non ha lavoro, e <b>EL 2 non consuma il doppio</b> — sono gli stessi watt di EL 1. Misurato il 28/11/2026.</div>
       <div class="nota">Tempo di <b>resistenza accesa</b>, non di stufa accesa: la Combi stacca quando arriva a temperatura, e l'orologio dura di più. La ventola sta sui 12 V delle Ective e qui non è contata. E vale solo se i 230 V li fa la Bluetti: attaccato alla colonnina, la stufa elettrica alla Bluetti non costa niente.</div>
     </div>
     <div class="titolo">Quanto dura fermo</div>
