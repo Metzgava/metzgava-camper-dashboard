@@ -1437,11 +1437,32 @@ async function bloccoTaratura() {
         <button class="btn primario" id="taratura-apri">apri</button>
       </div>
       <div class="nota" style="margin-top:10px">La scatoletta se ne accorge al giro dopo, quindi fino a cinque minuti:
-        comincia quando l'ora in alto a destra diventa fresca di meno di un minuto.</div>`;
+        comincia quando in alto a destra compare <b>dati di adesso</b>.</div>`;
 
-  return `<div class="titolo">Taratura dei consumi</div>
-    <div class="scheda">${dentro}</div>
-    ${segni ? `<div class="scheda" style="margin-top:10px">${segni}</div>` : ''}`;
+  // **Chiusa, e in fondo alla pagina.** Chiesto il 28/11/2026. E' la cosa che
+  // si usa una sera ogni tanto -- quella in cui si accende un carico per
+  // volta -- mentre i dati fissi e il collegamento al cloud si guardano di
+  // continuo. Stava per prima e aperta sempre, e andava scorsa ogni volta.
+  //
+  // `<details>` invece di un interruttore scritto a mano: si apre e si chiude
+  // da se', la tastiera ci arriva gratis, e dentro un `<details>` chiuso gli
+  // elementi **esistono** nel documento -- quindi il cablaggio dei tasti non
+  // cambia di una riga.
+  //
+  // L'intestazione dice **a cosa serve**, non solo come si chiama: una
+  // sezione chiusa che dicesse «Taratura» non la aprirebbe piu' nessuno,
+  // perche' nessuno ricorda cosa c'e' dentro.
+  return `<details class="scheda taratura" style="margin-top:18px;padding:12px 14px">
+    <summary style="cursor:pointer;font-weight:600">Taratura dei consumi
+      <div class="perche" style="font-weight:400;margin-top:4px">Una sera, accendendo
+        un carico per volta, per misurare quanto consuma davvero ogni cosa a
+        <b>12 V</b> — frigo, pompa, luci. E' l'unica strada: la Bluetti vede solo
+        i suoi 230 V.</div></summary>
+    <div style="margin-top:12px">
+      <div class="scheda">${dentro}</div>
+      ${segni ? `<div class="scheda" style="margin-top:10px">${segni}</div>` : ''}
+    </div>
+  </details>`;
 }
 
 async function vistaImpianto() {
@@ -1462,8 +1483,7 @@ async function vistaImpianto() {
       </div>
     </div>`).join('');
   const taratura = await bloccoTaratura();
-  return `${taratura}
-    <div class="titolo">I dati fissi</div>
+  return `<div class="titolo">I dati fissi</div>
     <div class="nota">Questi sono i dati fissi del <b>tuo</b> camper: non stanno nel codice perché cambiano quando cambi un pezzo. Un valore che scrivi qui diventa <span class="bollo misurato">misurato</span>, e i conti che lo usano smettono di chiamarsi stime.</div>
     <div class="scheda">${righe}</div>
     <button class="btn primario largo" id="salva">Salva</button>
@@ -1481,7 +1501,8 @@ async function vistaImpianto() {
         entra lì e torni qui da solo. Su iPhone tutto questo succede in <b>Safari</b>, quindi l’accesso va fatto lì —
         essere entrato nell’app Bluetti del telefono non conta.</div>
       <a class="btn primario largo" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="${esc(dati.collegamento?.indirizzo || '#')}">${dati.collegamento?.collegato ? 'Ricollega' : 'Collega la Bluetti'}</a>
-    </div>`;
+    </div>
+    ${taratura}`;
 }
 
 // La fascia che dice l'eta' dei numeri.
