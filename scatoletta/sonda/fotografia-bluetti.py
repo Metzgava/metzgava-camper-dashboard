@@ -8,14 +8,20 @@
 # identificato; uno che coincide una volta sola e' un caso.
 import asyncio, json, os, signal, struct, sys, time, logging
 QUI = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, QUI)
-# `collegamenti` sta accanto a `agente.py`, e le due cartelle non stanno nello
-# stesso rapporto nei due posti: nel repository `sonda/` e' **dentro**
-# `scatoletta/`, sulla scatoletta sono **sorelle** sotto `~`. Si cercano
-# entrambe, invece di dare per buona una delle due e scoprirlo solo in camper.
+# `collegamenti` sta accanto a `agente.py` e `encryption.py` in
+# `terze-parti/`, e le due cartelle non stanno nello stesso rapporto nei due
+# posti: nel repository `sonda/` e' **dentro** `scatoletta/`, sulla scatoletta
+# sono **sorelle** sotto `~`. Si cercano entrambe, invece di dare per buona una
+# delle due e scoprirlo solo in camper.
 SOPRA = os.path.dirname(QUI)
-sys.path.insert(0, SOPRA)
-sys.path.insert(0, os.path.join(SOPRA, "scatoletta"))
+for dove in (QUI, SOPRA, os.path.join(SOPRA, "scatoletta"),
+             # La copia nostra di `encryption.py` viene **prima** di una messa
+             # a mano: quella in `terze-parti/` ha una provenienza e un hash
+             # scritti, una qualunque in `~/sonda/` no.
+             os.path.join(SOPRA, "terze-parti"),
+             os.path.join(SOPRA, "scatoletta", "terze-parti")):
+    if os.path.isdir(dove):
+        sys.path.insert(0, dove)
 logging.basicConfig(level=logging.WARNING)
 
 from encryption import EncryptedConnection  # noqa: E402

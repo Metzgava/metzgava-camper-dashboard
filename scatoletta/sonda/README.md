@@ -25,22 +25,29 @@ Chi non si collega non occupa un posto Bluetooth e non puo' disturbare
 niente — vedi il conflitto sui posti in
 [`docs/bluetti-via-bluetooth.md`](../../docs/bluetti-via-bluetooth.md).
 
-## La dipendenza che non sta qui: `encryption.py`
+## La dipendenza di terzi: `encryption.py`
 
 I due strumenti che si collegano hanno bisogno di `encryption.py`, la
-cifratura V2 di Bluetti in Python puro. **Non e' nostro codice e non e' in
-questo repository**: viene da
+cifratura V2 di Bluetti in Python puro. **Non e' nostro codice**: viene da
 [`sq7lrx/bluetti-elite200v2-mqtt`](https://github.com/sq7lrx/bluetti-elite200v2-mqtt),
-un progetto della comunita'.
+licenza MIT.
 
-Va messo accanto agli strumenti, in `~/sonda/encryption.py`. Prima di
-eseguirlo e' stato letto: non apre rete, non lancia processi, non scrive su
-disco. Dipende da `cryptography` (gia' presente, la usiamo per le Victron) e
-da `pyasn1`.
+**Dal 28/11/2026 sta nel repository**, in `../terze-parti/`, con la licenza, la
+provenienza e il suo hash accanto: vedi `../terze-parti/README.md`.
 
-Non e' stato copiato qui perche' mettere il codice di altri dentro il proprio
-repository e' una scelta di licenza e di provenienza da fare con gli occhi
-aperti, non un comodo.
+Prima stava fuori per scelta -- il codice di altri dentro il proprio
+repository e' una decisione di licenza e di provenienza, non un comodo -- e si
+metteva a mano in `~/sonda/encryption.py`. Quella scelta valeva per una **sonda
+lanciata a mano**; dal disegno del 28/11 lo stesso file serve al **servizio che
+gira tutto il giorno**, e un servizio che dipende da un file esistente solo a
+mano su una macchina sola perde la sua funzione in silenzio su una scatoletta
+nuova.
+
+Gli strumenti cercano **prima** la copia in `terze-parti/` e solo poi una
+messa a mano accanto a loro: la nostra ha un hash scritto, una qualunque no.
+
+Dipende da `cryptography` (gia' presente, la usiamo per le Victron) e da
+`pyasn1`.
 
 ## Le coppie di misura si prendono dal display
 
